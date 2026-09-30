@@ -34,6 +34,16 @@ further ranked alternatives (another fix type). The first suggestion is still
 the rule's own fix. (2026-09-29: after a case form, `X தான்` is the pronoun,
 `Xத் தான்`, or the clitic, `Xத்தான்`; the engine cannot see which.)
 
+Every other `match.type` is a data-driven kind from the `indic` tier
+(indic/kinds.py: sign-sequence, mixed-script, reduplication-allowlist,
+lexicon-lookup, wordlist-variant). A pack names kinds; it never ships code.
+
+A rule moved out of the engine's code keeps its findings' identity:
+`legacyId` keeps the name its finding ids derive from, and `legacyVersion`
+keeps the version stamp (packVersion, ruleVersion) its findings carried, so a
+decision made before the move still applies. Drop `legacyVersion` (and bump
+`version`) the first time such a rule's matching changes.
+
 A project may narrow a bundled rule, never widen it. An override can
 disable a rule, take it off inline display, or add abstains. Anything else
 is refused and reported (docs/DECISIONS.md).
@@ -51,7 +61,10 @@ from typing import Any, Iterable
 
 import regex
 
-PACKS_DIR = Path(__file__).resolve().parent
+from .candidate import Candidate  # noqa: F401  (re-exported: the pack builder imports it from here)
+from .indic import kinds as indic_kinds
+from .registry import packs_dir
+
 HARD = frozenset("கசதப")
 PULLI = "்"
 CATEGORY_LAYERS = {
@@ -66,7 +79,7 @@ LINKS = ("none", "mismatch", "any")
 FIXES = ("insert-link", "replace-link", "fuse-link", "replace", "expand")
 CONDITION_KEYS = {"lexical", "notLexical", "suffix", "regex", "minLength", "initial", "prefix", "notPrefix",
                   "notSuffix", "notSuffixLexical", "listRef"}
-RULE_KEYS = {"id", "version", "legacyId", "enabled", "category", "layer", "severity", "confidence",
+RULE_KEYS = {"id", "version", "legacyId", "legacyVersion", "enabled", "category", "layer", "severity", "confidence",
              "inline", "title", "message", "rationale", "match", "abstain", "fix",
              "examples", "provenance", "contexts"}
 OVERRIDE_RULE_KEYS = {"enabled", "inline", "abstain"}
@@ -204,6 +217,10 @@ class Rule:
     examples: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     source: dict[str, Any] = field(default_factory=dict)
     contexts: list["Context"] = field(default_factory=list)
+    # A data-driven kind's compiled `match` (indic/kinds.py), and its stage.
+    params: dict[str, Any] = field(default_factory=dict)
+    stage: str = "pair"
+    legacy_version: str | None = None
 
     @property
     def name(self) -> str:
@@ -220,35 +237,27 @@ def _split(token: str) -> tuple[str, str | None]:
     return token, None
 
 
-@dataclass(frozen=True)
-class Candidate:
-    rule: Rule
-    start: int          # visible offsets, or raw offsets when raw is True
-    end: int
-    replacement: str | None
-    message: str
-    rationale: str
-    raw: bool = False
-    # Pair rules: where the first word ends, and the fix confined to it, for a
-    # pair that straddles a poetry line or lifted markup (scan_text).
-    first_word_end: int | None = None
-    first_word_fix: str | None = None
-    # A matched context: its confidence, and ranked alternatives after the fix.
-    confidence: str | None = None
-    alternatives: tuple = ()  # ((replacement, rationale), ...)
-
-
 class RulePack:
     def __init__(self, name: str, version: str, language: str, rules: list[Rule],
-                 description: str = "", problems: list[str] | None = None) -> None:
+                 description: str = "", problems: list[str] | None = None, *,
+                 directory: Path | None = None, meta: dict[str, Any] | None = None) -> None:
         self.name = name
         self.version = version
         self.language = language
         self.description = description
         self.rules = rules
         self.problems = list(problems or [])
+        # Where the pack's data files are, and pack.json without its rule list
+        # (its `lexicon` and `confusion` file names). An overridden copy shares both.
+        self.directory = directory
+        self.meta = dict(meta or {})
         self.pair_rules = [r for r in rules if r.enabled and r.match_type == "token-context"]
         self.regex_rules = [r for r in rules if r.enabled and r.match_type == "regex"]
+        # The data-driven kinds by stage (indic/kinds.py). Within a word pair
+        # they run before the token-context rules; verse rules run in pack order.
+        self.pair_kind_rules = [r for r in rules if r.enabled and r.stage == "pair" and r.match_type != "token-context"]
+        self.verse_rules = [r for r in rules if r.enabled and r.stage == "verse"]
+        self.book_rules = [r for r in rules if r.enabled and r.stage == "book"]
         initials: set[str] = set()
         for rule in self.pair_rules:
             if rule.next is None or (rule.next.initial is None and rule.next.lexical is None):
@@ -264,6 +273,37 @@ class RulePack:
 
     def by_id(self, rule_id: str) -> Rule | None:
         return next((r for r in self.rules if r.id == rule_id), None)
+
+    def by_name(self, name: str) -> Rule | None:
+        """The rule whose findings carry this `rule` name (legacyId or id)."""
+        return next((r for r in self.rules if r.name == name), None)
+
+    def book_rule(self, kind: str, check: str | None = None) -> Rule | None:
+        """The enabled book-stage rule of a kind (and lexicon check), if any."""
+        return next((r for r in self.book_rules
+                     if r.match_type == kind and (check is None or r.params.get("check") == check)), None)
+
+    def lexicon(self) -> Any:
+        """The pack's corpus lexicon (pack.json `lexicon`), loaded once per
+        process on first need, never at startup; None when it has none."""
+        file = self.meta.get("lexicon")
+        if not file or self.directory is None:
+            return None
+        from . import lexicon
+        return lexicon.load_file(self.directory / file)
+
+    def confusion(self) -> Any:
+        """The pack's confusion set (pack.json `confusion`), or None."""
+        file = self.meta.get("confusion")
+        if not file or self.directory is None:
+            return None
+        return _confusion(self.directory / file)
+
+    def stamp(self, rule: Rule) -> tuple[str, str]:
+        """(packVersion, ruleVersion) a rule's findings carry."""
+        if rule.legacy_version:
+            return rule.legacy_version, rule.legacy_version
+        return self.pack_version, f"{self.pack_version}#{rule.version}"
 
     def fingerprint(self) -> str:
         """Changes whenever anything that affects findings changes, including
@@ -326,25 +366,43 @@ class RulePack:
                                  alternatives=alternatives))
         return out
 
-    def regex_candidates(self, visible: str, raw: str) -> list[Candidate]:
+    def verse_candidates(self, visible: str, raw: str) -> list[Candidate]:
+        """Every verse-stage rule's findings, in pack order."""
         out: list[Candidate] = []
-        for rule in self.regex_rules:
-            subject = raw if rule.on == "raw" else visible
-            for match in rule.pattern.finditer(subject):
-                group = "span" if "span" in rule.pattern.groupindex else 0
-                start, end = match.span(group)
-                if start == end:
-                    continue
-                kind = (rule.fix or {}).get("type")
-                if kind == "replace":
-                    replacement = rule.fix["text"]
-                elif kind == "expand":
-                    replacement = match.expand(rule.fix["template"])
-                else:
-                    replacement = None
-                values = {"span": subject[start:end], "fix": replacement or ""}
-                out.append(Candidate(rule, start, end, replacement, rule.message.format(**values),
-                                     rule.rationale.format(**values), raw=rule.on == "raw"))
+        for rule in self.verse_rules:
+            if rule.match_type == "regex":
+                out.extend(self._regex_candidates(rule, visible, raw))
+            else:
+                out.extend(indic_kinds.verse_candidates(rule, visible))
+        return out
+
+    def pair_kind_candidates(self, prev_match: Any, next_match: Any) -> list[Candidate]:
+        """The pair-stage kinds' findings on one whitespace-separated pair."""
+        found = (indic_kinds.pair_candidate(rule, self, prev_match, next_match) for rule in self.pair_kind_rules)
+        return [c for c in found if c is not None]
+
+    def regex_candidates(self, visible: str, raw: str) -> list[Candidate]:
+        return [c for rule in self.regex_rules for c in self._regex_candidates(rule, visible, raw)]
+
+    @staticmethod
+    def _regex_candidates(rule: Rule, visible: str, raw: str) -> list[Candidate]:
+        out: list[Candidate] = []
+        subject = raw if rule.on == "raw" else visible
+        for match in rule.pattern.finditer(subject):
+            group = "span" if "span" in rule.pattern.groupindex else 0
+            start, end = match.span(group)
+            if start == end:
+                continue
+            kind = (rule.fix or {}).get("type")
+            if kind == "replace":
+                replacement = rule.fix["text"]
+            elif kind == "expand":
+                replacement = match.expand(rule.fix["template"])
+            else:
+                replacement = None
+            values = {"span": subject[start:end], "fix": replacement or ""}
+            out.append(Candidate(rule, start, end, replacement, rule.message.format(**values),
+                                 rule.rationale.format(**values), raw=rule.on == "raw"))
         return out
 
 
@@ -371,8 +429,11 @@ def _rule(raw: dict[str, Any], where: str) -> Rule:
     if not isinstance(message, str) or not message:
         raise PackError(f"{where}: message.en is required")
     match = raw["match"]
-    if not isinstance(match, dict) or match.get("type") not in {"token-context", "regex"}:
-        raise PackError(f"{where}: match.type must be token-context or regex")
+    if not isinstance(match, dict) or match.get("type") not in indic_kinds.KINDS:
+        raise PackError(f"{where}: match.type must be one of {indic_kinds.KINDS}")
+    legacy_version = raw.get("legacyVersion")
+    if legacy_version is not None and (not isinstance(legacy_version, str) or not legacy_version):
+        raise PackError(f"{where}: legacyVersion must be a version string")
     rule = Rule(
         id=rule_id, version=raw["version"], legacy_id=raw.get("legacyId"),
         enabled=bool(raw.get("enabled", True)), category=raw["category"],
@@ -380,7 +441,16 @@ def _rule(raw: dict[str, Any], where: str) -> Rule:
         severity=raw["severity"], confidence=raw["confidence"], inline=bool(raw.get("inline", False)),
         message=message, rationale=str(raw.get("rationale", "")), match_type=match["type"],
         fix=raw.get("fix"), examples=raw.get("examples") or {}, source=raw,
+        legacy_version=legacy_version,
     )
+    if match["type"] not in {"token-context", "regex"}:
+        try:
+            rule.params = indic_kinds.compile_match(match["type"], match, where)
+        except indic_kinds.KindError as exc:
+            raise PackError(str(exc)) from exc
+        if rule.fix is not None:
+            raise PackError(f"{where}: fix applies to token-context and regex rules only")
+    rule.stage = indic_kinds.stage(match["type"], rule.params)
     if match["type"] == "token-context":
         if match.get("gap", "whitespace") != "whitespace":
             raise PackError(f"{where}: gap must be 'whitespace' (punctuation, digits and markup abstain)")
@@ -389,7 +459,7 @@ def _rule(raw: dict[str, Any], where: str) -> Rule:
         rule.link = match.get("link", "none")
         if rule.link not in LINKS:
             raise PackError(f"{where}: match.link must be one of {LINKS}")
-    else:
+    elif match["type"] == "regex":
         if match.get("on", "visible") not in {"visible", "raw"}:
             raise PackError(f"{where}: match.on must be visible or raw")
         if match.get("on") == "raw" and rule.layer != "integrity":
@@ -466,14 +536,16 @@ def _read_pack(directory: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     return meta, raws
 
 
-def _build(meta: dict[str, Any], raws: list[dict[str, Any]], problems: list[str] | None = None) -> RulePack:
+def _build(meta: dict[str, Any], raws: list[dict[str, Any]], problems: list[str] | None = None,
+           directory: Path | None = None) -> RulePack:
     rules = [_rule(raw, f"{meta['pack']}:{i}") for i, raw in enumerate(raws)]
     ids = [r.id for r in rules]
     duplicates = {i for i in ids if ids.count(i) > 1}
     if duplicates:
         raise PackError(f"{meta['pack']}: duplicate rule ids {sorted(duplicates)}")
     return RulePack(meta["pack"], str(meta["version"]), meta["language"], rules,
-                    str(meta.get("description", "")), problems)
+                    str(meta.get("description", "")), problems, directory=directory,
+                    meta={k: v for k, v in meta.items() if k != "rules"})
 
 
 def run_examples(pack: RulePack) -> None:
@@ -487,8 +559,8 @@ def run_examples(pack: RulePack) -> None:
             continue
         rule_id = f"{pack.name}/{rule.id}"
         for index, example in enumerate(rule.examples.get("incorrect", [])):
-            findings = [f for f in scan_text(example["text"], book="x", chapter="1", verse="1", tamil=True,
-                                             pack=pack, lists=_example_lists(example))["findings"]
+            findings = [f for f in scan_text(example["text"], book="x", chapter="1", verse="1", pack=pack,
+                                             lists=_example_lists(example))["findings"]
                         if f["ruleId"] == rule_id]
             span = nfc(example["span"])
             hit = next((f for f in findings if nfc(f["originalText"]) == span), None)
@@ -499,8 +571,8 @@ def run_examples(pack: RulePack) -> None:
             if "fix" in example and example["fix"] is not None and nfc(hit["suggestedReplacement"] or "") != nfc(example["fix"]):
                 raise PackError(f"{where}: expected fix {example['fix']!r}, got {hit['suggestedReplacement']!r}")
         for index, example in enumerate(rule.examples.get("correct", [])):
-            findings = [f for f in scan_text(example["text"], book="x", chapter="1", verse="1", tamil=True,
-                                             pack=pack, lists=_example_lists(example))["findings"]
+            findings = [f for f in scan_text(example["text"], book="x", chapter="1", verse="1", pack=pack,
+                                             lists=_example_lists(example))["findings"]
                         if f["ruleId"] == rule_id]
             if findings:
                 raise PackError(f"rule {rule.id}: correct example {index + 1} ({example.get('origin', 'no origin')}) "
@@ -526,7 +598,8 @@ def apply_overrides(pack: RulePack, overrides: dict[str, Any] | None) -> RulePac
     entries = overrides.get("rules") if isinstance(overrides, dict) else None
     if not isinstance(entries, dict):
         return RulePack(pack.name, pack.version, pack.language, rules, pack.description,
-                        ["override ignored: expected {\"rules\": {<rule id>: {...}}}"])
+                        ["override ignored: expected {\"rules\": {<rule id>: {...}}}"],
+                        directory=pack.directory, meta=pack.meta)
     for rule_id, change in entries.items():
         rule = by_id.get(rule_id)
         if rule is None:
@@ -553,13 +626,17 @@ def apply_overrides(pack: RulePack, overrides: dict[str, Any] | None) -> RulePac
                 rule.abstain.append(_abstain(entry, f"override {rule_id}.abstain[{index}]"))
             except PackError as exc:
                 problems.append(f"{exc}; ignored")
-    return RulePack(pack.name, pack.version, pack.language, rules, pack.description, problems)
+    return RulePack(pack.name, pack.version, pack.language, rules, pack.description, problems,
+                    directory=pack.directory, meta=pack.meta)
 
 
-def load_pack(name: str = "ta-irv", *, directory: Path | None = None) -> RulePack:
+def load_pack(name: str = "", *, directory: Path | None = None) -> RulePack:
     """Load, compile and self-test a bundled pack (or one in `directory`)."""
-    meta, raws = _read_pack(directory or PACKS_DIR / name)
-    pack = _build(meta, raws)
+    if directory is None and not name:
+        raise ValueError("load_pack needs a pack name or a directory")
+    directory = directory or packs_dir() / name
+    meta, raws = _read_pack(directory)
+    pack = _build(meta, raws, directory=directory)
     run_examples(pack)
     return pack
 
@@ -568,7 +645,7 @@ _LOADED: dict[str, RulePack] = {}
 _LOAD_LOCK = threading.Lock()
 
 
-def default_pack(name: str = "ta-irv") -> RulePack:
+def default_pack(name: str) -> RulePack:
     """The bundled pack, loaded once per process, lazily on first use.
 
     Serialised: without the lock, a status poll arriving during the worker's
@@ -583,7 +660,7 @@ def default_pack(name: str = "ta-irv") -> RulePack:
     return pack
 
 
-def loaded_pack(name: str = "ta-irv") -> RulePack | None:
+def loaded_pack(name: str) -> RulePack | None:
     """The bundled pack if it is already loaded; never loads it. For request
     paths that must not wait on a first load."""
     return _LOADED.get(name)
@@ -592,14 +669,30 @@ def loaded_pack(name: str = "ta-irv") -> RulePack | None:
 default_pack.cache_clear = _LOADED.clear  # type: ignore[attr-defined]  # as with lru_cache; the pack builder uses it
 
 
-def load_project_overrides(project_path: Path | str, name: str = "ta-irv") -> tuple[dict[str, Any] | None, list[str]]:
-    path = Path(project_path) / OVERRIDES_PATH / name / "overrides.json"
+def load_project_overrides(project_path: Path | str, name: str) -> tuple[dict[str, Any] | None, list[str]]:
+    path = overrides_path(project_path, name)
     if not path.exists():
         return None, []
     try:
         return json.loads(path.read_text(encoding="utf-8")), []
     except (OSError, ValueError) as exc:
         return None, [f"project overrides for {name} ignored: {exc}"]
+
+
+_CONFUSION: dict[Path, Any] = {}
+
+
+def _confusion(path: Path) -> Any:
+    from .indic import ConfusionSet
+    if path not in _CONFUSION:
+        _CONFUSION[path] = (ConfusionSet(json.loads(path.read_text(encoding="utf-8")), where=path.name)
+                            if path.is_file() else None)
+    return _CONFUSION[path]
+
+
+def overrides_path(project_path: Path | str, name: str) -> Path:
+    """Where a project's narrowing of one pack is kept."""
+    return Path(project_path) / OVERRIDES_PATH / name / "overrides.json"
 
 
 def examples_of(pack: RulePack) -> Iterable[tuple[Rule, str, dict[str, Any]]]:

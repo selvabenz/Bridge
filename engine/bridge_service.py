@@ -75,7 +75,7 @@ from tc_ai_bridge.analysis_jobs import (
 )
 from tc_ai_bridge.local_checks import run_local_qa
 from tc_ai_bridge.language_qa import FINDING_SOURCE as LANGUAGE_QA_SOURCE, UNSPECIFIED_DECISION_SOURCE
-from tc_ai_bridge.language_qa_jobs import LanguageQaManager
+from tc_ai_bridge.language_qa_jobs import LanguageQaManager, project_pack_name
 from tc_ai_bridge.workbench_repository import WorkbenchConflict, WorkbenchValidationError
 from tc_ai_bridge.alignment_engine import (
     AlignmentError, apply_proposal, make_inventory, realign, unalign_bottom,
@@ -4074,9 +4074,10 @@ class BridgeEngine:
                 continue
         own = self.project.housestyle_entries()
         own_keys = {entry.get("key") for entry in own}
+        pack = project_pack_name(self.project, self._language_qa)
         return {"entries": own, "proposals": project_proposals(books),
-                # The pack's bundled seed, read-only; an own entry with its key replaces it.
-                "seed": [entry for entry in bundled_seed("ta-irv") if entry["key"] not in own_keys],
+                # The project pack's bundled seed, read-only; an own entry with its key replaces it.
+                "seed": [entry for entry in (bundled_seed(pack) if pack else []) if entry["key"] not in own_keys],
                 "thresholds": {"learnIgnores": LEARN_IGNORES, "proposeProjectBooks": PROPOSE_PROJECT_BOOKS,
                                "proposeRuleDecisions": PROPOSE_RULE_DECISIONS,
                                "proposeRuleIgnoreRate": PROPOSE_RULE_IGNORE_RATE, "preferUses": PREFER_USES}}

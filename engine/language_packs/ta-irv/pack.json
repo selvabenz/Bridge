@@ -4,6 +4,8 @@
  "language": "ta",
  "script": "Taml",
  "description": "Tamil IRV rule pack: sandhi (வல்லினம்) shape rules and known IRV defect shapes. Built by scripts/build_ta_irv_pack.py from the IRV corpus and the 2026-09-28 human review; see docs/LANGUAGE_QA_RULE_PACK.md.",
+ "lexicon": "lexicon.json.gz",
+ "confusion": "confusion.json",
  "rules": [
   "rules/sandhi.vallinam.demonstrative.json",
   "rules/sandhi.vallinam.manner-adverb.json",
@@ -16,6 +18,13 @@
   "rules/typo.divine-name.dative-stem.json",
   "rules/typo.suffix.dropped-tha.json",
   "rules/integrity.digits-in-text.json",
-  "rules/integrity.space-before-note-end.json"
+  "rules/integrity.space-before-note-end.json",
+  "rules/lexicon.known-split.json",
+  "rules/tamil.repeated-word.json",
+  "rules/tamil.dependent-sign.json",
+  "rules/tamil.mixed-word.json",
+  "rules/lexicon.known-misspelling.json",
+  "rules/lexicon.rare-near-common.json",
+  "rules/tamil.wordlist-variant.json"
  ]
 }

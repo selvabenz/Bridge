@@ -305,9 +305,16 @@ impl EngineSidecar {
         // preserves that source folder name under the resolved resource
         // root — i.e. the bundled tree lands at resource_dir()/resources,
         // not resource_dir() itself.
-        if let Ok(resources_dir) = app.path().resource_dir() {
-            let resources_dir = resources_dir.join("resources");
-            sidecar_command = sidecar_command.args(["--resources-dir", &resources_dir.to_string_lossy()]);
+        // The Language QA packs (engine/language_packs, declared as
+        // "language_packs/") ship the same way: outside the onefile archive,
+        // loaded lazily by the engine only for the open project's language.
+        if let Ok(resource_root) = app.path().resource_dir() {
+            let resources_dir = resource_root.join("resources");
+            let packs_dir = resource_root.join("language_packs");
+            sidecar_command = sidecar_command.args([
+                "--resources-dir", &resources_dir.to_string_lossy(),
+                "--language-packs-dir", &packs_dir.to_string_lossy(),
+            ]);
         }
 
         let (mut rx, child) = sidecar_command

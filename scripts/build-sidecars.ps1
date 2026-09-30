@@ -8,6 +8,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $engineDir = Join-Path $repoRoot "engine"
 $binaryDir = Join-Path $repoRoot "src-tauri\binaries"
 $resourcesDir = Join-Path $repoRoot "src-tauri\resources"
+$packsDir = Join-Path $repoRoot "src-tauri\language_packs"
 
 if (-not $PythonCommand) {
     $venvPython = if ($IsWindows -or $env:OS -eq "Windows_NT") {
@@ -57,6 +58,13 @@ try {
         Remove-Item -LiteralPath $resourcesDir -Recurse -Force
     }
     Copy-Item -LiteralPath (Join-Path $engineDir "resources") -Destination $resourcesDir -Recurse -Force
+
+    # The Language QA packs, the same way (docs/LANGUAGE_QA_PACKS.md): outside
+    # the onefile archive, so a launch never re-extracts a lexicon.
+    if (Test-Path -LiteralPath $packsDir) {
+        Remove-Item -LiteralPath $packsDir -Recurse -Force
+    }
+    Copy-Item -LiteralPath (Join-Path $engineDir "language_packs") -Destination $packsDir -Recurse -Force
 }
 finally {
     Pop-Location

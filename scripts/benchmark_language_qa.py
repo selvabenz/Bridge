@@ -36,6 +36,7 @@ import time
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "engine"))
 
+from tc_ai_bridge.language_packs import default_pack
 from tc_ai_bridge.language_qa import scan_text
 
 GATED = ("ping", "verse.get", "verse.decide (languageQa)", "languageQa.status", "languageQa.inline")
@@ -76,7 +77,7 @@ def main() -> int:
     timings = []
     for _ in range(1000):
         start = time.perf_counter()
-        assert not scan_text(text, book="php", chapter="1", verse="1", tamil=True)["findings"]
+        assert not scan_text(text, book="php", chapter="1", verse="1", pack=default_pack("ta-irv"))["findings"]
         timings.append((time.perf_counter() - start) * 1000)
     measurements = {"pureScanMedianMs": statistics.median(timings),
                     "pureScanP95Ms": sorted(timings)[949], "pureScanMaxMs": max(timings)}
@@ -186,7 +187,7 @@ def main() -> int:
             assert status["state"] == "completed", status
             assert status["totalFindings"] == 1, status
             assert status["findings"][0]["verse"] == "3-4", status
-            assert status["language"]["pack"] == "tamil", status
+            assert status["language"]["pack"] == "ta-irv", status
             for p, raw in original.items():
                 if p.name == "2.json":  # edited and edited back; the engine formats JSON its own way
                     assert json.loads(p.read_text(encoding="utf-8")) == json.loads(raw.decode("utf-8")), p

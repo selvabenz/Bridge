@@ -28,6 +28,20 @@ def test_apply_cli_overrides_sets_env_var_from_flag(monkeypatch):
         os.environ.pop("BRIDGE_BUNDLED_RESOURCES_DIR", None)
 
 
+def test_apply_cli_overrides_sets_the_language_packs_dir_from_its_flag(monkeypatch):
+    monkeypatch.delenv("BRIDGE_BUNDLED_RESOURCES_DIR", raising=False)
+    monkeypatch.delenv("BRIDGE_LANGUAGE_PACKS_DIR", raising=False)
+    monkeypatch.setattr("sys.argv", ["bridge-engine.exe", "--resources-dir", r"C:\B\resources",
+                                     "--language-packs-dir", r"C:\B\language_packs"])
+    try:
+        main._apply_cli_overrides()
+        assert os.environ["BRIDGE_BUNDLED_RESOURCES_DIR"] == r"C:\B\resources"
+        assert os.environ["BRIDGE_LANGUAGE_PACKS_DIR"] == r"C:\B\language_packs"
+    finally:
+        os.environ.pop("BRIDGE_BUNDLED_RESOURCES_DIR", None)
+        os.environ.pop("BRIDGE_LANGUAGE_PACKS_DIR", None)
+
+
 def test_apply_cli_overrides_leaves_env_var_unset_without_flag(monkeypatch):
     monkeypatch.delenv("BRIDGE_BUNDLED_RESOURCES_DIR", raising=False)
     monkeypatch.setattr("sys.argv", ["bridge-engine.exe"])

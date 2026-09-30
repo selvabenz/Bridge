@@ -1,0 +1,27 @@
+{
+ "id": "lexicon.known-misspelling",
+ "version": 1,
+ "legacyVersion": "language-qa-7",
+ "enabled": true,
+ "category": "typo",
+ "layer": "lexicon",
+ "severity": "medium",
+ "confidence": "high",
+ "inline": true,
+ "title": {
+  "en": "Known misspelling"
+ },
+ "message": {
+  "en": "\"{word}\" is a confirmed misspelling of \"{fix}\" (human review). Verify this occurrence."
+ },
+ "rationale": "Confirmed by a reviewer",
+ "match": {
+  "type": "lexicon-lookup",
+  "check": "known-misspelling",
+  "unconfirmed": {
+   "message": "\"{word}\" may be a misspelling of \"{fix}\": this pair comes from an AI review and awaits human confirmation.",
+   "rationale": "From the Round 2 / Pass 3 AI review; not yet confirmed"
+  }
+ },
+ "provenance": "A word in the lexicon's curated `deprecated` map. Inline: 43 of 43 human-confirmed in the 2026-09-28 review (DECISIONS.md). A pair only an AI review proposed is medium confidence and never inline. Moved from the engine's code (language_qa.py RULES) on 2026-09-30, matching unchanged; legacyVersion keeps the version stamp its findings carried, so decisions made before the move still apply."
+}

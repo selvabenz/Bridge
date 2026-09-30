@@ -6,11 +6,25 @@ import time
 import pytest
 
 from tc_ai_bridge.language_packs import lexicon as lexicon_module
+from tc_ai_bridge.language_packs.indic.confusion import clusters
 from tc_ai_bridge.language_packs.lexicon import (
-    COMMON_MIN, MAX_SUGGESTIONS, RATIO_MIN, default_lexicon, deletion_keys, lexicon_findings,
+    COMMON_MIN, MAX_SUGGESTIONS, RATIO_MIN, deletion_keys, lexicon_findings, read_lexicon_json,
 )
-from tc_ai_bridge.language_packs.tamil_distance import clusters, substitution_cost, tamil_distance
-from tc_ai_bridge.language_qa import RULE_VERSION, rule_fields, suggestion, word_occurrences
+from tc_ai_bridge.language_qa import rule_fields, suggestion, word_occurrences
+from tests.support.packs import ta_lexicon_path, ta_pack, with_enabled
+
+
+def default_lexicon():
+    return ta_pack().lexicon()
+
+
+def tamil_distance(a, b):
+    """ta-irv's confusion set (confusion.json), formerly tamil_distance.py."""
+    return ta_pack().confusion().distance(a, b)
+
+
+def substitution_cost(a, b):
+    return ta_pack().confusion().substitution_cost(a, b)
 from tc_ai_bridge.language_qa_jobs import LanguageQaManager
 from tests.service.test_language_qa import project_at, wait
 from tests.support.projects import fixture_project  # noqa: F401
@@ -64,7 +78,7 @@ def test_the_bundled_lexicon_is_bounded_and_precomputed():
 def test_the_curated_map_only_keeps_safe_pairs():
     lexicon = default_lexicon()
     assert lexicon.deprecated
-    data = json.loads(lexicon_module.LEXICON_PATH.read_text(encoding="utf-8"))
+    data = read_lexicon_json(ta_lexicon_path())
     confirmed = set(data["humanConfirmed"])
     # The reviewer confirmed 43 pairs on 2026-09-28 and 4 more on 2026-09-29; all are in the map.
     assert len(confirmed) == 47 and confirmed <= set(lexicon.deprecated)
@@ -87,9 +101,9 @@ def test_the_curated_map_only_keeps_safe_pairs():
 
 
 def test_lexicon_loads_within_the_startup_budget():
-    lexicon_module._LOADED.pop("ta-irv", None)
+    lexicon_module._LOADED.pop(ta_lexicon_path(), None)
     started = time.perf_counter()
-    assert default_lexicon() is not None
+    assert default_lexicon() is not None  # gunzip and parse
     assert time.perf_counter() - started < 0.5  # parse only; loaded lazily, off the dispatcher
 
 
@@ -106,8 +120,10 @@ def book_counts(verses):
 
 def findings_for(verses):
     counts, first_seen = book_counts(verses)
-    return lexicon_findings("gen", counts, first_seen, default_lexicon(), rule_fields=rule_fields,
-                            suggestion=suggestion, rule_version=RULE_VERSION)
+    # rare-near-common ships disabled (2026-09-28 review); these tests pin its behaviour.
+    return lexicon_findings("gen", counts, first_seen, default_lexicon(),
+                            pack=with_enabled(ta_pack(), "lexicon.rare-near-common"),
+                            rule_fields=rule_fields, suggestion=suggestion)
 
 
 def test_a_rare_word_near_a_common_one_gets_ranked_suggestions_with_evidence():
@@ -148,7 +164,7 @@ def test_known_splits_are_curated_pairs_found_in_the_verse():
 
     def splits(text):
         return [(f["originalText"], f["suggestedReplacement"], f["inline"], f["category"])
-                for f in scan_text(text, book="x", chapter="1", verse="1", tamil=True)["findings"]
+                for f in scan_text(text, book="x", chapter="1", verse="1", pack=ta_pack())["findings"]
                 if f["ruleId"] == "ta-irv/lexicon.known-split"]
     assert splits("அதின் சு வரை கவனித்து") == [("சு வரை", "சுவரை", True, "word-joining")]
     assert splits("நே போ மலையின்மேல்") == [("நே போ", "நேபோ", True, "word-joining")]
@@ -175,14 +191,14 @@ def test_the_feedback_report_lists_lexicon_decisions_and_changes_nothing(fixture
         "source": "languageQa", "rule": "lexicon.rare-near-common", "originalText": "உடன்பட்டிக்கையை",
         "chosenSuggestion": "உடன்படிக்கையை", "suggestedReplacement": "உடன்படிக்கையை"})
     project.record_qa_decision("1", "1", issue_key="gr-1", decision="ignored", issue={"source": "greekRoom"})
-    before = lexicon_module.LEXICON_PATH.read_bytes()
+    before = ta_lexicon_path().read_bytes()
     out = tmp_path / "feedback.csv"
     done = subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "lexicon_feedback_report.py"),
                            str(fixture_project), "--out", str(out)], capture_output=True, text=True, encoding="utf-8")
     assert done.returncode == 0, done.stderr
     [row] = list(csv.DictReader(out.open(encoding="utf-8-sig")))
     assert (row["rule"], row["decision"], row["chosen"]) == ("lexicon.rare-near-common", "accepted", "உடன்படிக்கையை")
-    assert lexicon_module.LEXICON_PATH.read_bytes() == before
+    assert ta_lexicon_path().read_bytes() == before
 
 
 def test_the_manager_uses_the_lexicon_for_a_tamil_book(tmp_path, monkeypatch):
@@ -197,9 +213,7 @@ def test_the_manager_uses_the_lexicon_for_a_tamil_book(tmp_path, monkeypatch):
     # Disabled by default (2026-09-28 review, 0 of 21), and never the wordlist fallback.
     rules = rules_found(tmp_path / "default")
     assert "lexicon.rare-near-common" not in rules and "tamil.wordlist-variant" not in rules
-    # Enabled in code, the manager still uses the corpus lexicon for it.
-    from dataclasses import replace
-    from tc_ai_bridge import language_qa
-    monkeypatch.setitem(language_qa.RULES, "lexicon.rare-near-common",
-                        replace(language_qa.RULES["lexicon.rare-near-common"], enabled=True))
+    # Enabled in the pack, the manager still uses the corpus lexicon for it.
+    from tc_ai_bridge.language_packs import loader
+    monkeypatch.setitem(loader._LOADED, "ta-irv", with_enabled(ta_pack(), "lexicon.rare-near-common"))
     assert "lexicon.rare-near-common" in rules_found(tmp_path / "enabled")

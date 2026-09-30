@@ -1,0 +1,23 @@
+{
+ "id": "tamil.dependent-sign",
+ "version": 1,
+ "legacyVersion": "language-qa-7",
+ "enabled": true,
+ "category": "unicode",
+ "layer": "integrity",
+ "severity": "high",
+ "confidence": "high",
+ "inline": false,
+ "title": {
+  "en": "Dependent sign without a base"
+ },
+ "message": {
+  "en": "Tamil vowel sign or pulli has no valid consonant base, or has conflicting signs."
+ },
+ "match": {
+  "type": "sign-sequence",
+  "bases": "கஙசஜஞடணதநனபமயரறலளழவஶஷஸஹ",
+  "signs": "ாிீுூெேைொோௌ்ௗ"
+ },
+ "provenance": "A vowel sign or pulli must follow a consonant (Unicode Tamil §12.6). Moved from the engine's code (language_qa.py RULES) on 2026-09-30, matching unchanged; legacyVersion keeps the version stamp its findings carried, so decisions made before the move still apply."
+}

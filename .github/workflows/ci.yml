@@ -327,6 +327,8 @@ jobs:
             echo 'CI stub, never executed' > "src-tauri/binaries/${name}-${triple}${ext}"
           done
           cp -r engine/resources src-tauri/resources
+          # The Language QA packs are a bundle.resources entry too (build-sidecars.ps1).
+          cp -r engine/language_packs src-tauri/language_packs
           ls -l src-tauri/binaries
           ls src-tauri/resources
       - name: Rust tests

@@ -14327,3 +14327,135 @@ the maintainer decided: the 15 s import smoke budget.
 
 **Verified.** Export and parser tests; full engine suite, `npm run check`/`test`/
 `build` and the frozen smoke in the commit.
+
+## 2026-09-30 — Language QA packs are data: registry, rule kinds, the end of `tamil: bool` (ml-irv Step 1)
+
+Step 1 of the Malayalam brief (`ml-irv`): the architecture decision of 29 Sep
+("packs are data, not code") applied to Tamil first, with Tamil output proven
+unchanged before any Malayalam work. Design record: `docs/LANGUAGE_QA_PACKS.md`.
+
+**What moved.**
+
+- Pack data left the Python package: `engine/tc_ai_bridge/language_packs/ta-irv/`
+  -> `engine/language_packs/ta-irv/`, beside `engine/resources/`. The lexicon
+  is `lexicon.json.gz` (deterministic gzip, mtime 0; 3.25 MB -> 0.44 MB; the
+  decompressed bytes are the old file's, sha1 `00c07988…`).
+- `language_packs/index.json` is the registry (`ta -> ta-irv`, aliases
+  `tam/mal/hin`). `detect_language` returns a pack name or `"common"`, never
+  `"tamil"`; `language` is the registry code (`ta`, was `tam`).
+- `scan_text`/`scan_verse` take `pack: RulePack | None`; `tamil: bool` is gone
+  everywhere, as are the Tamil defaults on `default_pack`/`loaded_pack`/
+  `load_project_overrides`/`bundled_seed`.
+- The Tamil code rules became ta-irv rules on generic kinds (`indic/kinds.py`):
+  `tamil.dependent-sign` (sign-sequence), `tamil.mixed-word` (mixed-script),
+  `tamil.repeated-word` (reduplication-allowlist, still disabled),
+  `lexicon.known-split` / `known-misspelling` / `rare-near-common`
+  (lexicon-lookup), `tamil.wordlist-variant` (wordlist-variant).
+  `tamil_distance.py` became the `confusion-set` kind over `ta-irv/confusion.json`
+  (also used by the house-style name check).
+- **`legacyVersion`** is new in the rule schema: a rule moved out of code keeps
+  the `packVersion`/`ruleVersion` stamp (`language-qa-7`) its findings carried,
+  so a decision made before the move is not turned into a "recheck", and the
+  human benchmark's population hash is unchanged. The pack version stays
+  `ta-irv@1.1.0` for the same reason (no matching changed).
+- Packs ship outside the onefile exe: removed from `bridge-engine.spec`
+  `datas`; `build-sidecars.ps1` copies them to `src-tauri/language_packs/`
+  (gitignored), `bundle.resources` ships them, `sidecar.rs` passes
+  `--language-packs-dir`, `main.py` sets `BRIDGE_LANGUAGE_PACKS_DIR`. CI's
+  cargo job copies them like `resources/` (tauri-build requires every
+  resource path to exist). A build without its packs now reports "Language
+  packs unavailable … common checks only" as a limitation instead of
+  silently dropping to common checks.
+- Tests: `tests/language_packs/` (generic kinds on synthetic Malayalam and
+  Devanagari packs, the registry, and one `test_pack[<pack>]` under the new
+  `packs` marker); shared helper `tests/support/packs.py`.
+
+**Tamil regression, before (base `83568c8`, a separate worktree) vs after.**
+
+- Whole-Bible scan of `D:\Claude Lab\IRV Tamil` (66 books, 2,621 findings)
+  through the benchmark's `scan_book`: the sorted JSONL of (book, chapter,
+  verse, ruleId, start, end, originalText, suggestion) is **byte-identical**,
+  and so is the full dump of every finding field (ids, messages, version
+  stamps, suggestions, limitations).
+- Human benchmark `--human-labels benchmark/human --gate`: pass before and
+  after, table identical, `benchmark/human/baseline.json` unchanged.
+- pytest: base 4,656 passed (after copying the gitignored Stage 3 DB into the
+  worktree; without it 12 `test_semantic_mapping_stage3.py` tests fail) ->
+  4,659 passed after, plus 34 in `tests/language_packs`.
+- Frozen engine: exe 13.21 -> 12.81 MB; ping-after-spawn medians over two
+  rounds of 10 launches 1.40 / 1.76 s before, 1.58 / 1.29 s after — no
+  measurable difference (the lexicon was already compressed in the archive; a
+  larger Malayalam lexicon is where this pays). A frozen pass on a Tamil
+  fixture finds the same three findings before and after.
+
+**Differences that are not findings.** Before the first pass, `status.inlineRules`
+is now the in-code list only (`spacing.extra`, `terminology.deprecated-form`),
+because `lexicon.known-*` are pack rules; after a pass it is identical. For a
+project resolved to common checks, `rulePack` is `"common"` (was `ta-irv@1.1.0`)
+and the house-style seed list is empty (was ta-irv's seed for every language).
+The chapter cache key changed (`"tamil"` -> `"ta-irv"`), so each project's
+persisted Language QA cache is rescanned once.
+
+**Not done in this step.** The per-project Language QA setting's *storage*
+and its Settings UI: the engine reads `manifest.language_qa.pack`
+(`auto`/`off`/pack) and applies it (`resolve_language`), but nothing writes it
+— writing manifest.json at runtime would be Bridge's first post-import writer
+to a translationCore file, against CLAUDE.md's "every Bridge-private store
+lives in bridge-workbench.sqlite3". Raised as a question before building it.
+`scripts/build_ta_irv_pack.py` (now keeps the kind rules) and
+`build_tamil_lexicon.py` (now writes the gzip) were compile-checked, not run:
+both need the review inputs.
+
+**Found, not fixed (pre-existing on the base too).** `tests/service/test_language_qa.py`
+fixtures intermittently fail under `-n auto` with `[WinError 5] Access is
+denied … rut\1.json` from `verse.edit` — the edit's file replace racing the
+background Language QA worker's read of the same chapter. Reproduced on the
+untouched base worktree (2 of 3 runs). A translator's edit can hit the same
+race; to be filed separately.
+
+## 2026-10-07 — ml-irv Step 1 rebased onto 0.13.0 (#91), ahead of the indic-qa packs
+
+The entry above was written on 2026-09-30 against a base that predates #91.
+It is re-applied onto `main` at `ea14f39` (0.13.0) as the first step of
+bringing indic-qa's Punjabi, Malayalam, Hindi and Odia checkers into Bridge
+(vendored, panel-only; plan recorded with the maintainer on 2026-10-07).
+
+Conflicts, and how each was resolved:
+
+- `language_qa.py` imports: kept #91's `from .usfm_verse import lift_verse`;
+  added the registry and token imports. The `usfm.marker_balance_issues`
+  import is dropped because nothing calls it since #91.
+- `test_language_qa.py`: kept `tests.support.projects` (#74 phase 4) and
+  added `tests.support.packs`. The borrowed `tests.service.test_bridge_service`
+  import does not return.
+- `scripts/build_ta_irv_pack.py`: kept #91's `lift_verse(text).notes` loop
+  and dropped the removed `tamil=True` argument.
+- `BUILD_LOG.md`: both appends kept.
+
+One follow-on fix was needed. ml-irv reports the detected language as `ta`,
+not `tam`, so the panel's `"tam" ? "Tamil"` literal stopped matching.
+`detect_language` now returns `name` from the registry, the panel shows that
+name, and the script-suggestion line no longer says "Tamil" for every
+language.
+
+Verified on the rebased tree, 2026-10-07:
+
+- **Whole-Bible Tamil scan.** All 66 books of `D:\Claude Lab\IRV Tamil` went
+  through the benchmark's `scan_book` on `main` (`ea14f39`, separate worktree)
+  and on this branch. Every field of every finding, plus per-book limitations,
+  was dumped sorted. The two dumps are **byte-identical**: 2,618 findings,
+  sha256 `60aa46a4…`. The 2,621 above was measured on the pre-#91 base, so
+  the difference comes from #91, not from this change.
+- **Human gate.** `--human-labels benchmark/human --gate` passes, and
+  `baseline.json` is unchanged.
+- **Engine suite.** `pytest -n auto`: 4,759 passed and 1 failed. The failure
+  was `test_logos_get_state_spawns_the_real_helper…`; it passes alone, and
+  passes on `main`, so it was load timing during the parallel run. The
+  Language QA areas alone gave 3,322 passed.
+- **Frontend.** svelte-check reported 0 errors and 0 warnings, and the build
+  passed. Vitest gave 529 of 530: the `VerseList` 100 ms click-budget case
+  failed while pytest was saturating the CPU, and passed 63 of 63 on rerun.
+- **Shell.** `cargo check` passed, and `cargo test` gave 10 passed.
+- **Frozen pair.** `build-sidecars.ps1` copied `engine/language_packs` to
+  `src-tauri/language_packs`, and `smoke_sidecars.py` passed. The engine exe
+  went from 13.48 MB to 13.04 MB because the lexicon now ships outside it.

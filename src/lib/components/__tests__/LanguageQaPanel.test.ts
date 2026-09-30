@@ -30,7 +30,7 @@ function snapshot(overrides: Partial<LanguageQaStatus> = {}): LanguageQaStatus {
     },
     storage: "Session results.",
     language: { declared: "tam", language: "tam", script: "TAMIL", basis: "metadata",
-      pack: "tamil", message: "Tamil character rules available." },
+      pack: "ta-irv", message: "Tamil character rules available." },
     findings: [lqaFinding({ id: "f1", chapter: "2", verse: "3-4", rule: "unicode.corruption",
       severity: "high", start: 0, end: 1, originalText: "�", message: "Check source encoding.",
       suggestedReplacement: null })],

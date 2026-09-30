@@ -1,0 +1,22 @@
+{
+ "id": "tamil.repeated-word",
+ "version": 1,
+ "legacyVersion": "language-qa-7",
+ "enabled": false,
+ "category": "typo",
+ "layer": "pattern",
+ "severity": "low",
+ "confidence": "low",
+ "inline": false,
+ "title": {
+  "en": "Repeated word"
+ },
+ "message": {
+  "en": "Adjacent repeated word; Tamil reduplication may be intentional."
+ },
+ "match": {
+  "type": "reduplication-allowlist",
+  "allow": []
+ },
+ "provenance": "DISABLED (2026-09-28 review: 0 of 20): every repeat was deliberate reduplication, அடுக்குத்தொடர் (தங்கள் தங்கள், கொஞ்சம் கொஞ்சம், ஆ ஆ), which a bare repeat check cannot tell from an error. Moved from the engine's code (language_qa.py RULES) on 2026-09-30, matching unchanged; legacyVersion keeps the version stamp its findings carried, so decisions made before the move still apply."
+}

@@ -125,9 +125,16 @@ export interface LanguageQaStatus {
   language?: {
     declared: string;
     language: string;
+    /** Display name from the pack registry ("Tamil"); "" when undetermined. */
+    name?: string;
     script: string;
+    /** "metadata" | "script-suggestion" | "metadata-conflict" | "mixed-script" | "undetermined"
+     *  | "setting" | "setting-off". */
     basis: string;
+    /** The resolved pack name (e.g. "ta-irv"), or "common" for the common checks only. */
     pack: string;
+    /** The project setting: "auto", "off" or a pack name. */
+    setting?: string;
     message: string;
   };
   findings: LanguageQaFinding[];

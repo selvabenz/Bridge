@@ -1,0 +1,22 @@
+{
+ "version": "ta-irv-confusion@1",
+ "description": "The Tamil typist confusions lexicon.rare-near-common ranks by (formerly tamil_distance.py, layered-rules Phase 5.2). Each costs 0.5 against 1.0 for any other one-cluster edit.",
+ "default": 1.0,
+ "entries": [
+  {"type": "base", "set": ["ர", "ற"], "cost": 0.5},
+  {"type": "base", "set": ["ல", "ள", "ழ"], "cost": 0.5},
+  {"type": "base", "set": ["ண", "ன", "ந"], "cost": 0.5},
+  {"type": "independent", "set": ["எ", "ஏ"], "cost": 0.5},
+  {"type": "independent", "set": ["ஒ", "ஓ"], "cost": 0.5},
+  {"type": "independent", "set": ["இ", "ஈ"], "cost": 0.5},
+  {"type": "independent", "set": ["உ", "ஊ"], "cost": 0.5},
+  {"type": "sign", "set": ["ெ", "ே"], "cost": 0.5},
+  {"type": "sign", "set": ["ொ", "ோ"], "cost": 0.5},
+  {"type": "sign", "set": ["ி", "ீ"], "cost": 0.5},
+  {"type": "sign", "set": ["ு", "ூ"], "cost": 0.5},
+  {"type": "toggle", "mark": "்", "cost": 0.5},
+  {"type": "toggle", "mark": "ா", "cost": 0.5},
+  {"type": "split", "one": "ஐ", "two": ["அ", "ய்"], "cost": 0.5},
+  {"type": "split", "one": "ஔ", "two": ["அ", "வ்"], "cost": 0.5}
+ ]
+}

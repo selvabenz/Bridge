@@ -31,8 +31,8 @@ SFM = "\n".join([
 def without_corpus_lexicon(monkeypatch):
     """The harness is tested on a synthetic book; the real corpus lexicon would
     add findings on its made-up words that these counts do not expect."""
-    from tc_ai_bridge.language_packs import lexicon
-    monkeypatch.setitem(lexicon._LOADED, "ta-irv", None)
+    from tests.support.packs import switch_off_ta_lexicon
+    switch_off_ta_lexicon(monkeypatch)
 
 
 def review_rows():

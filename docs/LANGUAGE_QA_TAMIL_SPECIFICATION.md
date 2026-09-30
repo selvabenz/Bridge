@@ -46,7 +46,7 @@ proofreading), *Consultant* (exegetical and consultant check), *Typesetter*,
 
 Rule ids:
 
-- `ta-irv/…` ids are pack rules (`engine/tc_ai_bridge/language_packs/ta-irv/`).
+- `ta-irv/…` ids are pack rules (`engine/language_packs/ta-irv/`).
 - `common/…` ids are language-neutral rules in `language_qa.py`.
 - `wildebeest.*`, `usfm.*` and `names.*` are the Greek Room adapters.
 - Stage 6B–8 are the semantic pipeline.

@@ -2,7 +2,7 @@
 
     python scripts/build_tamil_lexicon.py --irv-dir "C:/…/IRV Tamil" [--curated DIR_OR_CSV …] [--top N]
 
-Writes engine/tc_ai_bridge/language_packs/ta-irv/lexicon.json:
+Writes engine/language_packs/ta-irv/lexicon.json.gz (gzip, deterministic):
 
 - `forms`: word -> [corpus count, number of books], for every word seen at
   least MIN_LISTED_COUNT times (bounded at `--top`). A word absent from the
@@ -48,14 +48,20 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "engine"))
 
 from tc_ai_bridge import language_qa_benchmark as bench  # noqa: E402
+from tc_ai_bridge.language_packs import default_pack  # noqa: E402
+from tc_ai_bridge.language_packs.indic.confusion import clusters  # noqa: E402
 from tc_ai_bridge.language_packs.lexicon import (  # noqa: E402
-    COMMON_MIN, LEXICON_VERSION, MIN_LISTED_COUNT, deletion_keys,
+    COMMON_MIN, LEXICON_VERSION, MIN_LISTED_COUNT, deletion_keys, write_lexicon_json,
 )
-from tc_ai_bridge.language_packs.tamil_distance import clusters, tamil_distance  # noqa: E402
 from tc_ai_bridge.language_qa import lift_inline_usfm, word_occurrences  # noqa: E402
 from tc_ai_bridge.project_import import imported_verse_text, parse_scripture_file  # noqa: E402
 
-OUT = REPO / "engine" / "tc_ai_bridge" / "language_packs" / "ta-irv" / "lexicon.json"
+OUT = REPO / "engine" / "language_packs" / "ta-irv" / "lexicon.json.gz"
+
+
+def tamil_distance(a: str, b: str) -> float:
+    """ta-irv's confusion-set distance (confusion.json)."""
+    return default_pack("ta-irv").confusion().distance(a, b)
 # The one-grapheme tokens that are Tamil words (2026-09-29 review). Any other
 # single grapheme is a fragment of a split word or a name, not a word form.
 MONOSYLLABLES = frozenset({"நீ", "போ", "வா", "கை", "ஆ", "வை", "தா", "பூ", "ஓ", "ஏ", "ஈ", "ஊ", "கா", "பா", "தீ"})
@@ -215,7 +221,7 @@ def main() -> int:
         "splits": dict(sorted(splits.items())),
         "curatedStats": curated_stats,
     }
-    OUT.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    write_lexicon_json(OUT, data)
     print(f"{len(book_ids)} books, {verses} verses, {tokens} tokens, {len(counts)} distinct forms", file=sys.stderr)
     print(f"listed {len(listed)} (count >= {MIN_LISTED_COUNT}), common {len(common)} (>= {COMMON_MIN}), "
           f"{len(buckets)} bucket keys, {len(deprecated)} deprecated pairs {curated_stats}", file=sys.stderr)

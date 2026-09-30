@@ -1,0 +1,12 @@
+{
+ "version": 1,
+ "description": "Which rule pack a project language gets. Adding a language is its pack folder plus one line under `languages`; no code. `aliases` folds ISO 639-2/3 codes onto the key used here. A language absent from `languages` runs the common checks only. See docs/LANGUAGE_QA_PACKS.md.",
+ "languages": {
+  "ta": {"pack": "ta-irv", "name": "Tamil"}
+ },
+ "aliases": {
+  "tam": "ta",
+  "mal": "ml",
+  "hin": "hi"
+ }
+}

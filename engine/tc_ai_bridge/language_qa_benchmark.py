@@ -30,6 +30,11 @@ from typing import Any, Iterable
 
 from .language_qa import PACK_VERSION
 from .language_qa_jobs import LanguageQaManager
+
+# The pack every committed human label round is about (benchmark/human/): the
+# labels are Tamil IRV findings. The scans below declare Tamil, so the app's
+# own registry resolves them to this pack.
+HUMAN_PACK = "ta-irv"
 from .project_import import BOOK_NAMES, imported_verse_text, parse_scripture_file
 
 # Issue Type -> the offline engine's bucket. Everything else is reported as
@@ -482,10 +487,10 @@ def labelled_examples(rows: list[ReviewRow], verses: dict[str, dict[str, dict[st
     return out
 
 
-def pack_version_label() -> str:
-    """Both versions a result depends on: the in-code rules and the ta-irv pack."""
+def pack_version_label(pack_name: str = HUMAN_PACK) -> str:
+    """Both versions a result depends on: the in-code rules and the pack."""
     from .language_packs import default_pack
-    return f"{PACK_VERSION}+{default_pack().pack_version}"
+    return f"{PACK_VERSION}+{default_pack(pack_name).pack_version}"
 
 
 # ---- human-labelled precision (2026-09-28 review) -------------------------
@@ -729,18 +734,22 @@ def rule_definition_hash(rule_id: str) -> str | None:
     import hashlib
     from .language_packs import default_pack
     from .language_qa import RULES, RULE_VERSION
-    pack = default_pack()
+    pack = default_pack(HUMAN_PACK)
     pack_name, _, name = rule_id.partition("/")
-    if pack_name == pack.name and pack.by_id(name) is not None:
+    rule = pack.by_id(name) if pack_name == pack.name else None
+    if rule is not None and rule.legacy_version:
+        # A rule moved out of the engine's code keeps the identity it had
+        # there (loader: legacyVersion), so its population stays current.
+        extra = ""
+        if rule.params.get("check") == "known-split":  # the rule is its curated map
+            extra = json.dumps(getattr(pack.lexicon(), "splits", {}), ensure_ascii=False, sort_keys=True)
+        return hashlib.sha1(f"{rule.legacy_version}#{rule.version}#{rule.name}#{extra}".encode("utf-8")).hexdigest()
+    if rule is not None:
         source = {k: v for k, v in pack.by_id(name).source.items()
                   if k not in {"inline", "examples", "provenance", "title", "message", "rationale"}}
         return hashlib.sha1(json.dumps(source, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
     if name in RULES:
-        extra = ""
-        if name == "lexicon.known-split":  # the rule is its curated map
-            from .language_packs.lexicon import default_lexicon
-            extra = json.dumps(getattr(default_lexicon(), "splits", {}), ensure_ascii=False, sort_keys=True)
-        return hashlib.sha1(f"{RULE_VERSION}#{RULES[name].revision}#{name}#{extra}".encode("utf-8")).hexdigest()
+        return hashlib.sha1(f"{RULE_VERSION}#{RULES[name].revision}#{name}#".encode("utf-8")).hexdigest()
     return None
 
 
@@ -786,7 +795,7 @@ def human_inline_rules() -> set[str]:
     the benchmark can label, and is not gated."""
     from .language_packs import default_pack
     from .language_qa import INLINE_RULES, RULES
-    pack = default_pack()
+    pack = default_pack(HUMAN_PACK)
     inline = {f"{pack.name}/{r.id}" for r in pack.rules if r.enabled and r.inline}
     inline |= {f"{RULES[name].pack}/{name}" for name in INLINE_RULES if RULES[name].pack != "project"}
     return inline

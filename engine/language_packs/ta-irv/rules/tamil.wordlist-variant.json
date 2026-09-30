@@ -1,0 +1,27 @@
+{
+ "id": "tamil.wordlist-variant",
+ "version": 1,
+ "legacyVersion": "language-qa-7",
+ "enabled": true,
+ "category": "typo",
+ "layer": "lexicon",
+ "severity": "low",
+ "confidence": "low",
+ "inline": false,
+ "title": {
+  "en": "Rare spelling variant in this book"
+ },
+ "message": {
+  "en": "\"{word}\" occurs {count} time(s) in this book; \"{common}\" (a similar spelling) occurs {commonCount} times here -- verify whether this is a spelling variant or a distinct word/name."
+ },
+ "match": {
+  "type": "wordlist-variant",
+  "minLength": 4,
+  "rareMax": 2,
+  "commonMin": 6,
+  "ratioMin": 5,
+  "maxFindings": 200,
+  "maxTerms": 20000
+ },
+ "provenance": "The within-book wordlist audit: runs only when the pack's lexicon is unavailable. Moved from the engine's code (language_qa.py RULES) on 2026-09-30, matching unchanged; legacyVersion keeps the version stamp its findings carried, so decisions made before the move still apply."
+}

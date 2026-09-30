@@ -1,0 +1,23 @@
+{
+ "id": "lexicon.known-split",
+ "version": 1,
+ "legacyVersion": "language-qa-7",
+ "enabled": true,
+ "category": "word-joining",
+ "layer": "lexicon",
+ "severity": "medium",
+ "confidence": "high",
+ "inline": true,
+ "title": {
+  "en": "Known split word"
+ },
+ "message": {
+  "en": "\"{prev} {next}\" is one word written apart; \"{fix}\" is expected. Verify before editing."
+ },
+ "rationale": "A split a reviewer confirmed",
+ "match": {
+  "type": "lexicon-lookup",
+  "check": "known-split"
+ },
+ "provenance": "A word written apart that a reviewer confirmed is one word (the lexicon's `splits`: சு வரை -> சுவரை, நே போ -> நேபோ). Curated pairs fed by review rounds, not a heuristic (2026-09-29). Inline on its whole population (11 of 11 labelled, DECISIONS.md 2026-09-29). Moved from the engine's code (language_qa.py RULES) on 2026-09-30, matching unchanged; legacyVersion keeps the version stamp its findings carried, so decisions made before the move still apply."
+}

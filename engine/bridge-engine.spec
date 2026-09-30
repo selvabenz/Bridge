@@ -52,11 +52,12 @@ a = Analysis(
         # to PyInstaller's static import analysis, so it must be listed explicitly or
         # a frozen build ships with no Logos bridge helper at all (Phase 7).
         ('logos_connector', 'logos_connector'),
-        # The bundled Language QA rule pack (layered-rules Phase 3): JSON data read
-        # from beside tc_ai_bridge/language_packs/loader.py at runtime, so it is
-        # invisible to import analysis and must be listed. Without it a frozen
-        # build cannot run any Tamil rule and every Language QA pass fails.
-        ('tc_ai_bridge/language_packs/ta-irv', 'tc_ai_bridge/language_packs/ta-irv'),
+        # The Language QA packs (engine/language_packs) are deliberately NOT
+        # here any more: like 'resources' above, a onefile archive re-extracts
+        # every data file on every launch, and a pack carries a lexicon. They
+        # ship via Tauri's bundle.resources and are found through
+        # --language-packs-dir / BRIDGE_LANGUAGE_PACKS_DIR
+        # (tc_ai_bridge/language_packs/registry.py; docs/LANGUAGE_QA_PACKS.md).
         *collect_data_files('uroman'),
         # usfmtc (the one USFM parser, #91) ships its USX schema and .vrs
         # versification files beside its modules. The parse path Bridge uses

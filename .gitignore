@@ -38,6 +38,8 @@ src-tauri/binaries/bridge-engine-*
 # tauri.conf.json's bundle.resources can ship it — engine/resources is
 # the real, tracked source of truth; this is a disposable build-time copy.
 src-tauri/resources/
+# ... and engine/language_packs, the Language QA packs.
+src-tauri/language_packs/
 
 # Stage 3 semantic-mapping source DB (~120MB) exceeds GitHub's 100MB
 # single-file push limit and isn't tracked via Git LFS. Install it locally

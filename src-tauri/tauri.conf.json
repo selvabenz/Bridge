@@ -37,6 +37,6 @@
       "binaries/bridge-engine",
       "binaries/bridge-usfm-checker"
     ],
-    "resources": ["resources/"]
+    "resources": ["resources/", "language_packs/"]
   }
 }

@@ -23,7 +23,7 @@
   let page: LanguageQaStatus | null = null;
   const detectionLabels: Record<string, string> = {
     metadata: "Language supplied by the project.",
-    "script-suggestion": "Tamil suggested from the script; the project has no declared language.",
+    "script-suggestion": "Language suggested from the script; the project has no declared language.",
     "metadata-conflict": "The project language and detected script disagree. Only common checks are enabled.",
     "mixed-script": "The sample contains mixed scripts. Only common checks are enabled.",
     undetermined: "The language could not be determined. Only common checks are enabled.",
@@ -119,7 +119,7 @@
       {#if error}<p role="alert">{error}</p>{/if}
       {#if status}
         <p>
-          {status.language?.language === "tam" ? "Tamil" : status.language?.language ?? "Detecting language"}
+          {status.language?.name || status.language?.language || "Detecting language"}
           {#if status.language} · {status.language.script.toLowerCase()} script{/if}
         </p>
         {#if status.language}<p>{detectionLabels[status.language.basis] ?? ""}</p>{/if}

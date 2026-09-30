@@ -21,6 +21,7 @@ import pytest
 
 from tc_ai_bridge.language_qa import scan_text
 from tc_ai_bridge.language_qa_benchmark import BUCKETS, CATEGORY_BUCKETS
+from tests.support.packs import ta_pack
 from tests.support.paths import REPO_ROOT
 
 LABELLED = REPO_ROOT / "engine" / "tests" / "fixtures" / "language_qa" / "labelled"
@@ -102,14 +103,17 @@ def test_example_is_well_formed(bucket, example):
 
 
 def lexicon_over(text):
-    from tc_ai_bridge.language_packs.lexicon import default_lexicon, lexicon_findings
-    from tc_ai_bridge.language_qa import RULE_VERSION, rule_fields, suggestion, word_occurrences
+    from tc_ai_bridge.language_packs.lexicon import lexicon_findings
+    from tc_ai_bridge.language_qa import rule_fields, suggestion, word_occurrences
+    from tests.support.packs import ta_pack, with_enabled
     counts, first_seen = {}, {}
     for word, start, end in word_occurrences(text):
         counts[word] = counts.get(word, 0) + 1
         first_seen.setdefault(word, ("1", "1", start, end, text[start:end], "h"))
-    return lexicon_findings("x", counts, first_seen, default_lexicon(), rule_fields=rule_fields,
-                            suggestion=suggestion, rule_version=RULE_VERSION)
+    # Every lexicon check, rare-near-common included although it ships disabled.
+    return lexicon_findings("x", counts, first_seen, ta_pack().lexicon(),
+                            pack=with_enabled(ta_pack(), "lexicon.rare-near-common"),
+                            rule_fields=rule_fields, suggestion=suggestion)
 
 
 def findings_of(example, rule_id):
@@ -120,7 +124,7 @@ def findings_of(example, rule_id):
         # needs no book at all, so the verse is a book of one.
         findings = lexicon_over(example["text"])
     else:
-        findings = scan_text(example["text"], book="x", chapter="1", verse="1", tamil=True)["findings"]
+        findings = scan_text(example["text"], book="x", chapter="1", verse="1", pack=ta_pack())["findings"]
     # ruleId, not the `rule` alias: migrated pack rules keep their legacy name there.
     return [f for f in findings if f["ruleId"] == rule_id]
 
@@ -129,8 +133,7 @@ def rule_disabled(rule_id):
     """A reviewed finding whose rule the pack has since disabled, because
     another rule now finds it (sandhi.clitic.fused -> the வல்லினம் rules' தான்
     context, 2026-09-29): any sandhi rule may find it."""
-    from tc_ai_bridge.language_packs import default_pack
-    pack = default_pack()
+    pack = ta_pack()
     rule = pack.by_id(rule_id.split("/", 1)[1]) if rule_id.startswith(f"{pack.name}/") else None
     return rule is not None and not rule.enabled
 
@@ -158,7 +161,7 @@ def test_a_reviewed_other_defect_is_not_claimed_by_a_sandhi_rule(bucket, example
     words excluded; a split-word check is scoped separately (LANGUAGE_QA_PLAN)."""
     if not human(example):
         return  # Phase 2.4 maybes: contradicted AI rows, not insisted on either way
-    findings = scan_text(example["text"], book="x", chapter="1", verse="1", tamil=True)["findings"]
+    findings = scan_text(example["text"], book="x", chapter="1", verse="1", pack=ta_pack())["findings"]
     for maybe in example.get("maybe", []):
         claimed = [f["originalText"] for f in findings
                    if f["category"] == "sandhi" and overlaps(f["originalText"], maybe["span"])]
@@ -176,7 +179,7 @@ def test_a_positive_credited_to_a_rule_is_still_found_by_it(bucket, example):
             # A context the pack skipped: the reviewer said "doubling needed",
             # and the converter guessed the rule. Any sandhi rule may find it
             # (கிழக்கு காற்று is the direction rule's, not the dative's).
-            found = [f for f in scan_text(example["text"], book="x", chapter="1", verse="1", tamil=True)["findings"]
+            found = [f for f in scan_text(example["text"], book="x", chapter="1", verse="1", pack=ta_pack())["findings"]
                      if f["ruleId"].startswith("ta-irv/sandhi.")]
         else:
             found = findings_of(example, expected["ruleId"])

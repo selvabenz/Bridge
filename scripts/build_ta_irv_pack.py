@@ -48,7 +48,11 @@ from tc_ai_bridge.language_qa import WORD, lift_inline_usfm, scan_text  # noqa: 
 from tc_ai_bridge.usfm_verse import lift_verse  # noqa: E402
 from tc_ai_bridge.project_import import imported_verse_text, parse_scripture_file  # noqa: E402
 
-PACK_DIR = REPO / "engine" / "tc_ai_bridge" / "language_packs" / "ta-irv"
+PACK_DIR = REPO / "engine" / "language_packs" / "ta-irv"
+# The kinds this builder generates. Every other rule in the pack (the
+# data-driven kinds: lexicon-lookup, sign-sequence, ...) is not built here and
+# is kept as it is, after the built ones, in its existing order.
+BUILT_KINDS = {"token-context", "regex"}
 PACK_VERSION = "1.1.0"
 HUMAN_LABELS = REPO / "benchmark" / "human"  # every review round under it
 HARD = ["க", "ச", "த", "ப"]
@@ -150,7 +154,7 @@ def raw_note_examples(pack, rule_id: str) -> dict[str, list]:
             raw_note = text[note.raw_start:note.raw_end].strip()
             before = regex.search(r"\S+\s*$", text[:note.raw_start].rstrip() + " ")
             snippet = (before.group() if before else "") + raw_note
-            findings = [f for f in scan_text(snippet, book="x", chapter="1", verse="1", tamil=True, pack=pack)["findings"]
+            findings = [f for f in scan_text(snippet, book="x", chapter="1", verse="1", pack=pack)["findings"]
                         if f["ruleId"] == f"ta-irv/{rule_id}"]
             item = {"text": snippet, "origin": f"{book.upper()} {chapter}:{verse}"}
             if findings and len(incorrect) < 40:
@@ -399,7 +403,7 @@ REQUIRED_PLACES = {"sandhi.compound.direction": {("psa", "48", "7"), ("psa", "78
 def choose_examples(pack, verses, reviewed) -> dict[str, dict[str, list]]:
     flagged = collections.defaultdict(list)
     for book, chapter, verse, text in verses:
-        for f in scan_text(text, book=book, chapter=chapter, verse=verse, tamil=True, pack=pack)["findings"]:
+        for f in scan_text(text, book=book, chapter=chapter, verse=verse, pack=pack)["findings"]:
             if f["ruleId"].startswith("ta-irv/"):
                 flagged[f["ruleId"].split("/", 1)[1]].append((book, chapter, verse, text, f))
     out = {}
@@ -551,7 +555,7 @@ def fill_spans(pack, rule_id, examples) -> None:
     through the loader's example check like every other example."""
     for example in examples["incorrect"]:
         if example.get("span") is None:
-            findings = [f for f in scan_text(example["text"], book="x", chapter="1", verse="1", tamil=True, pack=pack)["findings"]
+            findings = [f for f in scan_text(example["text"], book="x", chapter="1", verse="1", pack=pack)["findings"]
                         if f["ruleId"] == f"ta-irv/{rule_id}"]
             if not findings:
                 raise SystemExit(f"{rule_id}: derived example not flagged: {example}")
@@ -584,7 +588,7 @@ def human_examples(pack, fixture_dirs: list[Path]) -> tuple[dict[str, dict[str, 
         example = json.loads(line)
         # Each example names the review round it came from (the folder's date).
         origin = regex.sub(r"\(human review (?:round \d+|2026)", f"(human review {round_name}", example["origin"], count=1)
-        findings = scan_text(example["text"], book="x", chapter="1", verse="1", tamil=True, pack=pack)["findings"]
+        findings = scan_text(example["text"], book="x", chapter="1", verse="1", pack=pack)["findings"]
         for expected in example["expect"]:
             span = _squeezed(expected["span"])
             hits = [f for f in findings if f["ruleId"].startswith("ta-irv/sandhi.")
@@ -632,10 +636,14 @@ def main() -> int:
     rules = definitions(*root_nouns(verses), reviewed_words)
     for rule in rules:
         rule["inline"] = rule["id"] in INLINE
+    previous = json.loads((PACK_DIR / "pack.json").read_text(encoding="utf-8"))
+    kept = [entry for entry in previous["rules"]
+            if json.loads((PACK_DIR / entry).read_text(encoding="utf-8"))["match"]["type"] not in BUILT_KINDS]
     meta = {"pack": "ta-irv", "version": PACK_VERSION, "language": "ta", "script": "Taml",
             "description": "Tamil IRV rule pack: sandhi (வல்லினம்) shape rules and known IRV defect shapes. "
                            "Built by scripts/build_ta_irv_pack.py from the IRV corpus and the 2026-09-28 "
                            "human review; see docs/LANGUAGE_QA_RULE_PACK.md.",
+            **{k: previous[k] for k in ("lexicon", "confusion") if k in previous},
             "rules": [f"rules/{rule['id']}.json" for rule in rules]}
     pack = loader._build(meta, rules)  # no examples yet: they are chosen with this pack
     examples = choose_examples(pack, verses, reviewed_places(args.reviews))
@@ -663,10 +671,12 @@ def main() -> int:
               file=sys.stderr)
     (PACK_DIR / "rules").mkdir(parents=True, exist_ok=True)
     for old in (PACK_DIR / "rules").glob("*.json"):
-        old.unlink()
+        if f"rules/{old.name}" not in kept:
+            old.unlink()
     for rule in rules:
         (PACK_DIR / "rules" / f"{rule['id']}.json").write_text(
             json.dumps(rule, ensure_ascii=False, indent=1) + "\n", encoding="utf-8", newline="\n")
+    meta["rules"] += kept
     (PACK_DIR / "pack.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1) + "\n",
                                         encoding="utf-8", newline="\n")
     loader.default_pack.cache_clear()

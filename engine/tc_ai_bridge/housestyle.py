@@ -91,12 +91,8 @@ def validate_entry(entry: dict[str, Any]) -> dict[str, Any]:
             "key": entry_key(scope, rule_id, word, list_name)}
 
 
-PACKS_DIR = Path(__file__).resolve().parent / "language_packs"
-
-
-@functools.lru_cache(maxsize=4)
-def _seed(pack: str) -> tuple[dict[str, Any], ...]:
-    path = PACKS_DIR / pack / "housestyle-seed.json"
+@functools.lru_cache(maxsize=8)
+def _seed_from(path: Path) -> tuple[dict[str, Any], ...]:
     if not path.is_file():
         return ()
     data = json.loads(path.read_text(encoding="utf-8-sig"))
@@ -104,9 +100,10 @@ def _seed(pack: str) -> tuple[dict[str, Any], ...]:
                  for entry in data.get("entries") or [] if isinstance(entry, dict))
 
 
-def bundled_seed(pack: str = "ta-irv") -> list[dict[str, Any]]:
+def bundled_seed(pack: str) -> list[dict[str, Any]]:
     """The pack's bundled house-style seed, as validated entries marked `seed`."""
-    return [dict(entry) for entry in _seed(pack)]
+    from .language_packs.registry import packs_dir
+    return [dict(entry) for entry in _seed_from(packs_dir() / pack / "housestyle-seed.json")]
 
 
 def with_seed(entries: list[dict[str, Any]], seed: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -273,7 +270,7 @@ class HouseStyleLearner:
             return out
 
 
-NAME_MAX_DISTANCE = 1.0   # tamil_distance from an approved name
+NAME_MAX_DISTANCE = 1.0   # confusion-set distance from an approved name
 # A short name (at most this many grapheme clusters) sits one cluster from many
 # ordinary words -- சேத்து from காத்து, பூத்து, தைத்து -- so only a single typist
 # confusion (the lexicon's MAX_DISTANCE) counts as a variant of it (2026-09-28).
@@ -284,18 +281,20 @@ NAME_RARE_BOOK_MAX = 2    # a spelling this rare in the book, near an approved n
 
 def name_findings(book: str, counts: dict[str, int], first_seen: dict[str, tuple], names: frozenset,
                   *, rule_fields: Any, suggestion: Any, rule_version: str,
-                  corpus_count: Callable[[str], int] | None = None) -> list[dict[str, Any]]:
+                  corpus_count: Callable[[str], int] | None = None,
+                  distance: Callable[[str, str], float]) -> list[dict[str, Any]]:
     """`name.minority-spelling` (layered-rules 6.2): a word rare in the book
     that is within NAME_MAX_DISTANCE of a proper noun the project approved
     (house-style list properNouns), suggested as that name. The approved list
     is the curated source; the names check only proposes candidates for it.
+    `distance` is the pack's confusion-set distance (indic/confusion.py).
 
     A word the corpus uses commonly (`corpus_count` >= COMMON_MIN) is never a
     misspelt name: a short name sits one letter from ordinary words (சேத்து
     against காத்து, செத்து, சேர்த்து, பத்து, சொத்து), and those are words, not
     variants. The same rule the lexicon keeps: a common word is never marked wrong."""
     from .language_packs.lexicon import COMMON_MIN, deletion_keys
-    from .language_packs.tamil_distance import clusters, tamil_distance
+    from .language_packs.indic.confusion import clusters
     if not names:
         return []
     buckets: dict[str, set[str]] = {}
@@ -309,7 +308,7 @@ def name_findings(book: str, counts: dict[str, int], first_seen: dict[str, tuple
         if corpus_count is not None and corpus_count(word) >= COMMON_MIN:
             continue
         near = set().union(*(buckets.get(k, set()) for k in {word, *deletion_keys(word)}))
-        ranked = sorted((tamil_distance(word, name), -counts.get(name, 0), name) for name in near)
+        ranked = sorted((distance(word, name), -counts.get(name, 0), name) for name in near)
         ranked = [r for r in ranked if r[0] <= (NAME_SHORT_MAX_DISTANCE if len(clusters(r[2])) <= NAME_SHORT_CLUSTERS
                                                 else NAME_MAX_DISTANCE)]
         if not ranked:

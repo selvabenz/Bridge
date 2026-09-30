@@ -136,13 +136,18 @@ def main() -> int:
     resources_dir = repository_root / "engine" / "resources"
     if not resources_dir.is_dir():
         raise SystemExit(f"Expected bundled resources at {resources_dir} for this smoke test")
+    # The Language QA packs ship the same way (--language-packs-dir).
+    packs_dir = repository_root / "engine" / "language_packs"
+    if not (packs_dir / "index.json").is_file():
+        raise SystemExit(f"Expected the Language QA packs at {packs_dir} for this smoke test")
 
     with tempfile.TemporaryDirectory(prefix="bridge-frozen-smoke-") as temp:
         project = _fixture_project(Path(temp))
         process_env = os.environ.copy()
         process_env["LOCALAPPDATA"] = str(Path(temp) / "app-data")
         process = subprocess.Popen(
-            [str(engine), "--resources-dir", str(resources_dir)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            [str(engine), "--resources-dir", str(resources_dir), "--language-packs-dir", str(packs_dir)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, encoding="utf-8", env=process_env,
         )
         frames: queue.Queue[dict] = queue.Queue()

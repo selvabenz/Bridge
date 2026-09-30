@@ -1,0 +1,31 @@
+{
+ "id": "lexicon.rare-near-common",
+ "version": 1,
+ "legacyVersion": "language-qa-7",
+ "enabled": false,
+ "category": "typo",
+ "layer": "lexicon",
+ "severity": "low",
+ "confidence": "medium",
+ "inline": false,
+ "title": {
+  "en": "Rare word near a common one"
+ },
+ "message": {
+  "en": "\"{word}\" occurs {bookCount}× in this book and {corpusCount}× in the corpus; \"{best}\" occurs {bestCount}× in the corpus. Verify whether this is a misspelling or a distinct word or name."
+ },
+ "match": {
+  "type": "lexicon-lookup",
+  "check": "rare-near-common",
+  "suggestionRationale": "occurs {corpusCount}× in the corpus, {bookCount}× in this book (distance {distance})",
+  "rareBookMax": 2,
+  "rareCorpusMax": 2,
+  "ratioMin": 5,
+  "commonMin": 6,
+  "maxDistance": 0.5,
+  "minClusters": 3,
+  "maxSuggestions": 5,
+  "maxFindings": 200
+ },
+ "provenance": "DISABLED (2026-09-28 review: 0 of 21, every suggestion a different real word); its reviewed false alarms are the lexicon's `protected` words. Re-enable only with a morphology filter and a new human sample at 0.90 or better (DECISIONS.md 2026-09-28). Moved from the engine's code (language_qa.py RULES) on 2026-09-30, matching unchanged; legacyVersion keeps the version stamp its findings carried, so decisions made before the move still apply."
+}

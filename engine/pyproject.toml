@@ -80,6 +80,7 @@ markers = [
     "resources: reads the bundled engine/resources trees (original-language packs, translationHelps)",
     "stage3db: needs the gitignored Stage 3 semantic-source SQLite (a release asset, see ci.yml)",
     "external: imports scripts/*.py or reads schemas/** from outside engine/",
+    "packs: validates a shipped Language QA pack (tests/language_packs/test_packs.py); `-m 'not packs'` skips them",
 ]
 
 [build-system]

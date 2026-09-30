@@ -1,0 +1,25 @@
+{
+ "id": "tamil.mixed-word",
+ "version": 1,
+ "legacyVersion": "language-qa-7",
+ "enabled": true,
+ "category": "typo",
+ "layer": "integrity",
+ "severity": "medium",
+ "confidence": "medium",
+ "inline": false,
+ "title": {
+  "en": "Tamil and Latin in one word"
+ },
+ "message": {
+  "en": "Tamil and Latin letters occur inside one word; verify intentional mixed text."
+ },
+ "match": {
+  "type": "mixed-script",
+  "scripts": [
+   "Tamil",
+   "Latin"
+  ]
+ },
+ "provenance": "Mixed scripts inside one word are almost always a typing or conversion error. Moved from the engine's code (language_qa.py RULES) on 2026-09-30, matching unchanged; legacyVersion keeps the version stamp its findings carried, so decisions made before the move still apply."
+}

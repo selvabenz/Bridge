@@ -16,10 +16,13 @@ from typing import Any, Callable
 
 from . import terminology
 from .housestyle import bundled_seed, house_style, name_findings, preferences_from, with_seed
-from .language_packs import default_pack, load_project_overrides, loaded_pack
-from .language_packs.lexicon import default_lexicon, lexicon_findings
+from .language_packs import PackError, default_pack, load_project_overrides, loaded_pack
+from .language_packs.indic import ConfusionSet
+from .language_packs.lexicon import lexicon_findings, lexicon_fingerprint
 from .language_packs.loader import apply_overrides
-from .language_qa import (CROSSING_LIMITATION, FINDING_SOURCE, INLINE_RULES, MAX_VERSE_CHARS, MAX_WORDLIST_TERMS, RULES,
+from .language_packs.registry import AUTO, OFF, language_name, language_of_pack, pack_setting, select_pack
+from .language_packs.registry import problem as registry_problem
+from .language_qa import (CROSSING_LIMITATION, FINDING_SOURCE, INLINE_RULES, MAX_VERSE_CHARS,
                           coverage, inline_rule_names, rule_fields, suggestion,
                           RULE_VERSION, detect_language, lift_inline_usfm, scan_text,
                           stable_finding_id, word_occurrences, wordlist_findings)
@@ -47,15 +50,59 @@ def _may_concern_language_qa(decision: dict[str, Any]) -> bool:
 # The rule pack's listRef lists. Phase 6 fills these from the project's house
 # style; until then they are empty, so a proper-noun abstain never fires.
 HOUSE_STYLE_LISTS: dict[str, frozenset] = {"housestyle.properNouns": frozenset()}
+# A pack with no confusion.json: every one-cluster edit costs 1.
+PLAIN_DISTANCE = ConfusionSet({"entries": []})
 
 
-def project_rule_pack(project_path: str | Path) -> tuple[Any, list[str]]:
-    """The bundled ta-irv pack narrowed by the project's overrides, and any
-    notes about overrides that were refused or unreadable."""
-    base = default_pack()
-    overrides, problems = load_project_overrides(project_path)
+def project_rule_pack(project_path: str | Path, name: str | None) -> tuple[Any, list[str]]:
+    """The named bundled pack narrowed by the project's overrides, and any
+    notes about overrides that were refused or unreadable. (None, notes) when
+    no pack applies or it cannot be loaded: the common checks still run."""
+    if not name:
+        return None, []
+    try:
+        base = default_pack(name)
+    except (OSError, PackError) as exc:
+        return None, [f"Rule pack {name} unavailable; common checks only: {exc}"]
+    overrides, problems = load_project_overrides(project_path, name)
     pack = apply_overrides(base, overrides)
     return pack, [f"Rule pack: {p}" for p in problems + pack.problems]
+
+
+def project_pack_name(project: Any, manager: "LanguageQaManager | None" = None) -> str | None:
+    """The pack a project uses, for requests that must not scan: the one the
+    manager's last pass resolved (script evidence included), else what the
+    setting and the declared language alone decide. None: common checks."""
+    if manager is not None and manager.pack_name():
+        return manager.pack_name()
+    setting = pack_setting(project.manifest)
+    if setting == OFF:
+        return None
+    if setting != AUTO:
+        return setting
+    target = project.manifest.get("target_language", {})
+    return select_pack(str(target.get("id") or "")) if isinstance(target, dict) else None
+
+
+def resolve_language(detection: dict[str, Any], setting: str) -> dict[str, Any]:
+    """The detection, with the project's Language QA setting applied (manifest
+    `language_qa.pack`): "auto" keeps what detect_language decided; "off"
+    runs the common checks only; a pack name runs that pack, whatever the
+    metadata says, because a person chose it. `pack` is the resolved pack
+    name or "common"."""
+    resolved = {**detection, "setting": setting}
+    if setting == OFF:
+        resolved.update(pack="common", basis="setting-off",
+                        message="Language QA is set to common checks only (Settings > Language QA).")
+    elif setting != AUTO:
+        language = language_of_pack(setting) or ""
+        resolved.update(pack=setting, basis="setting", language=language or resolved["language"],
+                        message=f"{language_name(language) if language else setting} rules, chosen in Settings "
+                                f"> Language QA.")
+        if detection.get("basis") == "metadata-conflict" or (
+                detection.get("pack") not in {"common", setting} and detection.get("basis") != "undetermined"):
+            resolved["message"] += f" (The project metadata and text suggested otherwise: {detection['message']})"
+    return resolved
 
 
 MAX_FALSE_POSITIVES = 500
@@ -174,17 +221,19 @@ def verse_hash(text: Any) -> str:
     return hashlib.sha256(raw.encode("utf-8", errors="surrogatepass")).hexdigest()
 
 
-def chapter_cache_key(language_pack: str, pack_fingerprint: str, raw_terms: Any, lists_fingerprint: str = "") -> str:
-    """What a cached verse result depends on besides its own text."""
-    from .language_packs.lexicon import lexicon_fingerprint  # the known splits run in the verse scan
+def chapter_cache_key(language_pack: str, pack_fingerprint: str, raw_terms: Any, lists_fingerprint: str = "",
+                      lexicon: str = "") -> str:
+    """What a cached verse result depends on besides its own text: the
+    resolved pack name (or "common") and its fingerprint, the termbase, the
+    house-style lists, and the pack lexicon's fingerprint (its known splits
+    run in the verse scan)."""
     return hashlib.sha1(json.dumps(
-        [SCAN_CACHE_VERSION, RULE_VERSION, language_pack, pack_fingerprint, raw_terms, lists_fingerprint,
-         lexicon_fingerprint() if language_pack == "tamil" else ""],
+        [SCAN_CACHE_VERSION, RULE_VERSION, language_pack, pack_fingerprint, raw_terms, lists_fingerprint, lexicon],
         sort_keys=True, ensure_ascii=False, default=str,
     ).encode("utf-8")).hexdigest()
 
 
-def scan_verse(book: str, chapter: str, verse: str, text: Any, *, tamil: bool, pack: Any,
+def scan_verse(book: str, chapter: str, verse: str, text: Any, *, pack: Any,
                lists: dict[str, frozenset], term_index: Any) -> dict[str, Any]:
     """Everything Language QA finds in one verse, before decisions. Pure: the
     background worker (live editing) and the check-job stage both call this,
@@ -200,7 +249,7 @@ def scan_verse(book: str, chapter: str, verse: str, text: Any, *, tamil: bool, p
     if not verse[:1].isdigit() or not isinstance(text, str):
         entry["skipped"] = True
         return entry
-    result = scan_text(text, book=book, chapter=chapter, verse=verse, tamil=tamil, pack=pack, lists=lists)
+    result = scan_text(text, book=book, chapter=chapter, verse=verse, pack=pack, lists=lists)
     limitations = list(result["limitations"])
     verse_findings: list[dict[str, Any]] = []
     words: dict[str, list[int]] = {}
@@ -208,7 +257,7 @@ def scan_verse(book: str, chapter: str, verse: str, text: Any, *, tamil: bool, p
     if not result["checked"]:
         entry.update(skipped=True, limitations=limitations)
         return entry
-    if tamil:
+    if pack is not None:
         # Same visible text scan_text read; every span below is translated
         # back to raw code points, and one that would cross lifted markup is
         # dropped, as scan_text does.
@@ -276,7 +325,10 @@ class LanguageQaManager:
         self._wake = threading.Event()
         self._thread: threading.Thread | None = None
         self._generation = 0
-        self._context: tuple[str, str, str, Path] | None = None
+        # (project path, book, declared language, book dir, Language QA setting)
+        self._context: tuple[str, str, str, Path, str] | None = None
+        # The pack the last pass resolved to, for requests before its result.
+        self._pack_name: str | None = None
         self._paused = False
         self._blocked_reason = ""
         self._foreground = 0.0
@@ -306,6 +358,12 @@ class LanguageQaManager:
     def touch(self) -> None:
         self._foreground = time.monotonic()
 
+    def pack_name(self) -> str | None:
+        """The pack the bound project's last pass resolved to (None: common
+        checks, or no pass yet)."""
+        with self._lock:
+            return self._pack_name
+
     def _inline_rules(self) -> list[str]:
         """The rule names drawn inline for this project: from the current pass
         (its project-narrowed pack), else the bundled pack's once loaded. A
@@ -313,7 +371,7 @@ class LanguageQaManager:
         no pack finding exists yet, so the non-pack rules are the answer."""
         if self._summary.get("inlineRules"):
             return self._summary["inlineRules"]
-        pack = loaded_pack()
+        pack = loaded_pack(self._pack_name) if self._pack_name else None
         return inline_rule_names(pack) if pack is not None else sorted(INLINE_RULES)
 
     def bind(self, project: Any, *, blocked_reason: str = "", autostart: bool = True) -> None:
@@ -322,7 +380,9 @@ class LanguageQaManager:
         target = project.manifest.get("target_language", {})
         declared = str(target.get("id") or "") if isinstance(target, dict) else ""
         with self._lock:
-            self._context = (str(project.path), project.book_id, declared, project.book_dir)
+            self._context = (str(project.path), project.book_id, declared, project.book_dir,
+                             pack_setting(project.manifest))
+            self._pack_name = None
             self._cache = {}
             self._cache_loaded = False
             self._by_verse = {}
@@ -349,6 +409,7 @@ class LanguageQaManager:
     def unbind(self) -> None:
         with self._lock:
             self._context = None
+            self._pack_name = None
             self._generation += 1
             self._wake.set()
             self._cache = {}
@@ -434,7 +495,7 @@ class LanguageQaManager:
         """Idle-refresh probe shared by every poll: reschedule when chapter
         files changed on disk since the last completed pass (an external
         editor), at most once per REFRESH_SECONDS."""
-        probe: tuple[int, tuple[str, str, str, Path]] | None = None
+        probe: tuple[int, tuple[str, str, str, Path, str]] | None = None
         with self._lock:
             if (self._context and not self._paused and self._thread is None
                     and time.monotonic() - self._last_scan >= REFRESH_SECONDS):
@@ -564,7 +625,7 @@ class LanguageQaManager:
             raise ValueError("Chapter must contain a verse-keyed JSON object.")
         return data, signature, hashlib.sha256(raw).hexdigest()
 
-    def _scan(self, generation: int, context: tuple[str, str, str, Path], *,
+    def _scan(self, generation: int, context: tuple[str, str, str, Path, str], *,
               cancelled: Callable[[], bool] | None = None, yielding: bool = True) -> dict[str, Any] | None:
         """One book pass. `cancelled`/`yielding` let the check-job stage run the
         same pass on its own thread without the background worker's pauses."""
@@ -580,10 +641,10 @@ class LanguageQaManager:
                     store = self._store if self._context == context else None
                 self._flush(store, pending, [])
 
-    def _scan_locked(self, generation: int, context: tuple[str, str, str, Path],
+    def _scan_locked(self, generation: int, context: tuple[str, str, str, Path, str],
                      pending: dict[str, tuple[str, dict[str, Any]]], *,
                      cancelled: Callable[[], bool] | None, yielding: bool) -> dict[str, Any] | None:
-        _, book, declared, directory = context
+        _, book, declared, directory, setting = context
 
         def proceed() -> bool:
             if cancelled is not None:
@@ -618,7 +679,11 @@ class LanguageQaManager:
                 pass  # Main pass reports the exact chapter error.
             if len(sample) >= 20_000:
                 break
-        detection = detect_language(sample, declared)
+        detection = resolve_language(detect_language(sample, declared), setting)
+        if registry_problem():
+            # Never a silent fallback: a build without its packs says so.
+            limitations.append(registry_problem())
+        pack_name = None if detection["pack"] == "common" else detection["pack"]
         with self._lock:
             terminology_loader = self._terminology_loader
             decisions_loader = self._decisions_loader
@@ -650,8 +715,8 @@ class LanguageQaManager:
         with self._lock:
             housestyle_loader = self._housestyle_loader
         try:
-            # The ta-irv pack bundles a curated seed (the 2026-09-28 review's names).
-            seed = bundled_seed("ta-irv") if detection["pack"] == "tamil" else []
+            # A pack may bundle a curated seed (ta-irv: the 2026-09-28 review's names).
+            seed = bundled_seed(pack_name) if pack_name else []
             style = house_style(with_seed(housestyle_loader() if housestyle_loader else [], seed),
                                 preferences_from(raw_decisions))
         except Exception as exc:
@@ -679,17 +744,25 @@ class LanguageQaManager:
 
         # The rule pack, narrowed by this project's overrides (only narrowing is
         # accepted; refusals become coverage notes).
-        rule_pack, pack_problems = project_rule_pack(context[0])
+        rule_pack, pack_problems = project_rule_pack(context[0], pack_name)
         limitations.extend(pack_problems)
+        if pack_name and rule_pack is None:
+            detection = {**detection, "pack": "common", "message": pack_problems[0] if pack_problems else
+                         detection["message"]}
         with self._lock:
             if self._cancelled(generation) and cancelled is None:
                 return None
+            self._pack_name = rule_pack.name if rule_pack is not None else None
             self._summary["inlineRules"] = inline_rule_names(rule_pack)
-        tamil = detection["pack"] == "tamil"
+        # The pack's lexicon, loaded on this first pass that needs it (never at
+        # startup); its known splits run in the verse scan, so it keys the cache.
+        lexicon = rule_pack.lexicon() if rule_pack is not None else None
         # A verse's cached result is valid while its text hash and this chapter
-        # key are unchanged: the engine's rule version, the pack (fingerprint
-        # includes project overrides), the termbase, and the detected language.
-        key = chapter_cache_key(detection["pack"], rule_pack.fingerprint(), raw_terms, style.list_fingerprint())
+        # key are unchanged: the engine's rule version, the resolved pack
+        # (fingerprint includes project overrides), the termbase, the lists.
+        key = chapter_cache_key(detection["pack"], rule_pack.fingerprint() if rule_pack is not None else "",
+                                raw_terms, style.list_fingerprint(),
+                                lexicon_fingerprint(lexicon) if rule_pack is not None else "")
         cache = self._load_cache(store, limitations)
         findings: list[dict[str, Any]] = []
         false_positives: list[dict[str, Any]] = []
@@ -721,7 +794,7 @@ class LanguageQaManager:
                     if entry is None or entry.get("hash") != verse_hash(text):
                         if not proceed():
                             return None
-                        entry = scan_verse(book, chapter, verse, text, tamil=tamil, pack=rule_pack,
+                        entry = scan_verse(book, chapter, verse, text, pack=rule_pack,
                                            lists=lists, term_index=term_index)
                         fresh += 1
                     verses[verse] = entry
@@ -785,23 +858,25 @@ class LanguageQaManager:
         # common in the unread tail would look artificially rare here -- exactly
         # the false-positive shape the rarity+similarity guardrail must prevent.
         # With the pack's corpus lexicon (Phase 5) the audit compares each rare
-        # word against the whole corpus; without one it falls back to the
-        # within-book wordlist audit, which is bounded by MAX_WORDLIST_TERMS.
-        lexicon = default_lexicon() if tamil and rule_pack.name == "ta-irv" else None
+        # word against the whole corpus; without one it falls back to the pack's
+        # within-book wordlist audit, which is bounded by its maxTerms.
+        wordlist = rule_pack.book_rule("wordlist-variant") if rule_pack is not None and lexicon is None else None
         if truncated:
             limitations.append("Wordlist audit skipped: book scan was truncated.")
-        elif lexicon is None and len(book_counts) > MAX_WORDLIST_TERMS:
+        elif wordlist is not None and len(book_counts) > wordlist.params["maxTerms"]:
             limitations.append("Wordlist audit skipped: too many distinct words to compare.")
         else:
-            audit = (lexicon_findings(book, book_counts, book_first_seen, lexicon, rule_fields=rule_fields,
-                                      suggestion=suggestion, rule_version=RULE_VERSION,
-                                      rare_near_common=RULES["lexicon.rare-near-common"].enabled)
-                     if lexicon is not None else wordlist_findings(book, book_counts, book_first_seen))
-            if tamil:
+            audit = (lexicon_findings(book, book_counts, book_first_seen, lexicon, pack=rule_pack,
+                                      rule_fields=rule_fields, suggestion=suggestion)
+                     if lexicon is not None else
+                     wordlist_findings(book, book_counts, book_first_seen, pack=rule_pack, rule=wordlist)
+                     if wordlist is not None else [])
+            if rule_pack is not None:
                 audit += name_findings(book, book_counts, book_first_seen,
                                        style.lists.get("housestyle.properNouns", frozenset()),
                                        rule_fields=rule_fields, suggestion=suggestion, rule_version=RULE_VERSION,
-                                       corpus_count=lexicon.count if lexicon is not None else None)
+                                       corpus_count=lexicon.count if lexicon is not None else None,
+                                       distance=(rule_pack.confusion() or PLAIN_DISTANCE).distance)
             for finding in audit:
                 decided = {}
                 shown, hidden = settle([finding], decided)
@@ -824,7 +899,7 @@ class LanguageQaManager:
             self._by_verse = by_verse
         return {"state": "completed", "language": detection, "findings": findings,
                 "falsePositives": false_positives, "inlineRules": inline_rule_names(rule_pack),
-                "rulePack": rule_pack.pack_version,
+                "rulePack": rule_pack.pack_version if rule_pack is not None else "common",
                 "recheckCount": sum(1 for f in findings if f.get("previouslyIgnored")),
                 "houseStyleSuppressed": suppressed_by_rule,
                 "limitations": limitations, "incomplete": bool(limitations or skipped),
