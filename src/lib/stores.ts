@@ -43,6 +43,8 @@ export const flagsByVerse = writable<Record<string, LanguageQaFlag[]>>({});
 // Recorded edits per verse (chapter.verseData's editCounts), for the ↺ mark;
 // bumped by every save the editor makes.
 export const historyCountByVerse = writable<Record<string, number>>({});
+// The Language QA mark F8 / Shift+F8 moved to (the panel), ringed in the text.
+export const activeLanguageQaFindingId = writable<string | null>(null);
 export type ReviewerMode = "basic" | "advanced";
 export const reviewerMode = writable<ReviewerMode>("basic");
 
@@ -91,6 +93,7 @@ export function resetBookState(): void {
   languageQaFindingsByVerse.set({});
   flagsByVerse.set({});
   historyCountByVerse.set({});
+  activeLanguageQaFindingId.set(null);
   loadedChapters.set({});
   selectedVerse.set(null);
   selectedVerseSet.set([]);

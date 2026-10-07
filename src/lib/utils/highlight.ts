@@ -40,6 +40,22 @@ export const LANGUAGE_QA_CATEGORY_MARKS: Record<LanguageQaCategory, string> = {
   learned: "m-lqa-learned",
 };
 
+/** What the panel's kind legend calls each category. */
+export const LANGUAGE_QA_CATEGORY_LABELS: Record<LanguageQaCategory, string> = {
+  typo: "Possible typo",
+  sandhi: "Sandhi",
+  "word-joining": "Word joining",
+  punctuation: "Punctuation",
+  spacing: "Spacing",
+  unicode: "Unicode",
+  termbase: "Term",
+  name: "Name",
+  usfm: "Markup",
+  consistency: "Consistency",
+  grammar: "Grammar lead",
+  learned: "Learned fix",
+};
+
 /** The class for one Language QA finding. */
 export function languageQaMarkClass(
   finding: Pick<LanguageQaFinding, "category" | "confidence" | "layer">,

@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { get } from "svelte/store";
 import type { LanguageQaFinding, LanguageQaStatus } from "../../types/languageQa";
-import { languageQaFindingsByVerse } from "../../stores";
+import {
+  activeLanguageQaFindingId, chapterVerseNums, currentChapter, languageQaFindingsByVerse, project, selectedVerse, verseKey,
+} from "../../stores";
 import { lqaFinding } from "./languageQaFixture";
 
 const statusCall = vi.fn();
@@ -16,6 +18,7 @@ const flagUpdateCall = vi.fn();
 const bookWordsCall = vi.fn();
 const wordsAddCall = vi.fn();
 const verseHistoryCall = vi.fn();
+const verseCall = vi.fn();
 vi.mock("../../api/bridgeClient", () => ({ bridge: {
   languageQaStatus: (...args: unknown[]) => statusCall(...args),
   languageQaPause: (...args: unknown[]) => pauseCall(...args),
@@ -28,6 +31,7 @@ vi.mock("../../api/bridgeClient", () => ({ bridge: {
   languageQaBookWords: (...args: unknown[]) => bookWordsCall(...args),
   languageQaWordsAdd: (...args: unknown[]) => wordsAddCall(...args),
   verseHistory: (...args: unknown[]) => verseHistoryCall(...args),
+  languageQaVerse: (...args: unknown[]) => verseCall(...args),
 } }));
 import LanguageQaPanel from "../LanguageQaPanel.svelte";
 import { languageQaChannel } from "../../languageQaInline";
@@ -346,5 +350,79 @@ describe("Language QA", () => {
     await waitFor(() => expect(wordsAddCall).toHaveBeenCalledWith("C:/project", ["राज्यपाल"], "book"));
     expect(await screen.findByText(/1 word added to the project word list/)).toBeTruthy();
     expect(screen.getByText("in word list")).toBeTruthy();
+  });
+});
+
+describe("Language QA panel: kinds, scope and F8", () => {
+  afterEach(() => {
+    project.set(null);
+    activeLanguageQaFindingId.set(null);
+    languageQaFindingsByVerse.set({});
+    chapterVerseNums.set({});
+    selectedVerse.set(null);
+  });
+
+  async function openPanel(onNavigate = vi.fn()) {
+    render(LanguageQaPanel, { projectPath: "C:/project", onNavigate });
+    await fireEvent.click(await screen.findByRole("button", { name: /Language QA · completed/ }));
+    await screen.findByText("Check source encoding.");
+    return onNavigate;
+  }
+
+  it("shows each kind with its count and narrows the list to the kinds ticked", async () => {
+    statusCall.mockImplementation(async (_path, _offset, limit) =>
+      snapshot({ findings: limit ? snapshot().findings : [], categoryCounts: { typo: 4, unicode: 1 } }));
+    await openPanel();
+    const legend = screen.getByRole("group", { name: "Kinds of finding" });
+    expect(legend).toHaveTextContent(/Possible typo\s*4/);
+    const typo = screen.getByRole("button", { name: /Possible typo/ });
+    expect(typo.getAttribute("aria-pressed")).toBe("false");
+    expect(typo.querySelector("mark")?.className).toContain("m-lqa-typo");
+    await fireEvent.click(typo);
+    await waitFor(() => expect(statusCall).toHaveBeenLastCalledWith("C:/project", 0, 50, "findings", { categories: ["typo"] }));
+    expect(typo.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("lists one chapter, or the selected verse's findings, as the scope says", async () => {
+    currentChapter.set("2");
+    selectedVerse.set("3-4");
+    verseCall.mockResolvedValue({ projectPath: "C:/project", generation: 1, state: "completed", chapter: "2", verse: "3-4",
+      findings: [lqaFinding({ id: "v1", chapter: "2", verse: "3-4", originalText: "அவண்", message: "Verse finding.", category: "typo" })],
+      hidden: [] });
+    await openPanel();
+    await fireEvent.click(screen.getByRole("radio", { name: "Chapter" }));
+    await waitFor(() => expect(statusCall).toHaveBeenLastCalledWith("C:/project", 0, 50, "findings", { chapter: "2" }));
+    await fireEvent.click(screen.getByRole("radio", { name: "Verse" }));
+    expect(await screen.findByText("Verse finding.")).toBeTruthy();
+    expect(verseCall).toHaveBeenCalledWith("C:/project", "2", "3-4");
+    expect(screen.getByRole("group", { name: "Kinds of finding" })).toHaveTextContent(/Possible typo\s*1/);
+  });
+
+  it("F8 and Shift+F8 walk the marks in reading order, and typing in a box is left alone", async () => {
+    project.set({ path: "C:/project", bookId: "php", chapters: ["1", "2"] } as never);
+    currentChapter.set("1");
+    chapterVerseNums.set({ "1": ["1", "2"] });
+    const late = lqaFinding({ id: "b", chapter: "1", verse: "1", start: 9, end: 12, originalText: "late" });
+    const early = lqaFinding({ id: "a", chapter: "1", verse: "1", start: 0, end: 4, originalText: "early" });
+    const second = lqaFinding({ id: "c", chapter: "1", verse: "2", start: 2, end: 5, originalText: "next" });
+    languageQaFindingsByVerse.set({ [verseKey("1", "1")]: [late, early], [verseKey("1", "2")]: [second] });
+    const onNavigate = await openPanel();
+    await fireEvent.keyDown(window, { key: "F8" });
+    expect(get(activeLanguageQaFindingId)).toBe("a");
+    expect(get(selectedVerse)).toBe("1");
+    expect(screen.getByRole("status")).toHaveTextContent("Finding 1 of 3 in chapter 1: early");
+    await fireEvent.keyDown(window, { key: "F8" });
+    await fireEvent.keyDown(window, { key: "F8" });
+    expect(get(activeLanguageQaFindingId)).toBe("c");
+    await fireEvent.keyDown(window, { key: "F8", shiftKey: true });
+    expect(get(activeLanguageQaFindingId)).toBe("b");
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    await fireEvent.keyDown(input, { key: "F8" });
+    expect(get(activeLanguageQaFindingId)).toBe("b");
+    input.remove();
+    await fireEvent.keyDown(window, { key: "F8" });
+    await fireEvent.keyDown(window, { key: "F8" });
+    expect(onNavigate).toHaveBeenCalledWith("php", "2", "");
   });
 });

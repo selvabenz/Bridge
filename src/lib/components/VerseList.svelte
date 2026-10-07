@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { verseNums, verseTexts, verseDisplay, headingsByVerse, findingsByVerse, checkStatusByVerse, alignmentStatusByVerse, selectedVerse, selectedVerseSet, currentChapter, verseKey, nativeChecksByVerse, aiCheckReviewsByVerse, checkingProgress, languageQaFindingsByVerse, project, flagsByVerse, historyCountByVerse } from "../stores";
+  import { verseNums, verseTexts, verseDisplay, headingsByVerse, findingsByVerse, checkStatusByVerse, alignmentStatusByVerse, selectedVerse, selectedVerseSet, currentChapter, verseKey, nativeChecksByVerse, aiCheckReviewsByVerse, checkingProgress, languageQaFindingsByVerse, project, flagsByVerse, historyCountByVerse, activeLanguageQaFindingId } from "../stores";
   import { rangeBetween } from "../crossVerseRange";
   import { unionInChapterOrder } from "../crossVerseSuggest";
   import { buildSegments } from "../utils/highlight";
@@ -673,6 +673,7 @@
     const index = activeIndexFor(key, findingIds.length);
     if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
       event.preventDefault();
+      activeLanguageQaFindingId.set(null);
       onSelect(verse);
       activeFindingVerseKey = key;
       activeFindingIndex =
@@ -801,6 +802,7 @@
    * of those routes come through here.
    */
   function selectFromList(verse: string): void {
+    activeLanguageQaFindingId.set(null);
     lastScrolledKey = verseKey($currentChapter, verse);
     onSelect(verse);
   }
@@ -966,8 +968,9 @@
                 aria-label={`Show ${markerTitle(piece.note.kind).toLowerCase()} at this point in verse ${key}`}
               >{markerLabel(piece.note.kind)}</button>{:else if piece.seg.className}<mark
                 class={piece.seg.className}
-                class:active-finding={$selectedVerse === v && activeFindingId !== undefined
-                  && piece.seg.findingIds.includes(activeFindingId)}
+                class:active-finding={$activeLanguageQaFindingId
+                  ? piece.seg.findingIds.includes($activeLanguageQaFindingId)
+                  : $selectedVerse === v && activeFindingId !== undefined && piece.seg.findingIds.includes(activeFindingId)}
                 data-finding-ids={piece.seg.findingIds.join(" ")}
                 title={piece.seg.title}
                 on:contextmenu={(event) => onMarkContextMenu(event, piece.seg.findingIds, findings, langFindings, v)}

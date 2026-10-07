@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
+  import { onDestroy, tick } from "svelte";
   import { bridge } from "../api/bridgeClient";
   import { languageQaChannel, nudgeLanguageQa } from "../languageQaInline";
   import type { BookWordRow, LanguageQaFlag, LanguageQaStatus, LanguageQaView, LearnedFix } from "../types/languageQa";
@@ -9,6 +9,12 @@
   import LanguageQaHistoryList from "./LanguageQaHistoryList.svelte";
   import type { VerseHistoryEntry } from "../types/finding";
   import { graphemeDiff } from "../utils/unicodeDiff";
+  import { LANGUAGE_QA_CATEGORY_LABELS, LANGUAGE_QA_CATEGORY_MARKS } from "../utils/highlight";
+  import {
+    activeLanguageQaFindingId, chapterVerseNums, currentChapter, languageQaFindingsByVerse, project, selectedVerse, verseKey,
+  } from "../stores";
+  import { editingChapter } from "../verseEditor";
+  import type { LanguageQaCategory, LanguageQaFinding } from "../types/languageQa";
 
   export let projectPath: string;
   export let onNavigate: (book: string, chapter: string, verse: string) => void;
@@ -17,6 +23,15 @@
   // Which list is paged: every open finding; those shown again because the
   // rule changed since they were ignored; or those marked as false positives.
   let view: LanguageQaView = "findings";
+  // Which part of the book the list covers, and which kinds it shows (the
+  // legend; none ticked = every kind).
+  type ListScope = "verse" | "chapter" | "book";
+  let listScope: ListScope = "book";
+  let shownCategories: string[] = [];
+  let verseList: LanguageQaFinding[] = [];
+  // F8 / Shift+F8: where the walk stands, said for screen readers.
+  let walkStatus = "";
+  let pendingStep: { chapter: string; step: 1 | -1 } | null = null;
   // The panel's own tabs. "findings" holds the three engine lists above; the
   // others are the reviewer's own data (learned fixes in Dictionary).
   type PanelTab = "findings" | "bookWords" | "flags" | "edits" | "dictionary";
@@ -78,7 +93,21 @@
   $: live = channel?.status ?? null;
   $: error = localError || channel?.error || "";
   $: status = expanded ? (page ?? live) : live;
-  $: pageKey = expanded && live ? `${view}|${offset}|${live.generation}|${live.state}` : "";
+  $: scopeChapter = listScope === "book" ? "" : $currentChapter;
+  $: pageKey = expanded && live && listScope !== "verse"
+    ? `${view}|${offset}|${live.generation}|${live.state}|${scopeChapter}|${shownCategories.join(",")}` : "";
+  $: verseKeyNow = expanded && live && listScope === "verse" && $selectedVerse
+    ? `${live.generation}|${$currentChapter}|${$selectedVerse}` : "";
+  $: if (verseKeyNow) void loadVerseList(verseKeyNow, $currentChapter, $selectedVerse ?? "");
+  // The verse scope reads languageQa.verse; its kinds are counted here.
+  $: verseCounts = verseList.reduce<Record<string, number>>((counts, f) => {
+    if (f.category) counts[f.category] = (counts[f.category] ?? 0) + 1;
+    return counts;
+  }, {});
+  $: legendCounts = listScope === "verse" ? verseCounts : (status?.categoryCounts ?? {});
+  $: listed = listScope === "verse"
+    ? verseList.filter((f) => !shownCategories.length || shownCategories.includes(f.category ?? ""))
+    : (status?.findings ?? []);
   $: if (pageKey) void loadPage(pageKey);
   $: if (!expanded) page = null;
 
@@ -87,7 +116,12 @@
     const path = projectPath;
     busy = true;
     try {
-      const next = await bridge.languageQaStatus(path, offset, 50, view);
+      const filters: { chapter?: string; categories?: string[] } = {};
+      if (scopeChapter) filters.chapter = scopeChapter;
+      if (shownCategories.length) filters.categories = shownCategories;
+      const next = Object.keys(filters).length
+        ? await bridge.languageQaStatus(path, offset, 50, view, filters)
+        : await bridge.languageQaStatus(path, offset, 50, view);
       if (disposed || ticket !== sequence || key !== pageKey || next.projectPath !== path) return;
       if (page && next.generation !== page.generation && offset !== 0) {
         offset = 0;  // a new pass: start again from page one
@@ -127,6 +161,96 @@
 
   function turnPage(delta: number): void {
     offset = Math.max(0, offset + delta);
+  }
+
+  async function loadVerseList(key: string, chapter: string, verse: string): Promise<void> {
+    try {
+      const result = await bridge.languageQaVerse(projectPath, chapter, verse);
+      if (!disposed && key === verseKeyNow) verseList = result.findings;
+    } catch (cause) {
+      if (!disposed) localError = cause instanceof Error ? cause.message : String(cause);
+    }
+  }
+
+  function showScope(next: ListScope): void {
+    listScope = next;
+    offset = 0;
+  }
+
+  const markClass = (category: string): string =>
+    LANGUAGE_QA_CATEGORY_MARKS[category as LanguageQaCategory] ?? "m-lqa-typo";
+  const categoryLabel = (category: string): string =>
+    LANGUAGE_QA_CATEGORY_LABELS[category as LanguageQaCategory] ?? category;
+
+  function toggleCategory(category: string): void {
+    shownCategories = shownCategories.includes(category)
+      ? shownCategories.filter((c) => c !== category) : [...shownCategories, category];
+    offset = 0;
+  }
+
+  /** The marks of one chapter in reading order (the ones drawn in the text),
+   * narrowed to the legend's kinds when any are ticked. */
+  function chapterMarks(chapter: string): LanguageQaFinding[] {
+    const marks: LanguageQaFinding[] = [];
+    for (const verse of $chapterVerseNums[chapter] ?? []) {
+      const found = ($languageQaFindingsByVerse[verseKey(chapter, verse)] ?? [])
+        .filter((f) => !shownCategories.length || shownCategories.includes(f.category ?? ""));
+      marks.push(...[...found].sort((a, b) => a.start - b.start || a.id.localeCompare(b.id)));
+    }
+    return marks;
+  }
+
+  async function goToMark(finding: LanguageQaFinding, index: number, total: number): Promise<void> {
+    selectedVerse.set(finding.verse);
+    activeLanguageQaFindingId.set(finding.id);
+    walkStatus = `Finding ${index + 1} of ${total} in chapter ${finding.chapter}: ${finding.originalText}`;
+    await tick();
+    const mark = document.querySelector<HTMLElement>(`[data-finding-ids~="${CSS.escape(finding.id)}"]`);
+    if (mark && typeof mark.scrollIntoView === "function") mark.scrollIntoView({ block: "nearest" });
+  }
+
+  /** F8: the next mark in reading order; Shift+F8: the previous. Past the end
+   * of the chapter it opens the next (or previous) chapter, and lands on its
+   * first (or last) mark when they arrive. */
+  function step(direction: 1 | -1): void {
+    const chapter = $currentChapter;
+    const marks = chapterMarks(chapter);
+    const at = marks.findIndex((f) => f.id === $activeLanguageQaFindingId);
+    const next = at === -1 ? (direction === 1 ? 0 : marks.length - 1) : at + direction;
+    if (next >= 0 && next < marks.length) {
+      pendingStep = null;
+      void goToMark(marks[next], next, marks.length);
+      return;
+    }
+    const chapters = $project?.chapters ?? [];
+    const target = chapters[chapters.indexOf(chapter) + direction];
+    if (!target) {
+      walkStatus = direction === 1 ? "No more findings: this is the end of the book." : "No earlier findings: this is the start of the book.";
+      return;
+    }
+    activeLanguageQaFindingId.set(null);
+    pendingStep = { chapter: target, step: direction };
+    walkStatus = `Chapter ${target}…`;
+    onNavigate(status?.book ?? $project?.bookId ?? "", target, "");
+  }
+
+  // A chapter F8 moved to: land on its first (or last) mark once they arrive.
+  $: if (pendingStep && $currentChapter === pendingStep.chapter && $languageQaFindingsByVerse) {
+    const marks = chapterMarks(pendingStep.chapter);
+    if (marks.length) {
+      const index = pendingStep.step === 1 ? 0 : marks.length - 1;
+      pendingStep = null;
+      void goToMark(marks[index], index, marks.length);
+    }
+  }
+
+  function onWindowKeydown(event: KeyboardEvent): void {
+    if (event.key !== "F8" || event.ctrlKey || event.altKey || event.metaKey || !$project) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+    if ($editingChapter || document.querySelector("[role='dialog']")) return;
+    event.preventDefault();
+    step(event.shiftKey ? -1 : 1);
   }
 
   function showView(next: LanguageQaView): void {
@@ -291,7 +415,10 @@
   });
 </script>
 
+<svelte:window on:keydown={onWindowKeydown} />
+
 <aside class="language-qa" aria-label="Language QA">
+  <p class="walk-status" role="status" aria-live="polite">{walkStatus}</p>
   {#if expanded}
     <section id="language-qa-results" aria-label="Language QA results">
       <div class="heading">
@@ -372,11 +499,35 @@
         {:else if view === "falsePositives"}
           <p class="muted">Marked as false positives and hidden from the verse text.</p>
         {/if}
-        {#if view === "findings" && status.state === "completed" && !status.totalFindings}
+        <div class="scope-row" role="radiogroup" aria-label="Show findings for">
+          {#each [["verse", "Verse"], ["chapter", "Chapter"], ["book", "Book"]] as [value, label]}
+            <button role="radio" aria-checked={listScope === value} disabled={value === "verse" && view !== "findings"}
+              on:click={() => showScope(value === "verse" ? "verse" : value === "chapter" ? "chapter" : "book")}>{label}</button>
+          {/each}
+          <span class="keys" aria-keyshortcuts="F8 Shift+F8">F8 / Shift+F8: next / previous mark</span>
+        </div>
+        {#if Object.keys(legendCounts).length}
+          <div class="legend" role="group" aria-label="Kinds of finding">
+            {#each Object.entries(legendCounts) as [category, count] (category)}
+              <button aria-pressed={shownCategories.includes(category)} on:click={() => toggleCategory(category)}
+                title={shownCategories.includes(category) ? "Shown; click to stop narrowing to it" : "Show only this kind (and any others ticked)"}>
+                <mark class="swatch {markClass(category)}">ab</mark>
+                {categoryLabel(category)}
+                <span class="n">{count}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+        {#if listScope === "verse" && !$selectedVerse}
+          <p class="muted">Select a verse to list its findings.</p>
+        {:else if listScope === "verse" && !listed.length}
+          <p class="muted">No findings in this verse{shownCategories.length ? " of the kinds ticked" : ""}.</p>
+        {/if}
+        {#if listScope !== "verse" && view === "findings" && status.state === "completed" && !status.totalFindings}
           <p>No candidates found by the enabled checks. This is not publication approval.</p>
         {/if}
-        <ol aria-label={view === "findings" ? "Language QA findings" : view === "recheck" ? "Findings to re-check" : "False positives"} start={status.offset + 1}>
-          {#each status.findings as finding (finding.id)}
+        <ol aria-label={view === "findings" ? "Language QA findings" : view === "recheck" ? "Findings to re-check" : "False positives"} start={listScope === "verse" ? 1 : status.offset + 1}>
+          {#each listed as finding (finding.id)}
             <li>
               <button on:click={() => onNavigate(finding.book, finding.chapter, finding.verse)}>
                 {finding.book.toUpperCase()} {finding.chapter}:{finding.verse}
@@ -400,7 +551,7 @@
             </li>
           {/each}
         </ol>
-        {#if status.totalFindings > 50}
+        {#if listScope !== "verse" && status.totalFindings > 50}
           <div class="paging">
             <button on:click={() => turnPage(-50)} disabled={busy || offset === 0}>Previous</button>
             <span>{status.offset + 1}–{Math.min(status.offset + 50, status.totalFindings)} of {status.totalFindings}</span>
@@ -609,6 +760,16 @@
   .dictionary .words li { display: flex; gap: 8px; align-items: center; padding: 3px 0; border: 0; }
   .dictionary .words .word { font-family: var(--font-target); font-size: 15px; }
   .flags li.resolved { opacity: .7; }
+  .scope-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+  .scope-row button[aria-checked="true"] { border-color: var(--accent); background: var(--accent-bg); font-weight: 600; }
+  .scope-row .keys { margin-left: auto; font-size: 11px; color: var(--text-3); }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 8px; }
+  .legend button { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 2px 8px; }
+  .legend button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-bg); }
+  .legend .swatch { background: none; padding: 0 2px; font-size: 12px; }
+  .legend .n { color: var(--text-3); font-variant-numeric: tabular-nums; }
+  .walk-status { margin: 0; font-size: 11px; color: var(--text-2); }
+  .walk-status:empty { display: none; }
   .edits h3 { font-size: 13px; margin: 10px 0 2px; }
   .edits del { background: var(--danger-bg); color: var(--danger); }
   .edits ins { background: var(--success-bg); color: var(--success); text-decoration: none; }

@@ -15638,3 +15638,49 @@ These are indic-qa's bookmarks, recent chapters and A−/A+.
 
 **Not verified.** The desktop app, including how the toolbar fits at
 1366×768 now that it has seven buttons.
+
+## 2026-10-07 — Kind legend, list scope and F8 in the Language QA panel (branch `indic-qa-editor`, commit 10)
+
+These are indic-qa's kind legend, its verse/chapter/book list and its
+next/previous-issue keys. Frontend only: commit 1 had already given
+`languageQa.status` its `chapter` and `categories` filters and
+`categoryCounts`.
+
+**Frontend.**
+- `highlight.ts`: `LANGUAGE_QA_CATEGORY_LABELS`. It is typed over
+  `LanguageQaCategory`, so a new category fails the type check until it has
+  a label.
+- Language QA panel:
+  - **Verse / Chapter / Book** radiogroup. Chapter filters the status page.
+    Verse lists `languageQa.verse` for the selected verse and counts its
+    kinds itself.
+  - **Legend**: one `aria-pressed` button per kind, with a swatch drawn by
+    the same global `mark.m-lqa-*` class as the text, the label and the
+    count. Ticking kinds narrows the list. Filters are sent only when set,
+    so an unfiltered page is the same call as before.
+  - **F8 / Shift+F8** (`svelte:window`): walk the marks drawn in the text
+    (`languageQaFindingsByVerse`, which the legend narrows) in reading
+    order. Each step sets `selectedVerse` and the new
+    `activeLanguageQaFindingId` store, scrolls the mark into view, and
+    announces "Finding k of n" in a `role="status"` line.
+    - Past the end of a chapter it opens the next one (previous for
+      Shift+F8) and lands on the first (last) mark once they arrive. It
+      stops at either end of the book.
+    - It is ignored in an input, a textarea or a select, while a verse is
+      being edited, or while any dialog is open.
+- VerseList rings the store's mark. Left/Right or a row click clear the
+  store, so the row's own active mark (and Shift+F10's menu) takes over
+  again.
+
+**Verified.**
+- `npm run check`: 0 errors, 0 warnings.
+- `npm run test`: 595 passed. This includes:
+  - the legend narrowing the list;
+  - the chapter and verse scopes;
+  - F8 and Shift+F8 order, the input guard and moving to the next chapter;
+  - the ring from the store, and the row click clearing it.
+- `npm run build`: ok.
+
+**Not verified.**
+- The desktop app.
+- Whether the WebView2 shell reserves F8. jsdom does not.

@@ -40,6 +40,7 @@ import {
   languageQaFindingsByVerse,
   project,
   historyCountByVerse,
+  activeLanguageQaFindingId,
 } from "../../stores";
 import { rawView } from "../../editorPrefs";
 import { alignmentOpen, alignmentKey } from "../../alignmentUi";
@@ -953,5 +954,29 @@ describe("VerseList change history and Raw view", () => {
     expect(text.textContent).toContain("\\f + \\fr 1.6");
     expect(screen.queryByLabelText(FOOTNOTE_MARKER)).toBeNull();
     expect(text.querySelector("mark")?.textContent).toBe("कि");
+  });
+});
+
+describe("VerseList ring from the panel's F8", () => {
+  beforeEach(() => seed("मसीह यीशु के दास पौलुस"));
+  afterEach(() => {
+    activeLanguageQaFindingId.set(null);
+    languageQaFindingsByVerse.set({});
+  });
+
+  it("rings the mark F8 moved to, and a row click clears it", async () => {
+    languageQaFindingsByVerse.set({ [verseKey("1", "6")]: [
+      lqaFinding({ id: "q1", chapter: "1", verse: "6", start: 0, end: 4, originalText: "मसीह" }),
+      lqaFinding({ id: "q2", chapter: "1", verse: "6", start: 5, end: 9, originalText: "यीशु" })] });
+    activeLanguageQaFindingId.set("q2");
+    render(VerseList, { props: { onSelect: vi.fn() } });
+    const ringed = await waitFor(() => {
+      const mark = document.querySelector("mark.active-finding");
+      expect(mark).not.toBeNull();
+      return mark as HTMLElement;
+    });
+    expect(ringed.textContent).toBe("यीशु");
+    await fireEvent.click(document.querySelector('[data-verse-key="1:6"]') as HTMLElement);
+    expect(get(activeLanguageQaFindingId)).toBeNull();
   });
 });
