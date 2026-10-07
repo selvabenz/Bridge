@@ -113,7 +113,17 @@ def main() -> int:
         original = {p: p.read_bytes() for p in book_dir.glob("*.json")}
         env = {**os.environ, "LOCALAPPDATA": str(root / "app-data"),
                "BRIDGE_SEMANTIC_SOURCE_DB": str(root / "absent.sqlite")}
-        command = [str(args.engine.resolve())] if args.engine else [sys.executable, str(REPO / "engine" / "main.py")]
+        if args.engine:
+            # Launched the way Tauri launches it (src-tauri/src/sidecar.rs): the
+            # tN/tW/UHB/UGNT resources and the Language QA packs ship outside
+            # the onefile exe, so it is told where they are. Without
+            # --language-packs-dir a frozen run has no pack and checks common
+            # rules only. scripts/smoke_sidecars.py passes the same two.
+            command = [str(args.engine.resolve()),
+                       "--resources-dir", str(REPO / "engine" / "resources"),
+                       "--language-packs-dir", str(REPO / "engine" / "language_packs")]
+        else:
+            command = [sys.executable, str(REPO / "engine" / "main.py")]
         process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, text=True, encoding="utf-8", env=env)
         pinned = pin_to_cores(process, args.cores)
