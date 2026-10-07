@@ -14795,3 +14795,57 @@ The entries above give the detail and the numbers for each.
   --language hin` and `benchmark/human/ml --language mal`.
 - `docs/LANGUAGE_QA_PACKS.md`, under "Profile packs", is the reference for all
   of the above.
+
+## 2026-10-07 — Housekeeping: CI-era issues closed, both project boards synced
+
+**Closed, each with a comment naming the fix:**
+
+| Issue | Closed because |
+|---|---|
+| #186 (CI red: guard rejects 8.3 temp path) | `83568c8` compares the Language QA guard's paths with `canonical_path_key()` |
+| #189 (latency gate 112 ms vs 50 ms on CI) | The maintainer's option 1 is applied in `efb2683`: a 300 ms budget on the CI step only, with the local default left at 50 ms. `f817033` took back the 410 ms that the exponential retry had added |
+| #184 (Language QA flaky under `-n auto`) | Both causes are fixed: the guard (`83568c8`) and the write racing the scan's read (`d077aa0`, `f817033`). The closing comment says plainly that one clean run is not proof, and asks for a reopen if it recurs |
+| #74 (modular test suite) | Phases 1–3 landed. Phase 4 was stopped deliberately, for the reasons in the 2026-09-30 entry above. CLAUDE.md now holds the two rules that keep the coupling from growing again |
+
+Each one is closed on RevantCI/bridge and on its selvabenz/Bridge mirror.
+
+**Evidence.** CI on upstream `main` passed 15 runs in a row through
+`ea14f39` (0.13.0), all serial. That leaves the configuration #184 is named
+for, so it was run locally: full engine suite, `pytest -n auto`, Windows, at
+`8c88639`. Result: **4815 passed, 1 skipped, 3 xfailed, 0 failed**, in 10m12s.
+`8c88639` is upstream's `ea14f39` plus the six Language QA commits that are only
+on the fork; #184 carries a follow-up comment saying so.
+
+**Boards.** RevantCI project 6 tracks upstream issues and selvabenz project 3
+tracks the fork's mirrors. Both had the same drift:
+
+- #91, #184 and #189 were closed but still in Todo.
+- #74 was closed but still In Progress.
+- #186 was missing.
+- #191, #192, #193 and #200 were missing; the first three were filed during #91.
+
+The closed items are now Done, and the missing open issues are in Backlog, as
+the rest of the 30 Sep – 1 Oct manual-testing batch is. Each board now has 202
+items, and no item's status disagrees with its issue.
+
+**Left alone on purpose.**
+
+- #82, #93, #112 and #169 stay In Progress. They are triage calls, not drift.
+- #82 was "blocked by #74 step 4". Its home now exists:
+  `tests/support/semantic.py`'s `semantic_runtime`. So it is unblocked, but not
+  started.
+- `src-tauri/language_packs/` is ignored by `.gitignore` since `60630f3`.
+- `AGENTS.md` (the Codex copy, 580 lines against CLAUDE.md's 651) is excluded
+  in `.git/info/exclude` at the owner's choice. The file is kept and nothing is
+  committed.
+
+**Next, in priority order:**
+
+1. **#208.** Cross-verse corpus suggestions do not appear offline, which
+   breaks the offline invariant. #188 may share the cause.
+2. **#197 and #207.** Both are wrong results in what a reviewer sees.
+3. **#210, then #201.**
+4. **The easy engine bugs:** #191 and #193.
+5. **The upstream PR question** for the indic-qa commits, from the entry above.
+   Adding `engine/vendor/indic-qa/` is a third vendored tree, which CLAUDE.md
+   puts on the stop-and-ask list. The maintainer needs to see it before a PR.
