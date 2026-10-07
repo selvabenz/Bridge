@@ -236,6 +236,8 @@ class LoadedChecker:
     provenance: dict[str, Any] = field(default_factory=dict)
     # The open book's token counts at the last build_index, per book code.
     built_for: dict[str, Counter] = field(default_factory=dict)
+    # The one book whose live text replaced its snapshot share, if any.
+    live_book: str | None = None
 
 
 _LOCK = threading.Lock()
@@ -272,10 +274,14 @@ def release(keep: str | None = None) -> None:
             gc.collect()
 
 
-def _resident(pack: RulePack) -> LoadedChecker:
+def _resident(pack: RulePack, book: str) -> LoadedChecker:
+    """The pack's checker, holding the IRV snapshot plus at most one live book.
+    A pass over another book starts again from the snapshot: otherwise a book
+    checked earlier in the session would keep its live counts, and a book's
+    findings would depend on which books were opened before it."""
     global _RESIDENT
     key = (pack.name, pack.version, json.dumps(_settings(pack), sort_keys=True))
-    if _RESIDENT is None or _RESIDENT.key != key:
+    if _RESIDENT is None or _RESIDENT.key != key or _RESIDENT.live_book not in (None, book):
         _RESIDENT = None
         gc.collect()
         _RESIDENT = _load(pack)
@@ -427,11 +433,12 @@ def profile_findings(pack: RulePack, book: str, chapters: dict[str, dict[str, An
     findings: list[dict[str, Any]] = []
     crossing = unmapped = 0
     with _LOCK:
-        loaded = _resident(pack)
-        checker = loaded.checker
         # The snapshot keys books by Bridge's book id, lower case ("1ch"); the
         # same key here replaces that book's share instead of adding a 67th.
         key = book_key(book)
+        loaded = _resident(pack, key)
+        loaded.live_book = key
+        checker = loaded.checker
         checker.index_book(key, synthetic)
         counts = checker.book_count.get(key, Counter())
         if loaded.built_for.get(key) != counts:

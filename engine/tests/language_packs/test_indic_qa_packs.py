@@ -119,3 +119,16 @@ def test_each_snapshot_is_for_the_vendored_dictionary(name):
     manifest = json.loads((packs_dir() / name / "dictionary" / "MANIFEST.json").read_text(encoding="utf-8"))
     assert raw["provenance"]["dictionary"] == manifest["files"], "rebuild: build_indic_qa_packs.py --irv-state"
     assert raw["provenance"]["books"] == 66 and pack.meta["profile"] == name[:2]
+
+
+def test_a_books_findings_do_not_depend_on_the_books_checked_before_it():
+    """Each book is the IRV snapshot plus its own live text: a book checked
+    earlier must not leave its live counts behind (found importing labels)."""
+    pack = default_pack("hi-irv")
+    gen = {"1": {"1": "उसकी आयु सताईस वर्ष की थी। वे बडे़ लोग थे।", "2": "लिये गये"}}
+    indic_qa_adapter.release()
+    alone, _ = check(pack, "GEN", gen)
+    check(pack, "RUT", {"1": {"1": "लिये लिये लिये लिये लिये लिये लिये लिये"}})
+    after, _ = check(pack, "GEN", gen)
+    assert [f["id"] for f in after] == [f["id"] for f in alone]
+    assert len(indic_qa_adapter._RESIDENT.checker.book_count) == 66
