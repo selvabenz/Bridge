@@ -15923,3 +15923,52 @@ stop-and-ask).
   pass.
 - semantic, correction, alignment, project_io and `test_bridge_service.py`:
   797 passed.
+
+## 2026-10-07 — Learned fixes shared across a collection's books
+
+Follow-up 2 of the indic-qa editor handoff. Benz chose to share fixes
+across the collection, so the DECISIONS line that ruled this out is
+superseded (DECISIONS 2026-10-07, "Learned fixes are shared across a
+collection's books").
+
+**Engine.**
+- `language_qa_learned.merge_learned_fixes` is pure. Per (old, new) it
+  returns:
+  - `count`, the net uses in every book;
+  - `own`, this book's share;
+  - `books`, the books with uses;
+  - `enabled`, which is False if any book has the fix forgotten;
+  - the earliest `firstRef` and the latest `lastRef`, reviewer and source.
+- `tc_project.peek_learned_fixes` reads a sibling's rows through the
+  existing read-only `_peek_workbench`. It never constructs, creates or
+  migrates anything, and returns `[]` for a book without the v6 table.
+- `TranslationCoreProject.collection_learned_fixes` reads the siblings once
+  per project instance, and again after it writes a fix. `bind` hands it to
+  the manager in place of `learned_fixes`. Learned rows were already read
+  on every pass and kept out of the cache key, so a pass needs no rescan.
+- A retraction looks for the reverse fix across the collection. It
+  decrements this book's row with a floor of minus the siblings' uses, so
+  the collection's total reaches zero and stops but never goes below it.
+  For a single book the floor is 0, as before, and
+  `test_language_qa_editor_stores` is unchanged. A scoped batch undo uses
+  the same floor.
+- `languageQa.learned.list` returns the merged view. `.forget` and
+  `.restore` write this book (creating a row with no uses if it has none)
+  and every materialized sibling that holds the fix, and report
+  `failedBooks`.
+
+**Frontend.** The Dictionary tab has a Books column, and a fix with no net
+uses is shown struck through. The panel, Settings and the flag dialog say
+the fix applies to the project's other books too.
+
+**Verified.**
+- `tests/service/test_language_qa_learned_collection.py`, 4 tests:
+  - offered in a sibling;
+  - Forget and Restore reach the book the fix was learned in;
+  - a retraction in a sibling takes the total to zero and no lower, after
+    which typing back is learned as the reverse;
+  - a lazy book is read only once it is materialized.
+- Two pure merge tests.
+- Every existing learned, scope, flag and store test passes unchanged
+  (32).
+- Frontend: `npm run check` 0/0, 595 passed, build ok.

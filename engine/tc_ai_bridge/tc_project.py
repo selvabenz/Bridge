@@ -163,6 +163,8 @@ class TranslationCoreProject:
         self._index_cache: dict[str, list[dict[str, Any]]] = {}
         self._checks_by_verse_cache: dict[tuple[str, str], list[dict[str, Any]]] | None = None
         self.journal = TransactionJournal(self.path, self.companion_dir())
+        # The siblings' learned fixes, read once (collection_learned_fixes).
+        self._collection_learned: list[tuple[str, list[dict[str, Any]]]] | None = None
         self._refuse_pre_cutover_project()
         self.workbench = WorkbenchRepository(self.companion_dir() / 'bridge-workbench.sqlite3')
         self._cross_verse_links = None  # CrossVerseLinkStore, built on first use (#117)
@@ -2972,21 +2974,62 @@ class TranslationCoreProject:
                    'reviewer': reviewer, 'source': source, 'updatedAt': now}
         return self._write_learned_fix(fix)
 
-    def retract_learned_fix(self, old: str, new: str, *, n: int = 1) -> dict[str, Any] | None:
+    def retract_learned_fix(self, old: str, new: str, *, n: int = 1, reviewer: str = '',
+                            ref: str = '', floor: int = 0) -> dict[str, Any]:
         """Take back `n` uses (the reviewer typed the word back, or undid the
-        change). At zero the fix stops being offered; the row is kept."""
-        current = self.learned_fix(old, new)
-        if current is None:
-            return None
-        count = max(0, int(current.get('count') or 0) - max(1, int(n)))
-        return self._write_learned_fix({**current, 'count': count, 'updatedAt': self._timestamp()[0]})
+        change) in this book. The row is kept. A fix is shared across the
+        collection, so its uses may have been learned in another book: `floor`
+        (minus the siblings' uses) lets this book's row go below zero by at most
+        that much, so the collection's net count (merge_learned_fixes) reaches
+        zero and stops the offer but never goes below it. Alone, 0."""
+        old, new = self._nfc(old), self._nfc(new)
+        now = self._timestamp()[0]
+        current = self.learned_fix(old, new) or {
+            'schemaVersion': 1, 'old': old, 'new': new, 'count': 0, 'firstRef': ref, 'lastRef': ref,
+            'reviewer': reviewer, 'source': 'retraction', 'enabled': True, 'createdAt': now}
+        count = max(min(0, int(floor)), int(current.get('count') or 0) - max(1, int(n)))
+        self._collection_learned = None
+        return self._write_learned_fix({**current, 'count': count, 'updatedAt': now})
 
-    def set_learned_fix_enabled(self, old: str, new: str, enabled: bool) -> dict[str, Any]:
-        """Forget (False) or restore (True) a learned fix."""
+    def set_learned_fix_enabled(self, old: str, new: str, enabled: bool, *, create: bool = False) -> dict[str, Any]:
+        """Forget (False) or restore (True) a learned fix. `create` writes a row
+        with no uses when this book has none (a fix learned in a sibling)."""
         current = self.learned_fix(old, new)
         if current is None:
-            raise KeyError(f"no learned fix {old} -> {new}")
+            if not create:
+                raise KeyError(f"no learned fix {old} -> {new}")
+            now = self._timestamp()[0]
+            current = {'schemaVersion': 1, 'old': self._nfc(old), 'new': self._nfc(new), 'count': 0,
+                       'firstRef': '', 'lastRef': '', 'reviewer': '', 'source': 'collection', 'createdAt': now}
+        self._collection_learned = None
         return self._write_learned_fix({**current, 'enabled': bool(enabled), 'updatedAt': self._timestamp()[0]})
+
+    def collection_learned_fixes(self) -> list[dict[str, Any]]:
+        """This book's learned fixes merged with every materialized sibling's
+        (DECISIONS 2026-10-07: shared across the collection). What a Language
+        QA pass reads. A sibling's rows are read once per open project,
+        read-only (`peek_learned_fixes`; a lazy book has none yet), and read
+        again after this project writes a fix; this book's own rows are read
+        every time."""
+        from .language_qa_learned import merge_learned_fixes  # noqa: PLC0415 (one-way imports)
+        siblings = getattr(self, '_collection_learned', None)
+        if siblings is None:
+            siblings = self._collection_learned = [
+                (book, peek_learned_fixes(path)) for book, path in self.collection_sibling_paths()]
+        return merge_learned_fixes(self.book_id, self.learned_fixes(), siblings)
+
+    def collection_sibling_paths(self) -> list[tuple[str, Path]]:
+        """(book id, folder) of every materialized sibling in this project's
+        collection, never this book. A lazy sibling has no workbench yet."""
+        from .project_import import collection_projects  # noqa: PLC0415 (project_import imports this module)
+        own = Path(self.path).resolve()
+        out: list[tuple[str, Path]] = []
+        for entry in collection_projects(own):
+            path = Path(str(entry.get('path') or ''))
+            if entry.get('lazy') or not path.is_dir() or path.resolve() == own:
+                continue
+            out.append((str(entry.get('bookId') or path.name).lower(), path))
+        return out
 
     def learned_map(self) -> dict[str, list[str]]:
         """old -> [new, ...] for every fix that is enabled and still counted,
@@ -3471,6 +3514,30 @@ def _peek_workbench(project_root: str | Path) -> sqlite3.Connection | None:
         return None
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def peek_learned_fixes(project_root: str | Path) -> list[dict[str, Any]]:
+    """A sibling book's learned fixes straight from its workbench database,
+    read-only (`_peek_workbench`): no project is constructed, nothing is
+    created or migrated. [] for a book with no workbench or no v6 table."""
+    conn = _peek_workbench(project_root)
+    if conn is None:
+        return []
+    try:
+        rows = conn.execute('SELECT payload_json FROM language_qa_learned_fixes').fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        conn.close()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            payload = json.loads(row['payload_json'])
+        except (TypeError, ValueError):
+            continue
+        if isinstance(payload, dict):
+            out.append(payload)
+    return out
 
 
 def peek_progress_totals(project_root: str | Path) -> dict[str, Any] | None:

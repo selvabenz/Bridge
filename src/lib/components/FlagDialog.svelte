@@ -81,7 +81,7 @@
 
     <label class="label" for="flag-suggested">Suggested form <span class="optional">(optional)</span></label>
     <input id="flag-suggested" type="text" bind:value={suggested} placeholder="Leave blank if you are only asking" />
-    <p class="hint">A one-word suggestion is also remembered as a learned fix for this book.</p>
+    <p class="hint">A one-word suggestion is also remembered as a learned fix, offered in every book of the project.</p>
 
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     <div class="actions">

@@ -515,6 +515,34 @@ QA's tokenizer keeps one meaning of "word" across Bridge.
 - writing to the reference folder.
 **Revisit when:** the OV licence question is answered.
 
+## 2026-10-07 — Learned fixes are shared across a collection's books
+**Decision:** A fix learned in one book is offered in every materialized
+book of its collection. Benz chose this on 2026-10-07. It supersedes the
+"Rules out: sharing fixes across a collection's books in this version" line
+of the earlier learned-fixes entry, which is otherwise unchanged. The design
+is the one that entry's "Revisit when" named: the read side merges the
+siblings' tables.
+- Each book keeps its own rows.
+- A pass reads the merged view. Siblings are read read-only, once per open
+  project, and again after this project writes a fix.
+- Retractions count against the collection's net total, which never goes
+  below zero.
+- Forget and Restore write every book that holds the fix, and forgotten
+  anywhere means forgotten.
+
+**Because:** the reviewer asked for it. A translation team's spelling
+decisions are about the language, not one book. Reading the siblings
+avoids the cost the earlier entry rejected: a fsync'd write to up to 65
+siblings on every edit.
+
+**Rules out:**
+- writing a learned edit into every sibling's table;
+- a collection-level store outside the books' own workbenches;
+- materializing a lazy book to read or write its fixes.
+
+**Revisit when:** the team hub (#46) syncs workbench rows; a shared table
+would then be simpler than a merge.
+
 <!-- New entries go above this line. -->
 
 ## 2026-10-07 — indic-qa's checker core is vendored in-process for Punjabi, Malayalam, Hindi and Odia

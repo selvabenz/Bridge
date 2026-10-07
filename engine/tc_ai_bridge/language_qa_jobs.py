@@ -456,7 +456,10 @@ class LanguageQaManager:
             self._terminology_loader = getattr(project, "terminology_rules", None)
             self._decisions_loader = getattr(project, "project_qa_decisions", None)
             self._housestyle_loader = getattr(project, "housestyle_entries", None)
-            self._learned_loader = getattr(project, "learned_fixes", None)
+            # Shared across the collection (DECISIONS 2026-10-07); a project
+            # without siblings support offers its own book's.
+            self._learned_loader = (getattr(project, "collection_learned_fixes", None)
+                                    or getattr(project, "learned_fixes", None))
             self._paused = bool(blocked_reason)
             self._blocked_reason = blocked_reason
             if autostart:

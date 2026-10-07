@@ -197,13 +197,25 @@ runs for every project, Tamil included.
   the edit replaced exactly one word and nothing else visible changed, it
   writes or counts (old, new) in `language_qa_learned_fixes`, and the result
   says what it learned. Typing a learned replacement back retracts it.
-- **Offering.** Each pass reads the book's enabled fixes and reports every
-  recurrence of an old word. The step runs after the chapter loop, outside
+- **Shared across the collection** (DECISIONS 2026-10-07, the later
+  entry). Each book stores its own rows. A pass reads them merged with
+  every materialized sibling's: `TranslationCoreProject.
+  collection_learned_fixes` reads siblings read-only and once per open,
+  then `language_qa_learned.merge_learned_fixes` merges them.
+  - `count` is the net uses in every book. A retraction may take a use
+    learned elsewhere, so a book's own row can go negative, but the
+    collection's total never goes below zero.
+  - Forgotten in any book means forgotten everywhere.
+  - A lazy book is read once it has been opened.
+- **Offering.** Each pass reads the collection's enabled fixes and reports
+  every recurrence of an old word. The step runs after the chapter loop, outside
   the per-verse cache, so a new fix needs no rescan. Decisions, house style
   and the finding cap apply as usual.
 - **Managing.** `languageQa.learned.list`, `.forget` and `.restore`, shown in
-  the panel's Dictionary tab. Forget is not a decision: the fix simply stops
-  being offered.
+  the panel's Dictionary tab with the books that used each fix. Forget and
+  Restore write this book and every materialized sibling that holds the fix,
+  and report any that could not be written (`failedBooks`). Forget is not a
+  decision: the fix simply stops being offered.
 
 ### Scoped corrections (every pack, DECISIONS 2026-10-07)
 

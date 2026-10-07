@@ -642,7 +642,7 @@
         <h3 class="sub">Learned fixes</h3>
         <label class="mode-option" class:selected={learnedFixes}>
           <input type="checkbox" bind:checked={learnedFixes} />
-          <span><b>Offer my earlier replacements</b><small>When you replace one word in a verse, the same word elsewhere in the book gets a blue dotted underline offering your change. Manage them in Language QA › Dictionary.</small></span>
+          <span><b>Offer my earlier replacements</b><small>When you replace one word in a verse, the same word elsewhere in this book and the project's other books gets a blue dotted underline offering your change. Manage them in Language QA › Dictionary.</small></span>
         </label>
         <label class="mode-option" class:selected={relatedWords}>
           <input type="checkbox" bind:checked={relatedWords} />

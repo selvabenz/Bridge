@@ -683,7 +683,7 @@
           <section aria-label="Learned fixes" class="dictionary">
             <h3>Learned fixes</h3>
             <p class="muted">
-              A word you replaced is offered again where it recurs in this book (blue dotted).
+              A word you replaced is offered again where it recurs, in this book and the project's other books (blue dotted). Forget applies to every book.
               {#if !learnedOn}Learned fixes are off in Settings › Language QA.{/if}
             </p>
             {#if learnedError}<p role="alert">{learnedError}</p>{/if}
@@ -693,13 +693,14 @@
               <p class="muted">Nothing learned yet. Replace one word in a verse and it appears here.</p>
             {:else}
               <table>
-                <thead><tr><th>Replaced</th><th>With</th><th>Times</th><th>Last at</th><th></th></tr></thead>
+                <thead><tr><th>Replaced</th><th>With</th><th>Times</th><th>Books</th><th>Last at</th><th></th></tr></thead>
                 <tbody>
                   {#each learned as fix (`${fix.old} → ${fix.new}`)}
-                    <tr class:forgotten={!fix.enabled || fix.count === 0}>
+                    <tr class:forgotten={!fix.enabled || fix.count <= 0}>
                       <td class="word">{fix.old}</td>
                       <td class="word">{fix.new}</td>
-                      <td>{fix.count}</td>
+                      <td>{Math.max(0, fix.count)}</td>
+                      <td>{(fix.books ?? []).map((b) => b.toUpperCase()).join(", ")}</td>
                       <td>{fix.lastRef}</td>
                       <td>
                         {#if fix.enabled}

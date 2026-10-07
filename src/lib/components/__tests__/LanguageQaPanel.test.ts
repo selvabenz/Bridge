@@ -275,7 +275,7 @@ describe("Language QA", () => {
 
   it("lists learned fixes only when the Dictionary tab opens, and forgets and restores one", async () => {
     const fix = { old: "தேவன்", new: "கர்த்தர்", count: 3, firstRef: "RUT 1:1", lastRef: "RUT 2:4", reviewer: "Benz",
-      source: "edit" as const, enabled: true, createdAt: "t", updatedAt: "t" };
+      source: "edit" as const, enabled: true, createdAt: "t", updatedAt: "t", own: 1, books: ["gen", "rut"] };
     learnedListCall.mockReset().mockResolvedValue({ fixes: [fix], enabled: true });
     learnedForgetCall.mockReset().mockResolvedValue({ fix: { ...fix, enabled: false } });
     learnedRestoreCall.mockReset().mockResolvedValue({ fix });
@@ -288,6 +288,7 @@ describe("Language QA", () => {
     expect(await screen.findByText("கர்த்தர்")).toBeTruthy();
     expect(learnedListCall).toHaveBeenCalledWith("C:/project");
     expect(screen.getByText("RUT 2:4")).toBeTruthy();
+    expect(screen.getByText("GEN, RUT")).toBeTruthy();  // shared across the collection's books
 
     await fireEvent.click(screen.getByRole("button", { name: "Forget" }));
     await waitFor(() => expect(learnedForgetCall).toHaveBeenCalledWith("C:/project", "தேவன்", "கர்த்தர்"));

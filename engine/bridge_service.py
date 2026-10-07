@@ -40,7 +40,7 @@ from greek_room_engine.protocol import EngineRequest, EngineResponse
 
 from tc_ai_bridge.version import BRIDGE_VERSION as _BRIDGE_VERSION
 from tc_ai_bridge.tc_project import (
-    TranslationCoreProject, ProjectError, peek_progress_totals, read_triage_records,
+    TranslationCoreProject, ProjectError, peek_learned_fixes, peek_progress_totals, read_triage_records,
 )
 from tc_ai_bridge.project_import import (
     apply_resource_materialization,
@@ -4358,8 +4358,9 @@ class BridgeEngine:
         """A learned fix from a saved edit that replaced exactly one word
         (language_qa_learned.learned_pair). Typing a learned replacement back to
         the original word retracts that fix instead of learning the reverse.
-        Per book: a fix is offered in the book it was learned in. Never fails
-        the edit, which is already saved."""
+        Shared across the collection (DECISIONS 2026-10-07): the reverse is
+        looked for in every book's fixes, and a retraction counts against the
+        collection's total. Never fails the edit, which is already saved."""
         if not self.settings.language_qa_learned_fixes or not old_text:
             return None
         pair = learned_pair(old_text, new_text)
@@ -4368,9 +4369,10 @@ class BridgeEngine:
         old, new = pair
         ref = f"{self.project.book_id.upper()} {chapter}:{verse}"
         try:
-            reverse = self.project.learned_fix(new, old)
+            reverse = self._collection_learned_fix(new, old)
             if reverse and reverse.get("enabled") and int(reverse.get("count") or 0) > 0:
-                self.project.retract_learned_fix(new, old)
+                self.project.retract_learned_fix(new, old, ref=ref, floor=reverse["own"] - reverse["count"],
+                                                 reviewer=self.settings.reviewer_name or "Bridge Reviewer")
                 return {"old": new, "new": old, "action": "retracted"}
             fix = self.project.record_learned_fix(old, new, ref=ref, source="edit",
                                                   reviewer=self.settings.reviewer_name or "Bridge Reviewer")
@@ -4378,21 +4380,37 @@ class BridgeEngine:
             return {"old": old, "new": new, "action": "failed", "error": str(exc)}
         return {"old": old, "new": new, "action": "learned", "count": fix["count"], "enabled": fix["enabled"]}
 
+    def _collection_learned_fix(self, old: str, new: str) -> dict[str, Any] | None:
+        key = (unicodedata.normalize("NFC", old), unicodedata.normalize("NFC", new))
+        return next((f for f in self.project.collection_learned_fixes() if (f["old"], f["new"]) == key), None)
+
     def language_qa_learned(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
-        """languageQa.learned.list | .forget | .restore. Forget and restore
-        re-write the row (never delete it) and run a pass."""
+        """languageQa.learned.list | .forget | .restore, over the collection's
+        fixes (shared, DECISIONS 2026-10-07). Forget and restore re-write the
+        row (never delete it) in this book and in every materialized sibling
+        that has the fix, so every book agrees; then a pass runs."""
         self._require_project()
         if action == "list":
-            return {"fixes": self.project.learned_fixes(), "enabled": self.settings.language_qa_learned_fixes}
+            return {"fixes": self.project.collection_learned_fixes(),
+                    "enabled": self.settings.language_qa_learned_fixes}
         old, new = params.get("old"), params.get("new")
         if not isinstance(old, str) or not isinstance(new, str) or not old or not new:
             raise ProjectError("old and new must be non-empty strings")
-        try:
-            fix = self.project.set_learned_fix_enabled(old, new, action == "restore")
-        except KeyError as exc:
-            raise ProjectError(str(exc).strip("'\"")) from exc
+        if self._collection_learned_fix(old, new) is None:
+            raise ProjectError(f"no learned fix {old} -> {new}")
+        enabled = action == "restore"
+        key = (unicodedata.normalize("NFC", old), unicodedata.normalize("NFC", new))
+        self.project.set_learned_fix_enabled(old, new, enabled, create=True)
+        failed: list[str] = []
+        for book, path in self.project.collection_sibling_paths():
+            if not any((row.get("old"), row.get("new")) == key for row in peek_learned_fixes(path)):
+                continue
+            try:
+                TranslationCoreProject(path, workspace=self.workspace).set_learned_fix_enabled(old, new, enabled)
+            except Exception as exc:  # reported: the other books are already written
+                failed.append(f"{book.upper()}: {exc}")
         self._language_qa.invalidate_all()
-        return {"fix": fix}
+        return {"fix": self._collection_learned_fix(old, new), "failedBooks": failed}
 
     # -- project words and book words (indic-qa's "Add to dictionary") --------
     #
@@ -4856,7 +4874,9 @@ class BridgeEngine:
                              "display": verse_display(item["oldText"])})
         learned = batch.get("learned")
         if learned and reverted:
-            self.project.retract_learned_fix(learned["old"], learned["new"], n=int(learned.get("n") or 1))
+            shared = self._collection_learned_fix(learned["old"], learned["new"])
+            self.project.retract_learned_fix(learned["old"], learned["new"], n=int(learned.get("n") or 1),
+                                             floor=(shared["own"] - shared["count"]) if shared else 0)
         now = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
         self.project.record_language_qa_batch({
             "batchId": undo_id, "kind": "undo", "state": "applied", "action": "undo", "undoes": batch_id,

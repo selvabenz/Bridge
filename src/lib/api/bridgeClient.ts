@@ -368,8 +368,8 @@ export const bridge = {
     return call("languageQa.setPack", { projectPath, pack });
   },
 
-  /** This book's learned fixes (a word the reviewer replaced, offered again
-   * where it recurs), enabled or not, most used first. */
+  /** The collection's learned fixes (a word the reviewer replaced, offered
+   * again where it recurs in any book), enabled or not, most used first. */
   languageQaLearnedList(projectPath: string): Promise<LearnedFixesResponse> {
     return call("languageQa.learned.list", { projectPath });
   },

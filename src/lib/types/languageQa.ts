@@ -104,14 +104,20 @@ export type LanguageQaView = "findings" | "recheck" | "falsePositives";
 
 /** A learned fix (workbench v6): the reviewer replaced `old` with `new`
  * `count` times; offered again where `old` recurs while enabled. */
+/** One learned fix, merged over the collection's books (shared, DECISIONS
+ * 2026-10-07): `count` is the net uses in every book, `own` this book's share
+ * (negative when a use learned elsewhere was taken back here), `books` the
+ * books with uses. Forgotten in any book means forgotten everywhere. */
 export interface LearnedFix {
   old: string;
   new: string;
   count: number;
+  own?: number;
+  books?: string[];
   firstRef: string;
   lastRef: string;
   reviewer: string;
-  source: "edit" | "scope" | "flag";
+  source: "edit" | "scope" | "flag" | "retraction" | "collection";
   enabled: boolean;
   createdAt: string;
   updatedAt: string;

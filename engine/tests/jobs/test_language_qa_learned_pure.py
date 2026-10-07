@@ -51,3 +51,30 @@ def test_every_recurrence_is_a_finding_with_raw_offsets_and_the_learned_forms():
 
 def test_no_learned_fixes_means_no_work():
     assert make({"1": {"1": "தேவன்"}}, {}) == []
+
+
+def _row(old, new, count, *, enabled=True, created="2026-10-01", updated="2026-10-01", first="", last=""):
+    return {"old": old, "new": new, "count": count, "enabled": enabled, "createdAt": created,
+            "updatedAt": updated, "firstRef": first, "lastRef": last, "reviewer": "r", "source": "edit"}
+
+
+def test_a_collections_fixes_merge_into_one_row_per_pair():
+    from tc_ai_bridge.language_qa_learned import merge_learned_fixes
+    merged = merge_learned_fixes(
+        "gen",
+        [_row("a", "b", -1, created="2026-10-05", updated="2026-10-06", first="GEN 1:1", last="GEN 1:1")],
+        [("rut", [_row("a", "b", 2, created="2026-10-02", updated="2026-10-03", first="RUT 1:1", last="RUT 2:2"),
+                  _row("c", "d", 5)]),
+         ("exo", [_row("a", "b", 1, created="2026-10-04", updated="2026-10-04", first="EXO 3:3", last="EXO 3:3")])])
+    by = {(f["old"], f["new"]): f for f in merged}
+    ab = by[("a", "b")]
+    assert (ab["count"], ab["own"], ab["books"], ab["enabled"]) == (2, -1, ["exo", "rut"], True)
+    assert (ab["firstRef"], ab["lastRef"]) == ("RUT 1:1", "GEN 1:1"), "earliest first use, latest last use"
+    assert [(f["old"], f["count"]) for f in merged] == [("c", 5), ("a", 2)], "most used first"
+
+
+def test_a_fix_forgotten_in_any_book_is_forgotten_for_the_collection():
+    from tc_ai_bridge.language_qa_learned import merge_learned_fixes
+    [fix] = merge_learned_fixes("gen", [_row("a", "b", 0, enabled=False)], [("rut", [_row("a", "b", 3)])])
+    assert fix["enabled"] is False and fix["count"] == 3
+    assert merge_learned_fixes("gen", [], []) == []
