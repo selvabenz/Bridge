@@ -189,6 +189,28 @@ verse-text findings as a multiset of (chapter, verse, rule, text). The
 reference counts verse text only, like Bridge. Results for 2026-10-07 are in
 BUILD_LOG.
 
+### Labels and the inline gate
+
+`scripts/import_indic_qa_labels.py` reads indic-qa reviewer workbooks into
+`benchmark/human/<code>/<round>/`. These folders sit one level below the
+Tamil rounds, because a book id alone cannot tell Hindi Genesis from Tamil
+Genesis. The importer works in this order:
+
+1. Each row is anchored in the verse as Bridge stores it.
+2. It is moved onto the finding Bridge reports there for that rule.
+3. A row inside a note, under a rule that is off in Bridge, or with no Bridge
+   finding at that place is reported, never written.
+
+```
+python scripts/language_qa_benchmark.py --human-labels benchmark/human/hi --language hin --gate
+```
+
+This scores a language's rounds with its own pack. It gates only that pack's
+rules, because the Tamil rounds gate the common rules, and CI runs it for
+`hi` and `ml`. A rule becomes inline only through a reviewed `inline: true`
+in `rule_versions.json` with a DECISIONS line, once it has ≥ 20 labels at
+≥ 0.90.
+
 ### Updating
 
 1. `sync_indic_qa.py --source <clone> --commit <sha>` to re-vendor.

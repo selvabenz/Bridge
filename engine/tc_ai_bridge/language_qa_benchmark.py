@@ -237,10 +237,13 @@ def book_verses(sfm: Path) -> tuple[str, dict[str, dict[str, str]]]:
 
 def scan_book(book: str, chapters: dict[str, dict[str, str]], *,
               terminology: list[dict[str, Any]] | None = None,
-              housestyle: list[dict[str, Any]] | None = None, timeout: float = 600.0) -> dict[str, Any]:
+              housestyle: list[dict[str, Any]] | None = None, timeout: float = 600.0,
+              language: str = "tam") -> dict[str, Any]:
     """Scan with the app's own LanguageQaManager over temporary chapter JSON.
     `housestyle` (a project's entries, --housestyle) is applied as in the app;
-    what it hides is reported per rule, never counted as a false positive."""
+    what it hides is reported per rule, never counted as a false positive.
+    `language`: the project's declared language, which picks the pack (an
+    indic-qa profile pack for hin/mal/ory/pan)."""
     with tempfile.TemporaryDirectory(prefix="lqa-bench-") as tmp:
         root = Path(tmp)
         folder = root / book
@@ -248,7 +251,7 @@ def scan_book(book: str, chapters: dict[str, dict[str, str]], *,
         for chapter, verses in chapters.items():
             (folder / f"{chapter}.json").write_text(json.dumps(verses, ensure_ascii=False), encoding="utf-8")
         project = SimpleNamespace(path=root, book_id=book, book_dir=folder,
-                                  manifest={"target_language": {"id": "tam"}},
+                                  manifest={"target_language": {"id": language}},
                                   terminology_rules=lambda: list(terminology or []),
                                   housestyle_entries=lambda: list(housestyle or []))
         manager = LanguageQaManager(debounce=0, yield_seconds=0)
@@ -608,7 +611,7 @@ def _anchor(label: dict[str, Any], text: str) -> tuple[int, int] | None:
 
 
 def human_score(labels: list[dict[str, Any]], scans: dict[str, dict[str, Any]],
-                verses: dict[str, dict[str, dict[str, str]]]) -> dict[str, Any]:
+                verses: dict[str, dict[str, dict[str, str]]], *, pack: str = HUMAN_PACK) -> dict[str, Any]:
     """Score the current findings against the reviewer's verdicts.
 
     - Flagged rows (the findings the reviewer judged): a current finding at
@@ -690,7 +693,7 @@ def human_score(labels: list[dict[str, Any]], scans: dict[str, dict[str, Any]],
     def ratio(numerator: int, denominator: int) -> float | None:
         return round(numerator / denominator, 4) if denominator else None
 
-    inline = human_inline_rules()
+    inline = human_inline_rules(pack)
     for rule_id in inline:
         rules.setdefault(rule_id, Counter())
     rules_out = {}
@@ -709,7 +712,7 @@ def human_score(labels: list[dict[str, Any]], scans: dict[str, dict[str, Any]],
                                        s["missed"] + s["correct_skip"] + s["house"]),
         }
     rounds = sorted({label.get("round", "") for label in labels} - {""})
-    return {"packVersion": pack_version_label(), "labels": len(labels), "rounds": rounds,
+    return {"packVersion": pack_version_label(pack), "labels": len(labels), "rounds": rounds,
             "books": sorted(scans), "rules": rules_out, "recallProxies": proxies_out,
             "mismatches": mismatches}
 
@@ -789,15 +792,18 @@ def population_coverage(population: dict[str, Any] | None, labels: list[dict[str
     return out
 
 
-def human_inline_rules() -> set[str]:
+def human_inline_rules(pack_name: str = HUMAN_PACK) -> set[str]:
     """ruleIds drawn inline, from the pack and the in-code rules. The
     project's own data (house style, termbase: pack "project") is not a rule
-    the benchmark can label, and is not gated."""
+    the benchmark can label, and is not gated. Another language's rounds
+    (benchmark/human/<code>/) gate only that pack's own rules: the common
+    rules are gated by the Tamil rounds, which label them."""
     from .language_packs import default_pack
     from .language_qa import INLINE_RULES, RULES
-    pack = default_pack(HUMAN_PACK)
+    pack = default_pack(pack_name)
     inline = {f"{pack.name}/{r.id}" for r in pack.rules if r.enabled and r.inline}
-    inline |= {f"{RULES[name].pack}/{name}" for name in INLINE_RULES if RULES[name].pack != "project"}
+    if pack_name == HUMAN_PACK:
+        inline |= {f"{RULES[name].pack}/{name}" for name in INLINE_RULES if RULES[name].pack != "project"}
     return inline
 
 

@@ -61,6 +61,7 @@ _FILE_MARKERS = {
     "test_passage_semantic_foundation.py": ("external",),
     "test_indic_qa_vendor.py": ("packs",),
     "test_indic_qa_packs.py": ("packs",),
+    "test_import_indic_qa_labels.py": ("external",),
 }
 
 

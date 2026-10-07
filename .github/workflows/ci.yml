@@ -280,6 +280,18 @@ jobs:
           PYTHONDONTWRITEBYTECODE: '1'
         run: python ../scripts/language_qa_benchmark.py --human-labels ../benchmark/human --gate
 
+      - name: Language QA human-label gate, indic-qa packs
+        # Hindi and Malayalam reviewers' verdicts from indic-qa's workbooks,
+        # imported onto Bridge's own findings (scripts/import_indic_qa_labels.py,
+        # benchmark/human/<code>/). Nothing in these packs is inline yet, so this
+        # guards against losing a human-confirmed finding. ~3 min locally,
+        # most of it Malayalam's cluster rebuild once per labelled book.
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python ../scripts/language_qa_benchmark.py --human-labels ../benchmark/human/hi --language hin --gate
+          python ../scripts/language_qa_benchmark.py --human-labels ../benchmark/human/ml --language mal --gate
+
   # ---------------------------------------------------------------------------
   # Rust / Tauri shell.
   # ---------------------------------------------------------------------------

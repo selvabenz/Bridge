@@ -43,6 +43,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "engine"))
 
 from tc_ai_bridge import language_qa_benchmark as bench  # noqa: E402
+from tc_ai_bridge.language_packs.registry import select_pack  # noqa: E402
 
 DOC = REPO / "docs" / "LANGUAGE_QA_BENCHMARK.md"
 START, END = "<!-- benchmark:start -->", "<!-- benchmark:end -->"
@@ -102,15 +103,25 @@ def human_main(args: argparse.Namespace) -> int:
         population["corpus"] = args.irv_dir.name
         HUMAN_POPULATION.write_text(json.dumps(population, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
         print(f"population of {len(population['rules'])} rules written to {HUMAN_POPULATION}", file=sys.stderr)
-    scans = {book: bench.scan_book(book, chapters) for book, chapters in verses.items()}
-    result = bench.human_score(labels, scans, verses)
-    population = json.loads(HUMAN_POPULATION.read_text(encoding="utf-8")) if HUMAN_POPULATION.exists() else None
+    # Another language's rounds live in benchmark/human/<code>/ (a book id
+    # alone cannot tell Hindi Genesis from Tamil Genesis); --language picks the
+    # pack they are scored with. Its baseline sits beside its rounds, and the
+    # whole-population file is Tamil's.
+    tamil = args.language == "tam"
+    pack = bench.HUMAN_PACK if tamil else select_pack(args.language)
+    if not pack:
+        raise SystemExit(f"--language {args.language}: no Language QA pack is registered for it")
+    scans = {book: bench.scan_book(book, chapters, language=args.language) for book, chapters in verses.items()}
+    result = bench.human_score(labels, scans, verses, pack=pack)
+    population = (json.loads(HUMAN_POPULATION.read_text(encoding="utf-8"))
+                  if tamil and HUMAN_POPULATION.exists() else None)
     result["population"] = bench.population_coverage(population, labels)
     result["generatedAt"] = dt.datetime.now().isoformat(timespec="seconds")
     result["labelsFile"] = args.human_labels.as_posix()
     table = bench.human_markdown(result)
     print(table)
-    baseline_path = args.baseline if args.baseline != REPO / "benchmark" / "baseline.json" else HUMAN_BASELINE
+    baseline_path = (args.baseline if args.baseline != REPO / "benchmark" / "baseline.json"
+                     else HUMAN_BASELINE if tamil else Path(args.human_labels) / "baseline.json")
     if args.update_doc:
         doc = DOC.read_text(encoding="utf-8")
         block = (f"{HUMAN_START}\n_Generated {result['generatedAt']} by scripts/language_qa_benchmark.py "
@@ -150,6 +161,9 @@ def main() -> int:
                         help="with --human-labels and --irv-dir: scan every book and write "
                              "benchmark/human/population.json, each small rule's whole-collection findings "
                              "(inline rule (b), DECISIONS.md 2026-09-29)")
+    parser.add_argument("--language", default="tam",
+                        help="with --human-labels: the rounds' language (default tam). Another language's "
+                             "rounds are benchmark/human/<code>/, scored with that language's pack")
     parser.add_argument("--books", nargs="*", help="limit to these book codes")
     parser.add_argument("--out-dir", type=Path, default=REPO / "benchmark" / "results")
     parser.add_argument("--baseline", type=Path, default=REPO / "benchmark" / "baseline.json")

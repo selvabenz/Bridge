@@ -14639,3 +14639,67 @@ findings. The human gate passes.
 
 **Not run:** the desktop app at 1366×768. The Settings control and the
 panel's pack label have only been seen in jsdom.
+
+## 2026-10-07 — indic-qa reviewer verdicts as Bridge human labels (PR 5 of the indic-qa plan)
+
+`scripts/import_indic_qa_labels.py` imported two real rounds from
+`C:\Users\Benz\projects\indic-qa\outputs\`:
+
+| Round | Workbook | Labels | Verdicts |
+|---|---|---|---|
+| `benchmark/human/hi/final-completed` | Hindi `hi-irv_qa-app_final_workbook_completed.xlsx` | 120 | 109 TP, 8 TP_OTHER_FIX, 3 FP |
+| `benchmark/human/ml/round4-reviewed` | Malayalam `ml-irv_qa-app_reviewer_workbook_round4_reviewed.xlsx` | 323 | 320 TP, 3 TP_OTHER_FIX |
+
+The rows that were not imported are reported by reason:
+
+- **Hindi:** 76 inside a note (Bridge scans verse text only), 21 outside
+  verses (titles, headings), and 18 whose text was not unique in the verse.
+- **Malayalam:** 75 judging something other than a finding (`status:irv_ok`,
+  `ml.lex.compound`), 47 under rules that are off in Bridge (`long-token`,
+  `lex.unknown`), 38 outside verses, 28 inside notes, and 58 not unique.
+
+**Two problems found while importing, both fixed:**
+
+1. **Labels must sit on Bridge's own findings**, as the Tamil rounds do. A
+   workbook's "finding" text often differs from Bridge's span: a word against
+   a punctuation span, or one part of Malayalam's grouped encoding fix. The
+   gate then counted every such label as a lost confirmed finding. The importer
+   now moves each label onto the overlapping Bridge finding of its rule. It
+   scans exactly the verses written to `verses.jsonl`, so the gate scans the
+   same text.
+2. **A book's findings depended on which books were checked before it.** The
+   resident checker kept every book's live counts for the whole session, so
+   consistency majorities changed with the order books were opened. A pass over
+   a different book now starts again from the IRV snapshot.
+   `test_a_books_findings_do_not_depend_on_the_books_checked_before_it` pins
+   this. It costs one reload per book switch (Malayalam ≈ 3 s).
+
+**Gate.** `language_qa_benchmark.py --human-labels benchmark/human/<code>
+--language <declared> --gate` scores with that language's pack, gates only
+its rules, and keeps its baseline beside its rounds. Both pass:
+
+| Language | Time |
+|---|---|
+| Hindi | 41 s |
+| Malayalam | 140 s |
+
+The Tamil gate is unchanged (2 rounds, 818 rows, pass). CI runs all three.
+
+**Candidates for inline, not promoted.** These have ≥ 20 labels at ≥ 0.90:
+
+| Rule | Confirmed |
+|---|---|
+| `hi.shape.errors` | 34 / 34 |
+| `ml.shape.independent-vowel-mid-word` | 46 / 46 |
+| `ml.norm.encoding` | 31 / 31 |
+| `ml.lex.rare-near-common` | 26 / 26 |
+| `ml.punct.quote-direction` | 25 / 25 |
+| `ml.style.yk` | 21 / 21 |
+| `ml.shape.errors` | 20 / 20 |
+
+These are late-round samples. Malayalam round 4 has no false positives at all,
+which suggests earlier rounds had already removed the clear failures. Promoting
+one is a `rule_versions.json` change with a DECISIONS line, for the maintainer.
+
+`openpyxl` joins the engine's `dev` extra. Only this script uses it; the
+engine never imports it.
