@@ -14703,3 +14703,95 @@ one is a `rule_versions.json` change with a DECISIONS line, for the maintainer.
 
 `openpyxl` joins the engine's `dev` extra. Only this script uses it; the
 engine never imports it.
+
+## 2026-10-07 — Handoff: indic-qa Language QA published to selvabenz/Bridge `main`; branches tidied
+
+**Where the work is.** The six commits of the indic-qa integration, `60630f3`
+to `ac572c0`, were pushed as a fast-forward to `origin/main`
+(selvabenz/Bridge). They are **not** on `upstream` (RevantCI/bridge) and have
+no PR there. In order:
+
+1. **`60630f3`** — the ml-irv registry, rebased onto 0.13.0.
+2. **`67fc70c`** — the checker and dictionaries vendored.
+3. **`218e1f3`** — the profile packs and the adapter.
+4. **`0275be2`** — Settings > Language QA.
+5. **`f6aabc1`** — a book's findings no longer depend on which books were
+   checked before it.
+6. **`ac572c0`** — the human labels and the per-language gate.
+
+The entries above give the detail and the numbers for each.
+
+**Repository state at handoff:**
+
+- Local `main` equals `origin/main` (`ac572c0`).
+- The worktree is clean apart from an untracked `AGENTS.md`, an older Codex
+  copy of `CLAUDE.md` left for the owner to decide.
+- The `bridge-baseline` worktree has been removed. The two stashes are kept.
+
+**Branches.**
+
+- **Deleted locally as duplicates.** `ml-irv` (`3897d2c`) and
+  `ml-irv-rebased` (`60630f3`) are both commit 1 above. `fix/lqa-project-path`
+  (`cb5c6b3`) duplicates `main`'s `83568c8`, a separate fix for #186. The old
+  `language-qa` (`72d34f0`) is already inside `main`. `indic-qa-integration`
+  was only a name for the commits that are now on `main`. Any of them can be
+  restored with `git branch <name> <sha>`.
+- **Audited and still present.** All five are duplicates or outdated, and
+  deletion is the owner's call.
+
+  | Branch | What `main` has instead |
+  |---|---|
+  | `backup/main-before-squash` | Its tree is identical to `0668a62` |
+  | `beta14-stage3-semantic-mapping` | Contained in the branch above |
+  | `fix/editor-toolbar-narrow-window` | `de6feef`, the same code |
+  | `submission-9b3b` | Its net change is `c5e3c35` plus 3 `.gitignore` lines already in `main` |
+  | `usfm-parser-91` | `b7d3884`, the same content |
+
+  The review fix `ed1e829` on the first two branches is in `main` through
+  `bd20d4e` and `0668a62`. Its tests are in
+  `engine/tests/ai/test_ai_review_protocol.py`.
+- **On `upstream`, untouched.** `upstream/language-qa`,
+  `upstream/fix/lqa-project-path`, `upstream/submission-9b3b` and
+  `upstream/usfm-parser-91`.
+
+**Open, in the order to take them:**
+
+1. **Licence of the pa/ml/hi/or wordlists.** They are OV-derived and their
+   terms are unstated (`engine/vendor/indic-qa/NOTICE.md`). Decide before any
+   public installer ships them.
+2. **Upstream.** Decide whether this work goes to RevantCI/bridge, as one PR
+   per piece (CONTRIBUTING.md), and file the issue it needs. The maintainer has
+   not seen it.
+3. **Desktop check at 1366×768.** Open a Hindi, a Malayalam and a Tamil
+   project. Check the Settings "Rules" choice, the panel's pack label and the
+   Indic glyph shaping. This has never been run (QA matrix A98, A99).
+4. **Edit latency.** An edit rebuilds the clusters without yielding. During a
+   Hindi pass, `verse.edit` p95 is 404 ms against 220 ms for Tamil; the
+   Malayalam rebuild takes about 2.5 s. File an issue; the fix is to rebuild
+   off the dispatcher's path or incrementally.
+5. **Inline promotion.** The candidates are in the PR 5 entry above. Each one
+   is a `rule_versions.json` change with a DECISIONS line, for the maintainer.
+   Malayalam round 4 has no false positives at all, so ask for a fresh sample
+   first.
+6. **More label rounds.** Import Hindi round 1 and Malayalam rounds 1–3 with
+   `scripts/import_indic_qa_labels.py`. Odia and Punjabi have no completed
+   workbook yet.
+7. **The Malayalam Psalms cap.** The book reaches `MAX_BOOK_FINDINGS` (3,000).
+   Decide whether the cap or the grouped-encoding volume should change.
+8. **Headings and footnotes.** Bridge's Language QA reads verse text only.
+   Hindi Genesis alone has 16 indic-qa footnote findings it does not see. This
+   is the existing LQA limitation, not new.
+
+**For whoever picks this up:**
+
+- Re-vendoring is `scripts/sync_indic_qa.py`. Then:
+  - bump the rule revisions it names;
+  - run `scripts/build_indic_qa_packs.py --rule-versions`;
+  - rebuild each `--irv-state`;
+  - run `scripts/measure_indic_qa.py`.
+- `test_each_snapshot_is_for_the_vendored_dictionary` fails until the
+  snapshots are rebuilt.
+- The CI human gates are three runs: Tamil, then `benchmark/human/hi
+  --language hin` and `benchmark/human/ml --language mal`.
+- `docs/LANGUAGE_QA_PACKS.md`, under "Profile packs", is the reference for all
+  of the above.
