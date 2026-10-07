@@ -217,9 +217,15 @@ in `rule_versions.json` with a DECISIONS line, once it has ≥ 20 labels at
 2. Bump the `revision` of any rule whose matching changed. The script names
    the profiles that changed.
 3. `build_indic_qa_packs.py --rule-versions` to add new rules.
-4. Rebuild each `irv_state.json.gz`.
-   `test_each_snapshot_is_for_the_vendored_dictionary` fails until you do.
-5. Run `measure_indic_qa.py`.
+4. Rebuild each `irv_state.json.gz`, Tamil's too: upstream's `dictionary/` is
+   on the allow-list. `test_each_snapshot_is_for_the_vendored_dictionary`
+   fails until you do. Build from the folder named in the snapshot's
+   `provenance.irvFolder`, and check its files still match
+   `provenance.inputs`. Never build from indic-qa's `corpora/irv/`: the
+   editor saves reviewers' corrections there.
+5. Run `measure_indic_qa.py`. To decide step 2, compare every pack finding
+   (chapter, verse, rule, text) of a real pass before and after the sync. Bump
+   only the rules whose findings moved.
 
 ## Pack layers: indic-qa's Tamil checker inside ta-irv (`indicQa`)
 

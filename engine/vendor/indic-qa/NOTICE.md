@@ -14,8 +14,9 @@ from `scripts/sync_indic_qa.py`.
 ## Provenance
 
 - **Source:** https://github.com/selvabenz/indic-qa
-- **Pinned commit:** recorded in `VENDORED.json` (`248eb81`, 2026-10-05, at the
-  first sync).
+- **Pinned commit:** recorded in `VENDORED.json`. `248eb81` (2026-10-05) at the
+  first sync; `ab53636` since 2026-10-07, which moved a project's ignored words
+  and learned fixes from the shared `Lexicon` onto each `Checker`.
 - **Fetched:** the `fetched` date in `VENDORED.json`.
 - **Not on PyPI.** indic-qa is a FastAPI application, not a package.
 - **Byte-exact.** Files are read from the commit with `git show`, never from a
@@ -99,3 +100,11 @@ Add each real problem found while integrating to this list, with the date.
 - 2026-10-07: `tamil_grammar.load_rules` *writes* a default `sandhi_rules.tsv`
   when the file is missing. Bridge ships the file, so the dictionary folder is
   never written (contract 2). Keep `sandhi_rules.tsv` on the sync allow-list.
+- 2026-10-07 (re-sync to `ab53636`): indic-qa's `corpora/irv/<code>` is the
+  editor's working copy, and the editor saves reviewers' corrections into it.
+  Its Hindi books differ from the IRV the snapshot was built from in 65 of 66
+  files, with the -ए/-ई house style applied, and its Tamil books in one line.
+  Rebuild `irv_state.json.gz` from the folder recorded in its
+  `provenance.irvFolder` (the original IRV) and compare `provenance.inputs`
+  first. Otherwise a reviewer's edits silently move the consistency
+  majorities.

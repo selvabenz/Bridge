@@ -174,7 +174,7 @@ def _panel(extra: dict | None = None) -> dict:
 
 def classify_first(checker, w: str, irv: int, ov: int):
     lex = checker.lex
-    if w in lex.ignored:
+    if checker.is_ignored(w):
         return None
     ms = lex.data.get("misspell", {}).get(w)
     if ms and on(checker, ms[1] if ms[1] in RULES else "pa.lex.known-misspelling"):
@@ -649,9 +649,8 @@ LABELS = {
         "double_space": "double space", "no_space_after_punct": "no space after the punctuation mark",
         "space_before_punct": "space before punctuation", "double_punct": "double punctuation",
         "zero_width": "invisible character", "digits_in_verse": "digits in verse text"},
-    "legend": [["unknown", "unknown"], ["malformed", "spelling fault"], ["malformed panel", "listed fault"],
-               ["irv_ok", "IRV word"], ["inflected_ok", "word + ending"], ["compound", "compound?"],
-               ["lead-panel", "consistency / grammar lead"], ["warn", "warning"], ["learned", "changed before"], ["ignored", "ignored"]],
+    "legend": ["unknown", "malformed", "listed", "irv_ok", "inflected_ok", "compound",
+               "lead-panel", "warn", "learned", "ignored", "flagged"],
     "counts_leads": "leads",
     "leads_heading": "Consistency and grammar leads",
     "ignored_pairs_heading": "Ignored leads",

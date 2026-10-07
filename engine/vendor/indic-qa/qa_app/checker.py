@@ -102,7 +102,6 @@ class Lexicon:
         self.name_final: set[str] = set()
         self.ignored: set[str] = set()
         self.corrections: dict[str, str] = {}     # reviewed misspelling -> its correction (corrections.tsv)
-        self.learned: dict[str, list[str]] = {}   # word the reviewer replaced -> what it became (store.learned_fixes)
         self.generation = 0
         self.dict_dir: Path | None = None
         self.rules: list[tg.Rule] = list(tg.DEFAULT_RULES) if self.lang.sandhi else []
@@ -194,12 +193,6 @@ class Lexicon:
 
     def set_ignored(self, words: Iterable[str]) -> None:
         self.ignored = set(words)
-        self.generation += 1
-
-    def set_learned(self, fixes: dict[str, list[str]]) -> None:
-        """The reviewer's past word replacements (old -> [new, …]).  Empty for every regression
-        contract, so nothing changes until a reviewer has made a change."""
-        self.learned = {k: list(v) for k, v in fixes.items() if v}
         self.generation += 1
 
     def remove_from_extra_words_file(self, words: list[str]) -> None:
@@ -331,6 +324,8 @@ class Checker:
         self._rule_cache: dict[tuple[str, str], tg.RuleHit | None] = {}
         self._rule_stats: tuple = ((), {})
         self.ignored_pairs: set[tuple[str, str]] = set()
+        self.ignored: set[str] = set()           # this project's "ignore everywhere" words (the lexicon is shared)
+        self.learned: dict[str, list[str]] = {}  # this project's word replacements (store.learned_fixes), old -> [new, …]
         self.index = SuggestIndex()
         self._cache: dict[str, WordInfo] = {}
         self._cache_key: tuple = ()
@@ -346,6 +341,20 @@ class Checker:
     def set_ignored_pairs(self, pairs: Iterable[tuple[str, str]]) -> None:
         self.ignored_pairs = set(pairs)
         self.settings_gen += 1
+
+    def set_ignored(self, words: Iterable[str]) -> None:
+        self.ignored = set(words)
+        self.settings_gen += 1
+
+    def set_learned(self, fixes: dict[str, list[str]]) -> None:
+        """The reviewer's past word replacements in this project (old -> [new, …]).  Empty for every
+        regression contract, so nothing changes until a reviewer has made a change."""
+        self.learned = {k: list(v) for k, v in fixes.items() if v}
+        self.settings_gen += 1
+
+    def is_ignored(self, w: str) -> bool:
+        """Ignored in this project, or (single-project app) on the lexicon itself."""
+        return w in self.ignored or w in self.lex.ignored
 
     def freq(self, w: str) -> int:
         return max(self.lex.lemma_count.get(w, 0), self.irv_count.get(w, 0))
@@ -454,13 +463,13 @@ class Checker:
         info = self._cache.get(w)
         if info is None:
             info = self._classify(w)
-            if self.lex.learned and w in self.lex.learned:
+            if self.learned and w in self.learned:
                 info = self._with_learned(w, info)
             self._cache[w] = info
         return info
 
     def learned_suggestions(self, w: str) -> list[dict]:
-        return [{"w": b, "op": "learned", "cls": "learned", "freq": self.freq(b)} for b in self.lex.learned.get(w, ())]
+        return [{"w": b, "op": "learned", "cls": "learned", "freq": self.freq(b)} for b in self.learned.get(w, ())]
 
     def _with_learned(self, w: str, info: WordInfo) -> WordInfo:
         """A word the reviewer replaced before: a known word is marked 'learned' so the editor can
@@ -482,7 +491,7 @@ class Checker:
         if bad:
             name, severity = bad
             return WordInfo("malformed", rule=name, severity=severity, sugg=self.suggest(w), irv=irv, ov=ov, ov_lemma=ov)
-        if w in lex.ignored:
+        if self.is_ignored(w):
             return WordInfo("ignored", irv=irv, ov=ov, ov_lemma=ov)
         if w in lex.name_final or lex.known(w):
             return WordInfo("ok", irv=irv, ov=ov, ov_lemma=ov)
@@ -544,7 +553,7 @@ class Checker:
             # a reviewer already corrected this misspelling: their form comes first
             first = {"w": right, "op": "reviewed", "cls": "reviewed", "freq": self.freq(right)}
             out = [first] + [d for d in out if d["w"] != right][:k - 1]
-        if self.lex.learned and w in self.lex.learned:
+        if self.learned and w in self.learned:
             # the reviewer replaced this word before: what it became comes before everything else
             learned = self.learned_suggestions(w)
             seen = {d["w"] for d in learned}

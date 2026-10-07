@@ -14956,3 +14956,83 @@ test pins that.
 **Not verified.** The desktop app. The OV wordlist licence question in NOTICE
 is less open for Tamil: the 1957 OV is public domain in India, and the
 digitisation is MIT.
+
+## 2026-10-07 — indic-qa re-vendored at ab53636 (branch `indic-qa-editor`, commit 0)
+
+First commit of the branch that brings indic-qa's editor features into Bridge
+(plan: learned fixes, scoped accept, flags, project words, book words,
+reference text and related words, verse history, bookmarks, the panel legend).
+Every one of them needs the checker API that upstream added after our pin, so
+this commit only moves the pin.
+
+**What changed upstream (`248eb81` → `ab53636`).**
+- `checker.py`: a project's ignored words and learned fixes moved from the
+  shared `Lexicon` to each `Checker` (`Checker.ignored`, `learned`,
+  `set_ignored`, `set_learned`, `is_ignored`).
+- The five profiles call `checker.is_ignored(w)` in `classify_first`, and their
+  `LABELS["legend"]` became a flat list of kind ids. Hindi, Malayalam and Odia
+  dropped the `unknown_color` style toggle.
+- `dictionary_hi/extra_words.txt` gained 16 words, and Tamil's
+  `dictionary/extra_words.txt` gained one (நன்றாக). So the ta-irv
+  dictionary manifest changes too.
+
+`scripts/sync_indic_qa.py` changed exactly those eight files plus the
+manifests and `VENDORED.json`. Every `open(` in the vendored code still names
+its encoding (NOTICE contract 3).
+
+**The snapshots were rebuilt from the original IRV, not from indic-qa's
+corpora.** Before rebuilding, each snapshot's `provenance.inputs` was compared
+with both candidate folders:
+
+| Language | `D:\Claude Lab\IRV <name>` (the recorded `irvFolder`) | indic-qa `corpora/irv/<code>` |
+|---|---|---|
+| hi | 66/66 identical | 65 of 66 files differ in content |
+| ml, or, pa | 66/66 identical | identical |
+| ta | 66/66 identical | 1 file differs (2 lines) |
+
+The Hindi differences are reviewers' corrections that indic-qa's editor saved
+into its working copy, for example लिये→लिए applied across the Bible under the
+-ए/-ई house style. Tamil's is one ஒற்று correction in GEN. Building from that
+copy would have moved Hindi's consistency majorities inside a vendor bump. All
+five were rebuilt from `D:\Claude Lab`. Rebuilding Hindi twice gave the same
+sha256 (`4bdf0961…`), so the build is still deterministic. Sizes are
+unchanged: hi 0.93 MB, ml 3.37, or 1.57, pa 0.42, ta 1.30. This trap is now an
+integration finding in NOTICE.md and a step in `LANGUAGE_QA_PACKS.md`
+"Updating".
+
+**No rule revision was bumped, and that was measured.**
+`--rule-versions` and `--ta-layer` added nothing: hi 40 rules, ml 42, or 37,
+pa 29, ta 17 layer rules. Every pack finding of a real `LanguageQaManager`
+pass was then dumped as a multiset of (chapter, verse, ruleId, text), before
+and after the sync. Books: hi GEN/PSA/ACT, ml GEN, or GEN/PSA, pa GEN, ta
+GEN/MAT.
+
+| hi GEN | hi PSA | hi ACT | ml GEN | or GEN | or PSA | pa GEN | ta GEN | ta MAT |
+|---|---|---|---|---|---|---|---|---|
+| 200 | 265 | 99 | 987 | 71 | 47 | 20 | 313 | 125 |
+
+All nine multisets are byte-identical. The new extra words change only what
+counts as "unknown", and `<code>.lex.unknown` is off in every profile pack.
+`is_ignored` equals the old test while no project sets an ignore. Bumping would
+have expired every reviewer's ignore for nothing.
+
+**Tests.**
+`test_ignored_and_learned_words_belong_to_one_checker_not_the_shared_lexicon`
+pins the property later commits rely on. Two Hindi checkers share one
+Lexicon, and an ignore or learned fix on one leaves the other unchanged. The
+dictionary is never touched.
+
+**Verified.**
+- `sync_indic_qa.py --check`: ok.
+- Pack and Language QA subsets (`tests/language_packs`, `test_language_qa*.py`,
+  `test_language_pack.py`): 3,347 passed, 3 xfailed.
+- Three human gates (Tamil, `hi --language hin`, `ml --language mal`): pass,
+  with output byte-identical to the run before the sync.
+- Frozen pair rebuilt (`bridge-engine.exe` 13.26 MB): `smoke_sidecars.py`
+  passes, including the Hindi pack (4.5 s) and the Tamil layer (7.6 s).
+- Full engine suite: 4,846 passed, 1 skipped, 3 xfailed. That is the baseline plus the new test.
+- Baseline before the sync: 4,844 passed, 1 failed. The failure,
+  `test_logos_get_state_spawns_the_real_helper…`, passes alone in 1.2 s, so it
+  is a load-timing flake on unchanged `main`.
+
+**Not verified.** The desktop app. Nothing user-visible changed.

@@ -48,6 +48,29 @@ def test_each_dictionary_loads_and_a_checker_builds(code):
     assert indic_qa_vendor.profile(code).PROFILE is lang
 
 
+def test_ignored_and_learned_words_belong_to_one_checker_not_the_shared_lexicon():
+    """Since ab53636 a project's ignored words and learned fixes live on its
+    Checker. Bridge relies on that: two projects of one language share a
+    Lexicon (and the Tamil layer caches one), so a word one project accepts
+    must not change another's findings, and the dictionary is never touched
+    (NOTICE contract 2)."""
+    mods = indic_qa_vendor.modules()
+    lang = mods.langs.get("hi")
+    lex = mods.checker.Lexicon.load(packs_dir() / "hi-irv" / "dictionary", lang)
+    one, other = mods.checker.Checker(lex, None, lang), mods.checker.Checker(lex, None, lang)
+    unknown, known = "कखगघट", "परमेश्वर"
+    assert (one.classify(unknown).status, one.classify(known).status) == ("unknown", "ok")
+
+    one.set_ignored({unknown})
+    one.set_learned({known: ["प्रभु"]})
+
+    assert one.classify(unknown).status == "ignored"
+    assert one.classify(known).status == "learned"
+    assert [s["w"] for s in one.learned_suggestions(known)] == ["प्रभु"]
+    assert (other.classify(unknown).status, other.classify(known).status) == ("unknown", "ok")
+    assert lex.ignored == set() and not hasattr(lex, "learned")
+
+
 def test_each_dictionary_manifest_matches_its_files():
     for code in indic_qa_vendor.PROFILES + indic_qa_vendor.LAYER_PROFILES:
         folder = packs_dir() / f"{code}-irv" / "dictionary"

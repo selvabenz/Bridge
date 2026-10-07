@@ -422,7 +422,7 @@ def _house(checker, w: str, right: str) -> dict:
 
 def classify_first(checker, w: str, irv: int, ov: int):
     lex = checker.lex
-    if w in lex.ignored:
+    if checker.is_ignored(w):
         return None
     key = canon(w)
     irv_n, ov_n = irv_c(checker, key, irv), lex.lemma_count.get(key, 0)
@@ -1171,9 +1171,7 @@ def rules_payload(checker) -> dict:
 def style_toggles(checker) -> list[dict]:
     s = checker.settings["consistency"]
     d = checker.data
-    out = [{"id": "unknown_color", "label": "Unknown (not verifiable) words are shown",
-            "options": [{"value": "grey", "label": "light grey (red only for rare-near-common)"}, {"value": "red", "label": "red, as for Tamil"}],
-            "default": "grey", "close": False, "total": 10 ** 9, "fixed": True}]
+    out = []      # unknown words are red in every language (one legend for all, Oct 2026)
     nta = d.get("nta", Counter())
     maj = nta_majority(checker)
     out.append({"id": "nta", "label": "nta cluster encoding (Q1): " + " / ".join(f"{k} {nta.get(k, 0)}" for k in NTA_CHOICES),
@@ -1221,8 +1219,7 @@ def info_extra(checker) -> dict:
     by_switch = Counter()
     for rid, n in hits.items():
         by_switch[_rule_of_hit(rid)] += n
-    return {"unknown_color": style_choice(checker, "unknown_color", "grey"),
-            "settings_extra": {
+    return {"settings_extra": {
                 "legend": "Malayalam checks (docs/MALAYALAM_RULES.md)",
                 "rules": [{"id": rid, "label": f"{label}{'' if inline else ' — listed, not underlined'}", "default": dflt,
                            "count": by_switch.get(rid, 0)} for rid, (g, label, inline, dflt) in RULES.items()],
@@ -1252,9 +1249,8 @@ LABELS = {
         "double_space": "double space", "no_space_after_punct": "no space after the punctuation mark",
         "space_before_punct": "space before punctuation", "double_punct": "double punctuation",
         "zero_width": "invisible character (zero-width space, BOM, no-break space)", "digits_in_verse": "digits in verse text"},
-    "legend": [["unknown", "not verifiable"], ["rare_near_common", "rare near a common word"], ["malformed", "spelling fault"],
-               ["malformed panel", "listed fault"], ["irv_ok", "IRV word"], ["inflected_ok", "word + ending"],
-               ["compound", "compound?"], ["lead-panel", "consistency / grammar lead"], ["warn", "warning"], ["learned", "changed before"], ["ignored", "ignored"]],
+    "legend": ["unknown", "rare_near_common", "malformed", "listed", "irv_ok", "inflected_ok",
+               "compound", "lead-panel", "warn", "learned", "ignored", "flagged"],
     "counts_leads": "leads",
     "leads_heading": "Consistency and grammar leads",
     "ignored_pairs_heading": "Ignored leads",
