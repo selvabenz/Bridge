@@ -15684,3 +15684,108 @@ next/previous-issue keys. Frontend only: commit 1 had already given
 **Not verified.**
 - The desktop app.
 - Whether the WebView2 shell reserves F8. jsdom does not.
+
+## 2026-10-07 — Handoff: branch `indic-qa-editor` (indic-qa's editor features)
+
+**Where the work is.** The branch is local only: not pushed and no PR. It was
+cut from `main` at `8604ad2`. It ports every editor feature of the approved
+mockup except indic-qa's import/export writers and its hosted app. The
+mockup is https://claude.ai/artifact/JUdjTd7RDTnMieZ4xw4W4V, private to its
+owner. There is one commit per feature, in order:
+
+| Commit | What | Matrix |
+|---|---|---|
+| `f912eb3` | Re-vendor indic-qa at `ab53636`; rebuild the five IRV snapshots | A101 |
+| `19e62f4` | indic-qa findings drawn inline behind the reviewer's precision and confidence threshold; Settings › Language QA pane | A102 |
+| `38a6ad4` | Workbench schema v6: `language_qa_batches`, `language_qa_learned_fixes`, `language_qa_flags` | — |
+| `6872bda` | Learned fixes from single-word edits | A103 |
+| `2a668d0` | Accept or ignore in the verse, chapter or book, with confirmation and batch undo | A104 |
+| `43c72bb` | Reviewer flags | A105 |
+| `a47b189` | Project word list, Book words, IRV occurrences | A106 |
+| `3225c6f` | Reference Bible panel from a user folder; OV occurrences; related words | A107 |
+| `00026d8` | Verse change history, Edits tab, Raw view | A108 |
+| `1ea9bd5` | Bookmarks, recent chapters, text size | A109 |
+| `675dfbd` | Kind legend, Verse/Chapter/Book list scope, F8/Shift+F8 | A110 |
+| `797ec78` | Test fix: the in-code inline rules include `learned.replacement` | — |
+
+`797ec78` is a late fix to `6872bda`'s test coverage. That commit ran only
+the Language QA tests, and `test_language_pack.py` pins the exact inline
+list. The full suite caught it at the end of the branch, and only the
+expectation changed.
+
+**Verified at the branch head, with the commands as written:**
+
+- `python scripts/sync_indic_qa.py --check`: ok.
+- `pytest -n auto` (engine): 4,928 passed, 1 skipped, 3 xfailed, and one
+  failure (the `797ec78` test, then fixed). `test_language_pack.py`: 47
+  passed. The pre-branch baseline was 4,843 passed, 1 skipped, 3 xfailed.
+- Human gates (`scripts/language_qa_benchmark.py --human-labels … --gate`,
+  no `--write-baseline`): Tamil, Hindi and Malayalam all pass.
+- Latency gate (`scripts/benchmark_language_qa.py --gate --cores 2`), source:
+  - Tamil passed.
+  - Hindi failed once, with `verse.decide` (languageQa) at p95 199.99 ms
+    against the 50 ms budget, then passed twice.
+  - Earlier on the branch Hindi also failed once on `verse.get` (55.87 ms).
+    One-off spikes on a busy machine are the pattern so far, but they are
+    not explained.
+- Latency gate, frozen (`--engine engine\dist\bridge-engine.exe`): Tamil and
+  Hindi pass. This needed `BRIDGE_LANGUAGE_PACKS_DIR=engine\language_packs`.
+  Without it the script launches the exe with no packs folder, so the Tamil
+  run asserts `pack == "ta-irv"` and gets `common`. The script gap predates
+  this branch; see Open.
+- `npm run check`: 0 errors, 0 warnings. `npm run test`: 595 passed.
+  `npm run build`: ok.
+- `cargo check`: ok. `cargo test`: 11 passed. The sidecar timeouts changed
+  in `2a668d0`.
+- Frozen pair: `scripts/build-sidecars.ps1`, then
+  `python scripts/smoke_sidecars.py engine/dist/bridge-engine.exe`: passed,
+  including the indic-qa Hindi pack and ta-irv's indic-qa layer.
+  - In Windows PowerShell 5.1, `*>` redirection turns PyInstaller's INFO
+    lines on stderr into a terminating error. Run the script through
+    `powershell -File` instead.
+
+**Not verified:** the desktop app at 1366×768. Rows A101–A110 are all
+"Desktop NOT RUN". The plan's desktop script for Hindi GEN and Tamil
+covers the following. Each row's BUILD_LOG entry names what jsdom cannot
+show.
+- the slider at 0 and 100;
+- a learned mark;
+- a chapter accept and Undo all;
+- a flag that survives reopening;
+- Book words;
+- an OV folder;
+- bookmarks across books;
+- F8;
+- glyph shaping in the new tabs.
+
+**Open, for the maintainer (@RevantCI) and the owner:**
+
+1. **Is a bulk Use an "alternative path for applying corrections"?**
+   CLAUDE.md stop-and-ask. A chapter or book accept makes one ordinary
+   `apply_scripture_edit` per verse, after the reviewer confirms the listed
+   verses, and the batch can be undone. It never crosses books. The
+   maintainer has not ruled on this.
+2. **OV licence.** Nothing OV-derived for hi, ml, or or pa is bundled; the
+   reviewer points Settings at their own folder. The question in
+   `engine/vendor/indic-qa/NOTICE.md` is unchanged.
+3. **Inline promotion.** The reviewed `inline` flag was never flipped. Drawing
+   indic-qa findings is a runtime predicate over the reviewer's threshold
+   (DECISIONS 2026-10-07). Promoting the seven rules at ≥ 0.90 precision is a
+   separate, reviewed edit.
+4. **Edit latency during a scoped accept.** Each verse is a full edit, and a
+   Malayalam cluster rebuild runs per edit. An issue should move that rebuild
+   off the dispatcher path.
+5. **Learned fixes are per book.** They are written to the materialized
+   books of a collection, not lazy ones, which is the same gap house style
+   has at project scope.
+6. **`scripts/benchmark_language_qa.py --engine`** passes no
+   `--language-packs-dir`, so a frozen run is common-only unless
+   `BRIDGE_LANGUAGE_PACKS_DIR` is set. Fix in the script.
+7. **Three test files import from another test module**, against CLAUDE.md
+   rule 2. `tests/persistence/test_workbench_sync.py`,
+   `test_metrics_and_backups_index.py` and `test_workspace_repository.py`
+   all import from `test_workbench_repository.py`. This predates the branch
+   and was found while adding tests. The helpers belong in `tests/support/`.
+8. **Upstream.** Decide whether this goes to RevantCI/bridge, as one PR per
+   commit with issues (CONTRIBUTING.md).
+
