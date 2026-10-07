@@ -88,7 +88,14 @@ LAYERS = ("pattern", "lexicon", "housestyle", "integrity")
 # highlight.ts's LANGUAGE_QA_CATEGORY_MARKS must have exactly these keys
 # (test_category_marks_match_the_engine).
 # "usfm": markup hygiene that does not change the text (2026-09-28 review).
-CATEGORIES = ("typo", "sandhi", "word-joining", "punctuation", "unicode", "spacing", "termbase", "name", "usfm")
+# "consistency" and "grammar": the indic-qa profile packs (pa, ml, hi, or),
+# corpus-attested spelling consistency and agreement leads, panel-only
+# (DECISIONS 2026-10-07).
+CATEGORIES = ("typo", "sandhi", "word-joining", "punctuation", "unicode", "spacing", "termbase", "name", "usfm",
+              "consistency", "grammar")
+# What a Tamil (ta-irv) or common-checks project lists as in scope: unchanged
+# since Phase 7. A profile pack lists the categories its enabled rules use.
+DEFAULT_COVERAGE = CATEGORIES[:9]
 CONFIDENCES = ("high", "medium", "low")
 
 # What Language QA checks and what it never checks (layered-rules Phase 7).
@@ -107,7 +114,15 @@ _IN_SCOPE_LABELS = {
     "termbase": ("Approved key terms", "அங்கீகரிக்கப்பட்ட முக்கியச் சொற்கள்"),
     "name": ("Proper-name spelling", "பெயர்ச்சொல் எழுத்துக்கூட்டல்"),
     "usfm": ("USFM markup formatting (not a text change)", "USFM குறியீட்டு வடிவமைப்பு (உரை மாற்றம் அல்ல)"),
+    # Profile packs only; no Tamil label is shown for them.
+    "consistency": ("Spelling consistency with the rest of the translation", ""),
+    "grammar": ("Agreement and case leads attested in the corpus (listed, not drawn)", ""),
 }
+# A profile pack flags corpus-attested agreement pairs, so it cannot say
+# agreement is never checked; it says what it does not check instead.
+_PROFILE_AGREEMENT = (
+    "clause-agreement", "Agreement across a whole clause",
+    "", "Only word pairs the corpus attests are flagged (grammar leads); the clause needs a reviewer.", "")
 _OUT_OF_SCOPE = (
     ("agreement", "Agreement: திணை, பால், எண் (subject–verb, person, gender, number)",
      "திணை, பால், எண் இயைபு (எழுவாய்–பயனிலை)",
@@ -132,13 +147,18 @@ _OUT_OF_SCOPE = (
 )
 
 
-def coverage() -> dict[str, Any]:
-    """The structured coverage statement every Language QA status carries."""
+def coverage(categories: Any = None) -> dict[str, Any]:
+    """The structured coverage statement every Language QA status carries.
+    `categories`: what the project's pack can report (profile packs); None
+    keeps the Tamil/common statement (DEFAULT_COVERAGE)."""
+    profile = categories is not None
+    shown = [c for c in CATEGORIES if c in set(categories)] if profile else list(DEFAULT_COVERAGE)
+    out_of_scope = [_PROFILE_AGREEMENT if row[0] == "agreement" and profile else row for row in _OUT_OF_SCOPE]
     return {
         "inScope": [{"category": c, "label": _IN_SCOPE_LABELS[c][0], "labelTa": _IN_SCOPE_LABELS[c][1]}
-                    for c in CATEGORIES],
+                    for c in shown],
         "outOfScope": [{"category": c, "label": label, "labelTa": label_ta, "reason": reason, "reasonTa": reason_ta}
-                       for c, label, label_ta, reason, reason_ta in _OUT_OF_SCOPE],
+                       for c, label, label_ta, reason, reason_ta in out_of_scope],
         "handOff": COVERAGE_HANDOFF,
         "summary": "Enabled technical checks only; no grammar or publication certification.",
     }

@@ -1,0 +1,11 @@
+{
+ "pack": "pa-irv",
+ "version": "1.0.0",
+ "language": "pa",
+ "script": "Guru",
+ "engine": "indic-qa",
+ "profile": "pa",
+ "dictionary": "dictionary",
+ "rules": [],
+ "description": "Punjabi IRV checks from indic-qa's pa profile (qa_app/langs/pa.py, vendored at 248eb81) over its OV-built dictionary. See docs/LANGUAGE_QA_PACKS.md, \"Profile packs\"."
+}

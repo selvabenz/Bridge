@@ -1,0 +1,11 @@
+{
+ "pack": "hi-irv",
+ "version": "1.0.0",
+ "language": "hi",
+ "script": "Deva",
+ "engine": "indic-qa",
+ "profile": "hi",
+ "dictionary": "dictionary",
+ "rules": [],
+ "description": "Hindi IRV checks from indic-qa's hi profile (qa_app/langs/hi.py, vendored at 248eb81) over its OV-built dictionary. See docs/LANGUAGE_QA_PACKS.md, \"Profile packs\"."
+}

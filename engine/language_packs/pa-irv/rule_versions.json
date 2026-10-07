@@ -1,0 +1,267 @@
+{
+ "description": "Bridge's view of each indic-qa rule. `revision` expires earlier ignores when bumped; `inline` needs the human gate (DECISIONS 2026-09-28). Written by scripts/build_indic_qa_packs.py --rule-versions, then reviewed by hand.",
+ "rules": {
+  "pa.norm.encoding": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.norm.latin-in-text": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.norm.quotes": {
+   "revision": 1,
+   "category": "punctuation",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.shape.errors": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.shape.warnings": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.shape.single-letter": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "pattern",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.shape.long-token": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "pattern",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.shape.mixed-script": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.shape.hyphen": {
+   "revision": 1,
+   "category": "punctuation",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.punct.space-before-danda": {
+   "revision": 1,
+   "category": "spacing",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.punct.double": {
+   "revision": 1,
+   "category": "punctuation",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.norm.spacing": {
+   "revision": 1,
+   "category": "punctuation",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.punct.punct-before-danda": {
+   "revision": 1,
+   "category": "punctuation",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.punct.double-danda": {
+   "revision": 1,
+   "category": "punctuation",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.punct.quotes-unbalanced": {
+   "revision": 1,
+   "category": "punctuation",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.punct.ascii-fullstop": {
+   "revision": 1,
+   "category": "punctuation",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.lex.unknown": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "lexicon",
+   "severity": "medium",
+   "confidence": "low",
+   "enabled": false,
+   "inline": false,
+   "note": "off in Bridge: a word missing from the dictionary is not a finding"
+  },
+  "pa.lex.rare-near-common": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "lexicon",
+   "severity": "medium",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.lex.known-misspelling": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "lexicon",
+   "severity": "medium",
+   "confidence": "high",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.style.divine-names": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "lexicon",
+   "severity": "medium",
+   "confidence": "high",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.lex.archaic-form": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "lexicon",
+   "severity": "medium",
+   "confidence": "low",
+   "enabled": false,
+   "inline": false
+  },
+  "pa.style.nukta-consistency": {
+   "revision": 1,
+   "category": "consistency",
+   "layer": "lexicon",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.style.haha-consistency": {
+   "revision": 1,
+   "category": "consistency",
+   "layer": "lexicon",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.style.rara-consistency": {
+   "revision": 1,
+   "category": "consistency",
+   "layer": "lexicon",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.style.adhak-consistency": {
+   "revision": 1,
+   "category": "consistency",
+   "layer": "lexicon",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.gram.genitive-gender": {
+   "revision": 1,
+   "category": "grammar",
+   "layer": "pattern",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.gram.oblique": {
+   "revision": 1,
+   "category": "grammar",
+   "layer": "pattern",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.style.reduplication-hyphen": {
+   "revision": 1,
+   "category": "word-joining",
+   "layer": "pattern",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "pa.style.repeated-word": {
+   "revision": 1,
+   "category": "word-joining",
+   "layer": "pattern",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": false,
+   "inline": false
+  }
+ }
+}

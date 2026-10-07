@@ -1,0 +1,11 @@
+{
+ "pack": "or-irv",
+ "version": "1.0.0",
+ "language": "or",
+ "script": "Orya",
+ "engine": "indic-qa",
+ "profile": "or",
+ "dictionary": "dictionary",
+ "rules": [],
+ "description": "Odia IRV checks from indic-qa's or profile (qa_app/langs/odia.py, vendored at 248eb81) over its OV-built dictionary. See docs/LANGUAGE_QA_PACKS.md, \"Profile packs\"."
+}

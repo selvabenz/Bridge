@@ -10,7 +10,7 @@ import pytest
 
 from tc_ai_bridge.language_packs import default_pack
 from tc_ai_bridge.language_qa import (
-    CATEGORIES, CONFIDENCES, INLINE_RULES, LAYERS, RULE_VERSION, RULES, WORDLIST_COMMON_MIN, inline_rule_names, WORDLIST_MIN_LENGTH, WORDLIST_RARE_MAX, WORDLIST_RATIO_MIN,
+    CATEGORIES, CONFIDENCES, DEFAULT_COVERAGE, INLINE_RULES, LAYERS, RULE_VERSION, RULES, WORDLIST_COMMON_MIN, inline_rule_names, WORDLIST_MIN_LENGTH, WORDLIST_RARE_MAX, WORDLIST_RATIO_MIN,
     detect_language, lift_inline_usfm, scan_text, stable_finding_id, text_hash, wordlist_findings,
 )
 from tc_ai_bridge.language_qa_jobs import (
@@ -892,7 +892,8 @@ def test_status_states_what_language_qa_does_and_does_not_check(vallinam_engine)
     response = call(engine, "languageQa.status", {"projectPath": str(project)})
     assert response["success"]
     cover = response["result"]["coverage"]
-    assert [row["category"] for row in cover["inScope"]] == list(CATEGORIES)
+    # A Tamil project's statement; a profile pack lists its own categories.
+    assert [row["category"] for row in cover["inScope"]] == list(DEFAULT_COVERAGE)
     assert {row["category"] for row in cover["outOfScope"]} >= {
         "agreement", "meaning-shift", "omission-addition", "textual-basis"}
     for row in cover["inScope"] + cover["outOfScope"]:
@@ -1000,7 +1001,8 @@ def test_a_shared_script_never_suggests_a_pack_without_metadata():
     # Devanagari is written by Hindi, Marathi, Nepali and Sanskrit: never guessed.
     assert detect_language("देवनागरी लिपि में लिखा पाठ " * 10)["pack"] == "common"
     # A language with no registered pack gets the common checks, however clear its script.
-    assert detect_language("മലയാളം ലിപിയിൽ എഴുതിയ പാഠം " * 10, "ml")["pack"] == "common"
+    # (Malayalam got the ml-irv pack on 2026-10-07; Bengali has none.)
+    assert detect_language("বাংলা লিপিতে লেখা পাঠ্য " * 10, "bn")["pack"] == "common"
 
 
 def test_wordlist_findings_flags_a_rare_pulli_variant_of_a_common_word():

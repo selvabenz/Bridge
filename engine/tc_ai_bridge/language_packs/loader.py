@@ -72,6 +72,7 @@ CATEGORY_LAYERS = {
     "punctuation": "integrity", "spacing": "integrity", "unicode": "integrity",
     "termbase": "housestyle", "name": "housestyle",
     "usfm": "integrity",
+    "consistency": "lexicon", "grammar": "pattern",
 }
 SEVERITIES = ("high", "medium", "low")
 CONFIDENCES = ("high", "medium", "low")
@@ -636,6 +637,11 @@ def load_pack(name: str = "", *, directory: Path | None = None) -> RulePack:
         raise ValueError("load_pack needs a pack name or a directory")
     directory = directory or packs_dir() / name
     meta, raws = _read_pack(directory)
+    if meta.get("engine") == "indic-qa":
+        # A profile pack: indic-qa's own rule catalogue, no JSON rules and no
+        # embedded examples (docs/LANGUAGE_QA_PACKS.md, "Profile packs").
+        from . import indic_qa_adapter
+        return indic_qa_adapter.build_pack({k: v for k, v in meta.items() if k != "rules"}, directory)
     pack = _build(meta, raws, directory=directory)
     run_examples(pack)
     return pack

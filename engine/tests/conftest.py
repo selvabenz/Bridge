@@ -60,6 +60,7 @@ _FILE_MARKERS = {
     "test_php_review_walkthrough_stage9a.py": ("external",),
     "test_passage_semantic_foundation.py": ("external",),
     "test_indic_qa_vendor.py": ("packs",),
+    "test_indic_qa_packs.py": ("packs",),
 }
 
 

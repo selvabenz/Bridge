@@ -229,7 +229,8 @@ def pack_copy(tmp_path, edit):
 
 @pytest.mark.parametrize("edit,message", [
     (lambda r: r.update(colour="red"), "unknown rule keys ['colour']"),
-    (lambda r: r.update(category="grammar"), "unknown category 'grammar'"),
+    # "grammar" became a category with the indic-qa profile packs (2026-10-07).
+    (lambda r: r.update(category="semantics"), "unknown category 'semantics'"),
     (lambda r: r.update(severity="urgent"), "severity and confidence must be"),
     (lambda r: r.pop("message"), "missing 'message'"),
     (lambda r: r["match"].update(link="sometimes"), "match.link must be one of"),

@@ -130,7 +130,7 @@
               <h3>Checks · <span lang="ta">சரிபார்ப்பவை</span></h3>
               <ul>
                 {#each status.coverage.inScope as row (row.category)}
-                  <li>{row.label} · <span lang="ta">{row.labelTa}</span></li>
+                  <li>{row.label}{#if row.labelTa} · <span lang="ta">{row.labelTa}</span>{/if}</li>
                 {/each}
               </ul>
             </div>
@@ -139,8 +139,8 @@
               <ul>
                 {#each status.coverage.outOfScope as row (row.category)}
                   <li title={row.reason}>
-                    {row.label} · <span lang="ta">{row.labelTa}</span>
-                    <span class="reason">{row.reason} <span lang="ta">{row.reasonTa}</span></span>
+                    {row.label}{#if row.labelTa} · <span lang="ta">{row.labelTa}</span>{/if}
+                    <span class="reason">{row.reason}{#if row.reasonTa} <span lang="ta">{row.reasonTa}</span>{/if}</span>
                   </li>
                 {/each}
               </ul>

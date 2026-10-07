@@ -29,6 +29,13 @@ def test_pack(name):
     [entry] = [e for e in available() if e["pack"] == name]
     assert pack.language == entry["language"]
     assert len({r.id for r in pack.rules}) == len(pack.rules)
+    if pack.meta.get("engine") == "indic-qa":
+        # A profile pack: indic-qa's rule catalogue, checked in
+        # test_indic_qa_adapter.py; its data files are below.
+        assert {r.match_type for r in pack.rules} == {"indic-qa"}
+        assert (packs_dir() / name / "dictionary" / "MANIFEST.json").is_file()
+        assert (packs_dir() / name / "irv_state.json.gz").is_file()
+        return
     for rule in pack.rules:
         assert rule.match_type in KINDS, rule.id
         assert rule.source.get("provenance"), rule.id

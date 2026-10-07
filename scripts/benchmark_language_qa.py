@@ -72,15 +72,24 @@ def main() -> int:
     parser.add_argument("--gate", action="store_true", help="exit 1 if a gated RPC's p95 exceeds the budget")
     parser.add_argument("--gate-all", action="store_true", help="also gate the shared write paths")
     parser.add_argument("--without-scan", action="store_true", help="also sample with Language QA paused")
+    parser.add_argument("--language", choices=("ta", "hi"), default="ta",
+                        help="hi: a Hindi project, so the indic-qa profile pack's book step runs beside "
+                             "the sampled requests (one reviewed misspelling per verse)")
     args = parser.parse_args()
-    text = ("ஆதியிலே தேவன் வானத்தையும் பூமியையும் படைத்தார். " * 4).strip()
-    timings = []
-    for _ in range(1000):
-        start = time.perf_counter()
-        assert not scan_text(text, book="php", chapter="1", verse="1", pack=default_pack("ta-irv"))["findings"]
-        timings.append((time.perf_counter() - start) * 1000)
-    measurements = {"pureScanMedianMs": statistics.median(timings),
-                    "pureScanP95Ms": sorted(timings)[949], "pureScanMaxMs": max(timings)}
+    if args.language == "hi":
+        text = ("आदि में परमेश्वर ने आकाश और पृथ्वी की सृष्टि की। उसकी आयु सताईस वर्ष की थी। " * 2).strip()
+        declared = {"id": "hin", "name": "Hindi"}
+        measurements = {}
+    else:
+        text = ("ஆதியிலே தேவன் வானத்தையும் பூமியையும் படைத்தார். " * 4).strip()
+        declared = {"id": "tam", "name": "Tamil"}
+        timings = []
+        for _ in range(1000):
+            start = time.perf_counter()
+            assert not scan_text(text, book="php", chapter="1", verse="1", pack=default_pack("ta-irv"))["findings"]
+            timings.append((time.perf_counter() - start) * 1000)
+        measurements = {"pureScanMedianMs": statistics.median(timings),
+                        "pureScanP95Ms": sorted(timings)[949], "pureScanMaxMs": max(timings)}
     with tempfile.TemporaryDirectory(prefix="bridge-language-qa-") as temp:
         root = Path(temp)
         project = root / "project"
@@ -90,7 +99,7 @@ def main() -> int:
         alignment_dir.mkdir(parents=True)
         (project / "manifest.json").write_text(json.dumps({
             "project": {"id": "php", "name": "Philippians"},
-            "target_language": {"id": "tam", "name": "Tamil"}, "tc_version": "8",
+            "target_language": declared, "tc_version": "8",
         }), encoding="utf-8")
         # 400 synthetic verses, enough to keep the default yielding worker busy.
         for chapter in range(1, 5):
@@ -185,9 +194,14 @@ def main() -> int:
                 assert status["state"] != "failed", status
                 time.sleep(.1)
             assert status["state"] == "completed", status
-            assert status["totalFindings"] == 1, status
-            assert status["findings"][0]["verse"] == "3-4", status
-            assert status["language"]["pack"] == "ta-irv", status
+            if args.language == "hi":
+                # The book step reports the misspelling in every verse; the cap is 3,000.
+                assert status["language"]["pack"] == "hi-irv", status
+                assert any(f["ruleId"] == "hi-irv/hi.lex.known-misspelling" for f in status["findings"]), status
+            else:
+                assert status["totalFindings"] == 1, status
+                assert status["findings"][0]["verse"] == "3-4", status
+                assert status["language"]["pack"] == "ta-irv", status
             for p, raw in original.items():
                 if p.name == "2.json":  # edited and edited back; the engine formats JSON its own way
                     assert json.loads(p.read_text(encoding="utf-8")) == json.loads(raw.decode("utf-8")), p
@@ -216,7 +230,10 @@ def main() -> int:
                 if status["state"] == "completed":
                     break
                 time.sleep(.2)
-            assert status["state"] == "completed" and status["totalFindings"] == 0, status
+            # Tamil: the one finding (verse 3-4) is edited away. Hindi: every verse
+            # still carries its misspelling; only the pass completing matters.
+            assert status["state"] == "completed", status
+            assert args.language == "hi" or status["totalFindings"] == 0, status
             measurements["editRecheckReusedChapters"] = status["reusedChapters"]
         finally:
             process.stdin.close()

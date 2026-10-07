@@ -1,0 +1,384 @@
+{
+ "description": "Bridge's view of each indic-qa rule. `revision` expires earlier ignores when bumped; `inline` needs the human gate (DECISIONS 2026-09-28). Written by scripts/build_indic_qa_packs.py --rule-versions, then reviewed by hand.",
+ "rules": {
+  "ml.norm.encoding": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.norm.nta-encoding": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.norm.zwnj-final": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.norm.zwnj-after-virama": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": false,
+   "inline": false
+  },
+  "ml.norm.invisible": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.norm.colon-for-visarga": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.shape.errors": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.shape.independent-vowel-mid-word": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.shape.visarga-position": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.shape.single-letter": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "pattern",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.shape.long-token": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "pattern",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": false,
+   "inline": false
+  },
+  "ml.shape.mixed-script": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.shape.hyphen": {
+   "revision": 1,
+   "category": "punctuation",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.punct.double-space": {
+   "revision": 1,
+   "category": "spacing",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.punct.space-before": {
+   "revision": 1,
+   "category": "spacing",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.punct.no-space-after": {
+   "revision": 1,
+   "category": "spacing",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.punct.double": {
+   "revision": 1,
+   "category": "punctuation",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.punct.straight-quote": {
+   "revision": 1,
+   "category": "punctuation",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.punct.quotes-unbalanced": {
+   "revision": 1,
+   "category": "punctuation",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.punct.dash": {
+   "revision": 1,
+   "category": "punctuation",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.punct.number-case": {
+   "revision": 1,
+   "category": "punctuation",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.lex.unknown": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "lexicon",
+   "severity": "medium",
+   "confidence": "low",
+   "enabled": false,
+   "inline": false,
+   "note": "off in Bridge: a word missing from the dictionary is not a finding"
+  },
+  "ml.lex.rare-near-common": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "lexicon",
+   "severity": "medium",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.lex.known-misspelling": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "lexicon",
+   "severity": "medium",
+   "confidence": "high",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.style.divine-names": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "lexicon",
+   "severity": "medium",
+   "confidence": "high",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.style.rejected-names": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "lexicon",
+   "severity": "medium",
+   "confidence": "high",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.lex.archaic-form": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "lexicon",
+   "severity": "medium",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.style.samvruthokaram": {
+   "revision": 1,
+   "category": "consistency",
+   "layer": "lexicon",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.style.yk": {
+   "revision": 1,
+   "category": "consistency",
+   "layer": "lexicon",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.style.chillu-conjunct": {
+   "revision": 1,
+   "category": "consistency",
+   "layer": "lexicon",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.style.gemination": {
+   "revision": 1,
+   "category": "consistency",
+   "layer": "lexicon",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.style.vowel-length": {
+   "revision": 1,
+   "category": "consistency",
+   "layer": "lexicon",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.punct.quote-direction": {
+   "revision": 1,
+   "category": "punctuation",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.style.nasal-form": {
+   "revision": 1,
+   "category": "consistency",
+   "layer": "lexicon",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.style.proper-names": {
+   "revision": 1,
+   "category": "consistency",
+   "layer": "lexicon",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.gram.medial-vowel-sandhi": {
+   "revision": 1,
+   "category": "grammar",
+   "layer": "pattern",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.gram.standalone-um": {
+   "revision": 1,
+   "category": "grammar",
+   "layer": "pattern",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.gram.standalone-o": {
+   "revision": 1,
+   "category": "grammar",
+   "layer": "pattern",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.gram.anusvara-plural": {
+   "revision": 1,
+   "category": "grammar",
+   "layer": "pattern",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.gram.locative-gemination": {
+   "revision": 1,
+   "category": "grammar",
+   "layer": "pattern",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.style.reduplication-hyphen": {
+   "revision": 1,
+   "category": "word-joining",
+   "layer": "pattern",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "ml.style.repeated-word": {
+   "revision": 1,
+   "category": "word-joining",
+   "layer": "pattern",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": false,
+   "inline": false
+  }
+ }
+}

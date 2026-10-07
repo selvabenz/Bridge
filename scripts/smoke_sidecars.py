@@ -489,6 +489,39 @@ def main() -> int:
                 raise SystemExit(f"Frozen checker missed duplicate verse: {sorted(check_types)}")
             if not any("missing_verses" in value for value in check_types):
                 raise SystemExit(f"Frozen checker missed absent verse: {sorted(check_types)}")
+
+            # The indic-qa profile packs: the vendored checker (inside the exe)
+            # and a dictionary plus IRV snapshot (beside it, --language-packs-dir)
+            # must both resolve in the frozen build. A Hindi project with one
+            # reviewed misspelling must report it from hi-irv.
+            hindi = Path(temp) / "hindi"
+            _write_json(hindi / "manifest.json", {
+                "project": {"id": "rut", "name": "Ruth"},
+                "target_language": {"id": "hin", "name": "Hindi"}, "tc_version": "8",
+            })
+            _write_json(hindi / "rut" / "1.json", {"1": "उसकी आयु सताईस वर्ष की थी।"})
+            _write_json(hindi / ".apps" / "translationCore" / "alignmentData" / "rut" / "1.json",
+                        {"1": {"alignments": [], "wordBank": []}})
+            (hindi / "rut.usfm").write_text("\\id RUT\n\\c 1\n\\v 1 उसकी आयु सताईस वर्ष की थी।\n",
+                                            encoding="utf-8")
+            opened_hindi = request("open-hindi", "project.open", {"path": str(hindi)})
+            if not opened_hindi.get("success"):
+                raise SystemExit(f"Frozen open of the Hindi project failed: {opened_hindi}")
+            lqa_started = time.monotonic()
+            lqa: dict = {}
+            while time.monotonic() - lqa_started < 90:
+                lqa = request(f"lqa-hindi-{int((time.monotonic() - lqa_started) * 10)}", "languageQa.status",
+                              {"projectPath": str(hindi), "limit": 100}).get("result") or {}
+                if lqa.get("state") in {"completed", "failed"}:
+                    break
+                time.sleep(0.2)
+            lqa_rules = {f.get("ruleId") for f in lqa.get("findings", [])}
+            if (lqa.get("state") != "completed" or lqa.get("language", {}).get("pack") != "hi-irv"
+                    or "hi-irv/hi.lex.known-misspelling" not in lqa_rules):
+                raise SystemExit(f"Frozen indic-qa Hindi pack did not report its finding: state={lqa.get('state')} "
+                                 f"language={lqa.get('language')} rules={sorted(lqa_rules)} "
+                                 f"limitations={lqa.get('limitations')}")
+            print(f"Frozen indic-qa Hindi pack passed in {time.monotonic() - lqa_started:.2f}s.")
         finally:
             process.terminate()
             try:
@@ -502,8 +535,8 @@ def main() -> int:
         "pinned UGNT source tokens, versification, names/transliteration, "
         "alignment statistics/proposal packaging, "
         "AI explain packaging, desktop connectors, project registry/duplicate import, "
-        "first-open live-review responsiveness, alignment/export/undo, and "
-        "duplicate/missing-verse checks succeeded."
+        "first-open live-review responsiveness, alignment/export/undo, "
+        "duplicate/missing-verse checks, and the indic-qa Hindi pack succeeded."
     )
     return 0
 

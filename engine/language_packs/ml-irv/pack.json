@@ -1,0 +1,11 @@
+{
+ "pack": "ml-irv",
+ "version": "1.0.0",
+ "language": "ml",
+ "script": "Mlym",
+ "engine": "indic-qa",
+ "profile": "ml",
+ "dictionary": "dictionary",
+ "rules": [],
+ "description": "Malayalam IRV checks from indic-qa's ml profile (qa_app/langs/ml.py, vendored at 248eb81) over its OV-built dictionary. See docs/LANGUAGE_QA_PACKS.md, \"Profile packs\"."
+}

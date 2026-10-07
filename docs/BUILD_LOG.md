@@ -14503,3 +14503,107 @@ registered pack. The manifests land with the adapter that can load them.
 smoke extension.
 
 **Open:** the licence of the OV-derived wordlists (`NOTICE.md`).
+
+## 2026-10-07 — indic-qa profile packs: Punjabi, Malayalam, Hindi and Odia in Language QA (PR 2 of the indic-qa plan)
+
+A project declared `hin`, `mal`, `ory` or `pan` now gets Language QA findings
+from indic-qa's own checker (`docs/LANGUAGE_QA_PACKS.md`, "Profile packs").
+They arrive as ordinary Language QA findings, carrying decisions, house style,
+ignore expiry, history and the panel with them.
+
+**Run on real input first.** Before writing the mapping, the vendored checker
+was run on Genesis in all four languages. That run showed what the plan had
+wrong:
+
+- Statuses `rare_near_common` and `compound` exist.
+- Leads have a `grammar` kind.
+- Sub-rules (`hi.norm.nuqta-order`) map to catalogue rules through
+  `SHAPE_RULE_SWITCH`.
+- `words.tsv` lists only Old Version words. IRV-only words are missing, and
+  they are exactly the ones that decide `irv_ok` and the consistency
+  majorities. Seeding from it, as the plan said, would have been wrong.
+
+**The IRV snapshot instead.** The fix is indic-qa's own index of all 66 IRV
+books, built through Bridge's importer and the same synthetic-book path as a
+pass:
+
+| Language | Gzipped snapshot | Load time |
+|---|---|---|
+| Hindi | 0.93 MB | 0.17 s |
+| Malayalam | 3.37 MB | 0.54 s |
+| Odia | 1.57 MB | 0.27 s |
+| Punjabi | 0.42 MB | 0.08 s |
+
+Rebuilding a snapshot gives byte-identical output.
+
+**Bugs the measurements caught, fixed before commit:**
+
+1. **Malayalam grouped encoding fix.** It works per text run. A synthetic line
+   with one run spanning a lifted footnote produced a span across markup,
+   which was then dropped (GEN 6:3, 11:28). Lines are now split into runs
+   where lifted markup was, as indic-qa's runs are.
+2. **Double-counted book.** A book code in the wrong case added a 67th book
+   instead of replacing the open one. The index key is now Bridge's
+   lower-case book id.
+3. **Coverage.** A profile pack's categories never reached `status()`, so a
+   Hindi project showed Tamil coverage.
+4. **Panel message.** The language message said "no dictionaries" for a pack
+   that has one.
+
+**Parity with indic-qa** (`scripts/measure_indic_qa.py`). The reference
+indexes and checks verse text only, as Bridge reads it.
+
+| Book | Hindi | Malayalam | Odia | Punjabi |
+|---|---|---|---|---|
+| GEN | 200 = 200 | 987 = 987 | 71 = 71 | 20 = 20 |
+| PSA | 265 = 265 | capped (see below) | 47 = 47 | 244 indentation spaces differ (see below) |
+
+- **Malayalam Psalms** reaches the existing 3,000-finding book cap
+  (`MAX_BOOK_FINDINGS`, together with the common rules' findings). Everything
+  missing comes after the cap.
+- **Punjabi Psalms.** The 244 extra native `pa.norm.spacing` findings are
+  double spaces that indent a source line before `\q \v N`. They lie between
+  verses, so Bridge's import does not keep them as verse text.
+- **Outside verses.** Headings and footnotes are not scanned by Bridge's
+  Language QA (an existing limitation). Hindi Genesis has 8 ellipsis and 8
+  misspelling findings in footnotes that Bridge does not see.
+
+**Time and memory** (Windows, this machine):
+
+| Book | First pass (with load) | Next pass | `check_chapter` p95 | Peak working set |
+|---|---|---|---|---|
+| hi GEN | 3.7 s | 2.3 s | 27 ms | 183 MB |
+| ml GEN | 6.8 s | 1.9 s | 19 ms | 375 MB |
+| or GEN | 4.2 s | 1.8 s | 15 ms | 221 MB |
+| pa GEN | 2.8 s | 1.6 s | 13 ms | 153 MB |
+
+The peak working set includes the measurement's own native run, which parses
+66 books, so it overstates the engine.
+
+**Latency gate** (`benchmark_language_qa.py --gate --cores 2`), now with
+`--language hi`. It passes. The gated p95s during a Hindi pass:
+
+| Request | p95 |
+|---|---|
+| `verse.decide` | 21 ms |
+| `languageQa.status` | 1.0 ms |
+| `languageQa.inline` | 2.4 ms |
+| `verse.get` | 3.7 ms |
+| `ping` | 0.9 ms |
+
+Ungated: `verse.edit` p95 was 404 ms for Hindi against 220 ms for Tamil. An
+edit changes the book's counts, which rebuilds the clusters without yielding
+(0.4 s for Hindi, 2.5 s for Malayalam). Filed as a follow-up; not hidden.
+
+**Tamil unchanged.** The whole-Bible scan is byte-identical to `main`: 2,618
+findings. The human gate passes.
+
+**Frozen.** `smoke_sidecars.py` now opens a Hindi project and requires its
+`hi-irv` finding: it passed in 2.1 s. The engine exe is 13.24 MB (was 13.04).
+
+**Tests:**
+
+- `tests/language_packs`: 79 passed, including the adapter and `packs` files.
+- `tests/service/test_language_qa_indic.py`: 3 passed.
+- Language QA areas together: 3,401 passed.
+- Vitest: 531. svelte-check: 0 errors, 0 warnings. Build passed.

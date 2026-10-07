@@ -30,6 +30,10 @@ export const LANGUAGE_QA_CATEGORY_MARKS: Record<LanguageQaCategory, string> = {
   termbase: "m-term",              // purple double
   name: "m-term",
   usfm: "m-lqa-spacing",           // markup hygiene, not a text change
+  // indic-qa profile packs (pa, ml, hi, or): panel-only today, so these
+  // classes are drawn only once a rule passes the human gate.
+  consistency: "m-lqa-typo",       // a minority spelling: the same family as a possible typo
+  grammar: "m-lqa-sandhi",         // a lead between two words, like a sandhi lead
 };
 
 /** The class for one Language QA finding. */

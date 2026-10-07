@@ -17,15 +17,17 @@ from typing import Any, Callable
 from . import terminology
 from .housestyle import bundled_seed, house_style, name_findings, preferences_from, with_seed
 from .language_packs import PackError, default_pack, load_project_overrides, loaded_pack
+from .language_packs import indic_qa_adapter
 from .language_packs.indic import ConfusionSet
 from .language_packs.lexicon import lexicon_findings, lexicon_fingerprint
 from .language_packs.loader import apply_overrides
 from .language_packs.registry import AUTO, OFF, language_name, language_of_pack, pack_setting, select_pack
 from .language_packs.registry import problem as registry_problem
+from .language_qa import RULES as COMMON_RULES
 from .language_qa import (CROSSING_LIMITATION, FINDING_SOURCE, INLINE_RULES, MAX_VERSE_CHARS,
                           coverage, inline_rule_names, rule_fields, suggestion,
                           RULE_VERSION, detect_language, lift_inline_usfm, scan_text,
-                          stable_finding_id, word_occurrences, wordlist_findings)
+                          stable_finding_id, text_hash, word_occurrences, wordlist_findings)
 
 MAX_CHAPTER_BYTES = 2 * 1024 * 1024
 MAX_BOOK_FINDINGS = 3000
@@ -563,7 +565,7 @@ class LanguageQaManager:
                 "inlineRules": self._inline_rules(),
                 "totalFindings": len(findings), "offset": offset,
                 "findings": findings[offset:offset + limit],
-                "coverage": coverage(),
+                "coverage": coverage(self._summary.get("coverageCategories")),
                 "storage": ("Persisted in the project workbench." if self._store is not None
                             else "Session results; regenerated on reopen."),
             })
@@ -746,14 +748,30 @@ class LanguageQaManager:
         # accepted; refusals become coverage notes).
         rule_pack, pack_problems = project_rule_pack(context[0], pack_name)
         limitations.extend(pack_problems)
+        # A profile pack does carry a dictionary; say what it checks instead of
+        # detect_language's "no dictionaries" line. A pack chosen in Settings
+        # keeps resolve_language's own message.
+        if (rule_pack is not None and indic_qa_adapter.is_profile_pack(rule_pack.meta)
+                and detection.get("basis") != "setting"):
+            detection = {**detection, "message": f"{language_name(rule_pack.language)} spelling, encoding, "
+                         f"punctuation and consistency checks from the IRV dictionary; agreement leads are listed, "
+                         f"never drawn. Not a grammar or publication review."}
         if pack_name and rule_pack is None:
             detection = {**detection, "pack": "common", "message": pack_problems[0] if pack_problems else
                          detection["message"]}
+        # A profile pack (indic-qa, pa/ml/hi/or) checks the whole book after the
+        # chapter loop; its rules never run in the per-verse scan.
+        profile = rule_pack is not None and indic_qa_adapter.is_profile_pack(rule_pack.meta)
+        indic_qa_adapter.release(keep=rule_pack.name if profile else None)
+        coverage_categories = (sorted({meta.category for meta in COMMON_RULES.values() if meta.enabled}
+                                      | {r.category for r in rule_pack.rules if r.enabled})
+                               if profile else None)
         with self._lock:
             if self._cancelled(generation) and cancelled is None:
                 return None
             self._pack_name = rule_pack.name if rule_pack is not None else None
             self._summary["inlineRules"] = inline_rule_names(rule_pack)
+            self._summary["coverageCategories"] = coverage_categories
         # The pack's lexicon, loaded on this first pass that needs it (never at
         # startup); its known splits run in the verse scan, so it keys the cache.
         lexicon = rule_pack.lexicon() if rule_pack is not None else None
@@ -770,6 +788,7 @@ class LanguageQaManager:
         checked = skipped = reused = scanned_verses = 0
         book_counts: dict[str, int] = {}
         book_first_seen: dict[str, tuple[str, str, int, int, str, str]] = {}
+        book_text: dict[str, dict[str, Any]] = {}  # chapter -> verses, for a profile pack's book step
         completed = 0
         for completed, path in enumerate(paths):
             if not proceed():
@@ -783,6 +802,8 @@ class LanguageQaManager:
             chapter_limitations: list[str] = []
             try:
                 data, signature, _ = self._read(path)
+                if profile:
+                    book_text[chapter] = data
                 cached = cache.get(chapter)
                 cached_verses = cached["verses"] if cached and cached.get("key") == key else {}
                 verses: dict[str, Any] = {}
@@ -863,6 +884,8 @@ class LanguageQaManager:
         wordlist = rule_pack.book_rule("wordlist-variant") if rule_pack is not None and lexicon is None else None
         if truncated:
             limitations.append("Wordlist audit skipped: book scan was truncated.")
+            if profile:
+                limitations.append(f"{rule_pack.name} checks skipped: book scan was truncated.")
         elif wordlist is not None and len(book_counts) > wordlist.params["maxTerms"]:
             limitations.append("Wordlist audit skipped: too many distinct words to compare.")
         else:
@@ -871,6 +894,19 @@ class LanguageQaManager:
                      if lexicon is not None else
                      wordlist_findings(book, book_counts, book_first_seen, pack=rule_pack, rule=wordlist)
                      if wordlist is not None else [])
+            if profile:
+                try:
+                    checked_book = indic_qa_adapter.profile_findings(
+                        rule_pack, book, book_text, lift=lift_inline_usfm, max_verse_chars=MAX_VERSE_CHARS,
+                        finding_id=stable_finding_id, rule_fields=rule_fields, text_hash=text_hash,
+                        crossing_note=CROSSING_LIMITATION, proceed=proceed)
+                except Exception as exc:  # the vendored checker must never fail the pass
+                    checked_book = [], [f"{rule_pack.name} checks failed; common checks only: "
+                                        f"{type(exc).__name__}: {exc}"]
+                if checked_book is None:
+                    return None
+                audit += checked_book[0]
+                limitations.extend(checked_book[1])
             if rule_pack is not None:
                 audit += name_findings(book, book_counts, book_first_seen,
                                        style.lists.get("housestyle.properNouns", frozenset()),
@@ -901,7 +937,7 @@ class LanguageQaManager:
                 "falsePositives": false_positives, "inlineRules": inline_rule_names(rule_pack),
                 "rulePack": rule_pack.pack_version if rule_pack is not None else "common",
                 "recheckCount": sum(1 for f in findings if f.get("previouslyIgnored")),
-                "houseStyleSuppressed": suppressed_by_rule,
+                "houseStyleSuppressed": suppressed_by_rule, "coverageCategories": coverage_categories,
                 "limitations": limitations, "incomplete": bool(limitations or skipped),
                 "checkedVerses": checked, "skippedVerses": skipped,
                 "reusedChapters": reused, "scannedVerses": scanned_verses,

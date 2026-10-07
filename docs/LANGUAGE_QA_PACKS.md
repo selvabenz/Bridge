@@ -119,3 +119,82 @@ only after the human-label gate (`LANGUAGE_QA_BENCHMARK.md`).
 
 Tamil behaviour is still pinned by the existing `tests/service` files and by
 the human benchmark.
+
+## Profile packs: indic-qa's checker (`"engine": "indic-qa"`)
+
+Punjabi, Malayalam, Hindi and Odia do not use JSON rules. Their packs run
+indic-qa's own checker (`selvabenz/indic-qa`). It is vendored in-process under
+`engine/vendor/indic-qa/`; see its `NOTICE.md` and DECISIONS 2026-10-07. This
+is the one exception to "a pack never ships Python". The code is upstream's,
+byte-exact and pinned, and the pack folder still holds only data.
+
+| File in `engine/language_packs/<code>-irv/` | What it is | Written by |
+|---|---|---|
+| `pack.json` | `"engine": "indic-qa"`, `"profile": "<code>"`, `"rules": []` | `scripts/build_indic_qa_packs.py --rule-versions`, once |
+| `rule_versions.json` | One entry per rule of the profile's `RULES`: category, layer, severity, confidence, `enabled`, `inline`, `revision` | the same script adds new rules; reviewed values are edited by hand |
+| `dictionary/` | The OV-built dictionary the profile reads, and `MANIFEST.json` with its hashes | `scripts/sync_indic_qa.py` |
+| `irv_state.json.gz` | The checker's index of the whole IRV | `scripts/build_indic_qa_packs.py --irv-state <code> <IRV folder>` |
+
+### How it fits the engine
+
+- **It is an ordinary `RulePack`.** Overrides, version stamps, ignore expiry
+  and the inline list all work unchanged. Every rule has
+  `match_type="indic-qa"` and `stage="book"`, so no per-verse kind runs it.
+- **Findings come from one book step.** It runs after the chapter loop, next
+  to the lexicon audit (`indic_qa_adapter.profile_findings`). Findings are
+  recomputed each pass and never written to `language_qa_cache`, because
+  they depend on the whole book.
+- **Bridge's chapter JSON becomes indic-qa's `Line`/`Book` objects.**
+  - There is one line per physical line of a verse's visible text, so
+    adjacency never crosses a poetry line.
+  - There is one run per stretch the lifted markup left contiguous, matching
+    indic-qa's runs. Malayalam's grouped encoding fix works per run.
+  - indic-qa's own USFM parser is never called.
+- **The IRV snapshot.** indic-qa indexes all 66 books at start-up; Bridge has
+  one book open. The snapshot restores that index, keyed by Bridge's
+  lower-case book id. Each pass re-indexes the open book from its live text,
+  which replaces that book's share. The clusters are rebuilt only when the
+  book's word counts changed.
+- **One checker is resident at a time.** Opening another language releases
+  it.
+
+### Mapping
+
+| indic-qa item | Bridge `rule` | Suggestions |
+|---|---|---|
+| A token with a status of `malformed`, `suspect`, `archaic`, `rare_near_common` or `unknown` | `SHAPE_RULE_SWITCH` maps a sub-rule to its catalogue rule. The sub-rule is kept as `detailRule`. | Its ranked `sugg` |
+| A lead (consistency, agreement, grammar) | The lead's `rule` | `proposed` |
+| A warning | Its `rule`, or `GENERIC_WARNING_RULE[kind]` | `fix` |
+
+`ok`, `irv_ok`, `inflected_ok`, `compound` and `learned` tokens are not
+findings. Two categories exist for these packs only: `consistency` and
+`grammar`.
+
+### Phase 1 policy (DECISIONS 2026-10-07)
+
+- Every rule is panel-only (`inline: false`). The human gate needs labels.
+- No rule has high severity together with high confidence, so none blocks
+  export. The loader refuses such an entry.
+- `<code>.lex.unknown` is off: a word that is not in the dictionary is not a
+  finding.
+- The coverage statement lists the pack's own categories. "Agreement" is
+  replaced by "agreement across a whole clause", because corpus-attested pairs
+  are flagged.
+
+### Measured against indic-qa itself
+
+`scripts/measure_indic_qa.py <code> <IRV folder> <BOOK>` runs indic-qa the
+way its editor does, then a real `LanguageQaManager` pass. It compares the
+verse-text findings as a multiset of (chapter, verse, rule, text). The
+reference counts verse text only, like Bridge. Results for 2026-10-07 are in
+BUILD_LOG.
+
+### Updating
+
+1. `sync_indic_qa.py --source <clone> --commit <sha>` to re-vendor.
+2. Bump the `revision` of any rule whose matching changed. The script names
+   the profiles that changed.
+3. `build_indic_qa_packs.py --rule-versions` to add new rules.
+4. Rebuild each `irv_state.json.gz`.
+   `test_each_snapshot_is_for_the_vendored_dictionary` fails until you do.
+5. Run `measure_indic_qa.py`.

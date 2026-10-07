@@ -383,3 +383,32 @@ adapter); running indic-qa's Tamil profile; writing to its dictionaries; any
 part of its editor, store or `.SFM` writer.
 **Revisit when:** indic-qa is published as a package, or a language needs
 behaviour that its profile hooks cannot express.
+
+## 2026-10-07 — Corpus-attested agreement leads are in scope for the indic-qa packs, listed only
+**Decision:** The Hindi, Punjabi, Malayalam and Odia packs report indic-qa's
+grammar leads under a new `grammar` category. These are genitive gender,
+oblique case, honorific case and bigram rules, each backed by corpus counts.
+They are never drawn inline and never block export. The coverage statement
+says agreement across a whole clause is still not checked.
+**Because:** the maintainer chose to include them. Each lead names its
+corpus evidence. LQA-3's line was drawn against clause-level judgement, which
+these leads do not claim.
+**Rules out:** a Tamil agreement rule without its own decision; drawing a
+grammar lead inline before the human gate; treating a clean pass as a grammar
+review.
+**Revisit when:** labelled rounds give a grammar rule ≥ 0.90 on ≥ 20 labels.
+
+## 2026-10-07 — indic-qa findings are recomputed per pass, from a whole-IRV snapshot, and panel-only
+**Decision:** A profile pack's findings come from one book step each pass. They
+are not cached per verse. IRV-wide word counts come from a shipped snapshot of
+indic-qa's own index; the open book's live text replaces its share. In phase 1
+every rule is `inline: false`, no rule is high severity with high confidence,
+and `<code>.lex.unknown` is off.
+**Because:**
+- The checker's leads depend on the whole book and on the whole IRV.
+- `words.tsv` misses every IRV-only word.
+- The CI human gate fails any inline rule without 20 labels.
+**Rules out:** seeding from `words.tsv`; drawing a rule inline because indic-qa
+does; rebuilding the clusters on a pass where the text did not change.
+**Revisit when:** reviewer-workbook labels are imported for a rule, or the edit
+latency of the cluster rebuild needs fixing (Malayalam: 2.5 s).

@@ -1,0 +1,339 @@
+{
+ "description": "Bridge's view of each indic-qa rule. `revision` expires earlier ignores when bumped; `inline` needs the human gate (DECISIONS 2026-09-28). Written by scripts/build_indic_qa_packs.py --rule-versions, then reviewed by hand.",
+ "rules": {
+  "or.norm.encoding": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "or.norm.va-letter": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "or.norm.colon-for-visarga": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "or.norm.apostrophe": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "or.norm.zwnj-halant": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "or.norm.latin-in-text": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "or.norm.quotes": {
+   "revision": 1,
+   "category": "punctuation",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "or.norm.mixed-digits": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "or.shape.errors": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "or.shape.warnings": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "or.shape.single-letter": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "pattern",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "or.shape.long-token": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "pattern",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "or.shape.mixed-script": {
+   "revision": 1,
+   "category": "unicode",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "or.shape.hyphen": {
+   "revision": 1,
+   "category": "punctuation",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "or.punct.space-before-danda": {
+   "revision": 1,
+   "category": "spacing",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "or.punct.question-space": {
+   "revision": 1,
+   "category": "spacing",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "or.punct.double": {
+   "revision": 1,
+   "category": "punctuation",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "or.norm.spacing": {
+   "revision": 1,
+   "category": "punctuation",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "or.punct.fullstop-for-danda": {
+   "revision": 1,
+   "category": "punctuation",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "or.punct.quotes-unbalanced": {
+   "revision": 1,
+   "category": "punctuation",
+   "layer": "integrity",
+   "severity": "medium",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false
+  },
+  "or.lex.unknown": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "lexicon",
+   "severity": "medium",
+   "confidence": "low",
+   "enabled": false,
+   "inline": false,
+   "note": "off in Bridge: a word missing from the dictionary is not a finding"
+  },
+  "or.lex.rare-near-common": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "lexicon",
+   "severity": "medium",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "or.lex.known-misspelling": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "lexicon",
+   "severity": "medium",
+   "confidence": "high",
+   "enabled": true,
+   "inline": false
+  },
+  "or.style.divine-names": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "lexicon",
+   "severity": "medium",
+   "confidence": "high",
+   "enabled": true,
+   "inline": false
+  },
+  "or.lex.archaic-form": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "lexicon",
+   "severity": "medium",
+   "confidence": "low",
+   "enabled": false,
+   "inline": false
+  },
+  "or.style.length-consistency": {
+   "revision": 1,
+   "category": "consistency",
+   "layer": "lexicon",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "or.style.flap-consistency": {
+   "revision": 1,
+   "category": "consistency",
+   "layer": "lexicon",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "or.style.phala-consistency": {
+   "revision": 1,
+   "category": "consistency",
+   "layer": "lexicon",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "or.style.ya-consistency": {
+   "revision": 1,
+   "category": "consistency",
+   "layer": "lexicon",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "or.style.lla-consistency": {
+   "revision": 1,
+   "category": "consistency",
+   "layer": "lexicon",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": false,
+   "inline": false
+  },
+  "or.style.pancham-consistency": {
+   "revision": 1,
+   "category": "consistency",
+   "layer": "lexicon",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "or.style.halant-final-consistency": {
+   "revision": 1,
+   "category": "consistency",
+   "layer": "lexicon",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "or.style.joiner-consistency": {
+   "revision": 1,
+   "category": "consistency",
+   "layer": "lexicon",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "or.gram.detached-suffix": {
+   "revision": 1,
+   "category": "grammar",
+   "layer": "pattern",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "or.gram.honorific-case": {
+   "revision": 1,
+   "category": "grammar",
+   "layer": "pattern",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "or.gram.pronoun-copula": {
+   "revision": 1,
+   "category": "grammar",
+   "layer": "pattern",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": true,
+   "inline": false
+  },
+  "or.style.repeated-word": {
+   "revision": 1,
+   "category": "word-joining",
+   "layer": "pattern",
+   "severity": "low",
+   "confidence": "low",
+   "enabled": false,
+   "inline": false
+  }
+ }
+}
