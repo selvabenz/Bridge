@@ -15036,3 +15036,89 @@ dictionary is never touched.
   is a load-timing flake on unchanged `main`.
 
 **Not verified.** The desktop app. Nothing user-visible changed.
+
+## 2026-10-07 — indic-qa findings drawn by default, behind the reviewer's threshold (branch `indic-qa-editor`, commit 1)
+
+DECISIONS 2026-10-07, "indic-qa findings are drawn in the text by default".
+Every enabled indic-qa rule is now underlined unless the reviewer's Settings >
+Language QA threshold hides it.
+
+**Two flags, not one.** CI's human gate reads `inline`
+(`language_qa_benchmark.human_inline_rules`) and fails any inline rule with
+fewer than 20 labels. Odia and Punjabi have no labels at all. So `inline`
+stays the reviewed flag and no pack file changed. A new served field,
+`drawn`, is worked out per request by `tc_ai_bridge/language_qa_drawn.py`.
+A finding is drawn when it is reviewed-inline, or when it is an indic-qa
+finding (`match_type == "indic-qa"`) whose rule passes both thresholds:
+
+- **Minimum measured precision**, 0–100, default 0. The precision comes from
+  the new `rule_precision.json` in the pack folder. A rule nobody labelled is
+  unmeasured and passes any value.
+- **Lowest rule confidence**, default "low".
+
+The four tests that pin "no indic-qa rule is reviewed inline" pass unchanged.
+
+**Applied per request, never during a pass.** The pass records only which
+rules are indic-qa rules and their precision (`_gated`). `inline()`,
+`status()` and `verse()` apply the threshold when they answer. Moving the
+slider rescans nothing and changes no cache key, finding id or decision. A
+test pins that the generation does not move.
+
+**`rule_precision.json`.** `language_qa_benchmark.py --human-labels …
+--write-precision` writes it from the same scoring the gate uses: aggregates
+only, for labelled rules of that pack. Measured rules: hi 17, ml 20, ta 12.
+For Tamil this includes ta-irv's JSON rules, which the threshold ignores.
+Some rules rest on one to four labels, so a high slider value treats a 1-of-1
+rule as 100 %. The panel will show the label count.
+
+**`languageQa.status` gains:**
+- `chapter` and `categories` filters;
+- `categoryCounts`, narrowed by chapter only so the legend shows every kind;
+- `drawnRules` and `inlinePolicy`.
+
+**Settings.**
+- Engine: `languageQaInlinePrecision` and `languageQaInlineConfidence`, both
+  app-level `AppSettings` properties beside `triage_hide_threshold`, clamped.
+  `set_settings` passes them to the manager.
+- UI: a new **Language QA** pane holds the threshold (slider, confidence
+  select, its own Apply), the pack picker and House style. The last two moved
+  verbatim from Terminology.
+- House style now loads when its own pane opens. Five Vitest tests were
+  re-pointed to the new pane, and three were added.
+
+**Two things found and fixed on the way.**
+1. `highlight.ts` dropped every finding whose `inline` was false. The engine's
+   new marks would never have appeared. It now honours `drawn`, falling back
+   to `inline` for a payload without it. Tests cover both, plus a 200-mark
+   verse budget.
+2. **Lock contention.** With every Hindi indic-qa finding drawn,
+   `languageQa.inline` deep-copied a whole chapter of findings while holding
+   the manager lock. `verse.decide` waits on that lock. The latency gate
+   (`--language hi`, 50 ms) failed 3 of 3 runs (65, 69 and 1,415 ms p95),
+   against 1 of 3 for the old code (51.9 ms). `inline()` now picks under the
+   lock and copies after releasing it. That is safe because a published
+   finding is never changed in place: a pass replaces `_summary` whole. After
+   the fix: 3 of 3 pass.
+
+**A pre-existing fragility, not fixed here.** Running only
+`tests/service/test_language_qa.py` under `-n auto` errors in 6–8 setups.
+Every worker loads the Tamil indic-qa layer (about 2.8 s of CPU) at once,
+and the tests' `wait()` gives up at 8 s. The code before this commit fails
+the same way (2 failed and 6 errors, twice). The file passes serially, as CI
+runs it: 297 passed. The full parallel suite spreads these tests out, which
+is why the baseline full run passed.
+
+**Verified.**
+- Engine:
+  - `test_language_qa.py` serially: 297 passed.
+  - `test_language_qa_indic.py` (5 new tests), `tests/jobs/test_language_qa_drawn.py`
+    (7 new), the benchmark test, `tests/language_packs`, house style and
+    `test_bridge_service.py`: 239 passed.
+  - Latency gate, both at 50 ms: Tamil pass; Hindi pass 3 of 3.
+- Frontend:
+  - `npm run check`: 0 errors, 0 warnings.
+  - `npm run test`: 540 passed.
+  - `npm run build`: ok.
+
+**Not verified.** The desktop app (QA matrix A102), and how noisy the text
+looks with every indic-qa finding drawn.

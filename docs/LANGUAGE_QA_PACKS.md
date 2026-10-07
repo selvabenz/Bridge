@@ -170,9 +170,26 @@ byte-exact and pinned, and the pack folder still holds only data.
 findings. Two categories exist for these packs only: `consistency` and
 `grammar`.
 
-### Phase 1 policy (DECISIONS 2026-10-07)
+### Inline policy (DECISIONS 2026-10-07, "drawn in the text by default")
 
-- Every rule is panel-only (`inline: false`). The human gate needs labels.
+- Every rule's reviewed flag is `inline: false`, because the human gate needs
+  labels. That is unchanged, and CI reads only this flag.
+- What the verse text *draws* is separate. Every enabled indic-qa rule is
+  drawn unless the reviewer's Settings > Language QA threshold hides it: a
+  minimum measured precision and a lowest confidence, both of which must
+  pass. `language_qa_drawn.py` decides it per request. It never runs during
+  a pass, so moving the slider rescans nothing. Served findings carry
+  `drawn`; `languageQa.inline` returns only drawn ones, and
+  `languageQa.status` reports `drawnRules` and `inlinePolicy`.
+- Measured precision is `rule_precision.json` in the pack folder:
+  aggregates only, for the rules reviewers labelled. Regenerate it after a
+  new label round:
+  `language_qa_benchmark.py --human-labels benchmark/human/<code> --language <declared> --write-precision`
+  (Tamil: `--human-labels benchmark/human`). A rule missing from it is
+  unmeasured and passes any slider value.
+
+### Phase 1 data rules (DECISIONS 2026-10-07)
+
 - No rule has high severity together with high confidence, so none blocks
   export. The loader refuses such an entry.
 - `<code>.lex.unknown` is off: a word that is not in the dictionary is not a

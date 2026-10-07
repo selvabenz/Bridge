@@ -1,0 +1,75 @@
+{
+ "packVersion": "language-qa-7+hi-irv@1.0.0",
+ "labelsFile": "benchmark/human/hi",
+ "generatedAt": "2026-10-07T18:06:09",
+ "rules": {
+  "hi-irv/hi.gram.aur-or": {
+   "precision": 1.0,
+   "labelled": 4
+  },
+  "hi-irv/hi.gram.compound-postposition": {
+   "precision": 1.0,
+   "labelled": 10
+  },
+  "hi-irv/hi.gram.genitive-gender": {
+   "precision": 0.75,
+   "labelled": 12
+  },
+  "hi-irv/hi.gram.ki-ki": {
+   "precision": 1.0,
+   "labelled": 3
+  },
+  "hi-irv/hi.gram.oblique": {
+   "precision": 1.0,
+   "labelled": 4
+  },
+  "hi-irv/hi.gram.pronoun-copula": {
+   "precision": 1.0,
+   "labelled": 1
+  },
+  "hi-irv/hi.norm.colon-for-visarga": {
+   "precision": 1.0,
+   "labelled": 1
+  },
+  "hi-irv/hi.norm.zero-width": {
+   "precision": 1.0,
+   "labelled": 1
+  },
+  "hi-irv/hi.punct.double": {
+   "precision": 1.0,
+   "labelled": 9
+  },
+  "hi-irv/hi.punct.en-dash-in-word": {
+   "precision": 1.0,
+   "labelled": 8
+  },
+  "hi-irv/hi.punct.fullstop-for-danda": {
+   "precision": 1.0,
+   "labelled": 1
+  },
+  "hi-irv/hi.punct.quotes-unbalanced": {
+   "precision": 1.0,
+   "labelled": 2
+  },
+  "hi-irv/hi.shape.errors": {
+   "precision": 1.0,
+   "labelled": 34
+  },
+  "hi-irv/hi.shape.hyphen": {
+   "precision": 1.0,
+   "labelled": 3
+  },
+  "hi-irv/hi.style.nuqta-consistency": {
+   "precision": 1.0,
+   "labelled": 1
+  },
+  "hi-irv/hi.style.pancham-consistency": {
+   "precision": 1.0,
+   "labelled": 8
+  },
+  "hi-irv/hi.style.postposition-joining": {
+   "precision": 1.0,
+   "labelled": 1
+  }
+ }
+}

@@ -275,7 +275,7 @@ describe("SettingsModal terminology (#171)", () => {
     const packs = [{ language: "hi", name: "Hindi", pack: "hi-irv" }, { language: "ta", name: "Tamil", pack: "ta-irv" }];
     languageQaStatus.mockResolvedValue({ setting: "auto", packs });
     languageQaSetPack.mockResolvedValue({ setting: "off", packs });
-    render(SettingsModal, { props: { initialPane: "terminology", onClose: vi.fn() } });
+    render(SettingsModal, { props: { initialPane: "languageQa", onClose: vi.fn() } });
 
     const select = (await screen.findByLabelText("Rules")) as HTMLSelectElement;
     expect([...select.options].map((o) => o.value)).toEqual(["auto", "hi-irv", "ta-irv", "off"]);
@@ -289,9 +289,9 @@ describe("SettingsModal terminology (#171)", () => {
     project.set(minimalProject());
     terminologyList.mockResolvedValue({ rules: [] });
     languageQaStatus.mockRejectedValue(new Error("no pass yet"));
-    render(SettingsModal, { props: { initialPane: "terminology", onClose: vi.fn() } });
+    render(SettingsModal, { props: { initialPane: "languageQa", onClose: vi.fn() } });
 
-    expect(await screen.findByText(/No terminology rules recorded/)).toBeInTheDocument();
+    expect(await screen.findByText(/No project house style recorded yet/)).toBeInTheDocument();
     expect(screen.queryByLabelText("Rules")).toBeNull();
   });
 
@@ -424,7 +424,7 @@ describe("SettingsModal terminology (#171)", () => {
     housestyleList.mockResolvedValue({ entries: [learned], proposals: [proposal], thresholds: { learnIgnores: 3 } });
     housestyleSetState.mockResolvedValue({ entries: [{ ...learned, state: "removed" }], proposals: [], thresholds: {}, entry: learned });
     housestyleRecord.mockResolvedValue({ entries: [learned], proposals: [], thresholds: {}, entry: learned });
-    render(SettingsModal, { props: { initialPane: "terminology", onClose: vi.fn() } });
+    render(SettingsModal, { props: { initialPane: "languageQa", onClose: vi.fn() } });
 
     expect(await screen.findByText(/“அந்த தேசம்” for ta-irv\/sandhi.vallinam.demonstrative · word in book · 3 evidence/)).toBeInTheDocument();
     expect(screen.getByText("learned")).toBeInTheDocument();
@@ -444,7 +444,7 @@ describe("SettingsModal terminology (#171)", () => {
     terminologyList.mockResolvedValue({ rules: [] });
     housestyleList.mockResolvedValue({ entries: [], seed: [seed], proposals: [], thresholds: { learnIgnores: 3 } });
     housestyleRecord.mockResolvedValue({ entries: [{ ...seed, state: "removed" }], seed: [], proposals: [], thresholds: {}, entry: seed });
-    render(SettingsModal, { props: { initialPane: "terminology", onClose: vi.fn() } });
+    render(SettingsModal, { props: { initialPane: "languageQa", onClose: vi.fn() } });
     expect(await screen.findByText(/proper noun “சேத்து” · from the language pack's reviewed house style/)).toBeInTheDocument();
     expect(screen.getByText("bundled")).toBeInTheDocument();
     await fireEvent.click(screen.getByRole("button", { name: "Remove" }));
@@ -456,8 +456,8 @@ describe("SettingsModal terminology (#171)", () => {
     project.set(minimalProject());
     terminologyList.mockResolvedValue({ rules: [] });
     housestyleRecord.mockResolvedValue({ entries: [], proposals: [], thresholds: {}, entry: {} });
-    render(SettingsModal, { props: { initialPane: "terminology", onClose: vi.fn() } });
-    await screen.findByText(/No terminology rules recorded/);
+    render(SettingsModal, { props: { initialPane: "languageQa", onClose: vi.fn() } });
+    await screen.findByText(/No project house style recorded yet/);
     await fireEvent.input(screen.getByLabelText(/Add a proper noun/), { target: { value: "மோவாப்" } });
     await fireEvent.click(screen.getByRole("button", { name: "Add name" }));
     await waitFor(() => expect(housestyleRecord).toHaveBeenCalledWith(
@@ -476,5 +476,53 @@ describe("SettingsModal terminology (#171)", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Add rule" }));
 
     expect(await screen.findByText(/At least one approved, allowed, or rejected rendering is required/)).toBeInTheDocument();
+  });
+
+  it("keeps the Language QA rules and house style out of the Terminology pane", async () => {
+    project.set(minimalProject());
+    terminologyList.mockResolvedValue({ rules: [] });
+    languageQaStatus.mockResolvedValue({ setting: "auto", packs: [{ language: "hi", name: "Hindi", pack: "hi-irv" }] });
+    render(SettingsModal, { props: { initialPane: "terminology", onClose: vi.fn() } });
+    await screen.findByText(/No terminology rules recorded/);
+    expect(screen.queryByLabelText("Rules")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "House style" })).toBeNull();
+    expect(housestyleList).not.toHaveBeenCalled();
+  });
+
+  it("loads the inline threshold, saves both values with Apply, and keeps the modal open", async () => {
+    project.set(minimalProject());
+    languageQaStatus.mockResolvedValue({ setting: "auto", packs: [] });
+    getSettings.mockResolvedValue({
+      provider: "openai", apiBaseUrl: "", model: "gpt-5.6", hasApiKey: false, reviewerMode: "basic",
+      paratextNavigation: false, logosNavigation: false,
+      languageQaInlinePrecision: 30, languageQaInlineConfidence: "medium",
+    });
+    setSettings.mockResolvedValue({ languageQaInlinePrecision: 60, languageQaInlineConfidence: "high" });
+    const onClose = vi.fn();
+    render(SettingsModal, { props: { initialPane: "languageQa", onClose } });
+
+    const slider = (await screen.findByLabelText(/Minimum measured precision: 30%/)) as HTMLInputElement;
+    expect(slider.value).toBe("30");
+    const floor = screen.getByLabelText("Lowest rule confidence drawn") as HTMLSelectElement;
+    expect(floor.value).toBe("medium");
+
+    await fireEvent.input(slider, { target: { value: "60" } });
+    await fireEvent.change(floor, { target: { value: "high" } });
+    await fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    await waitFor(() => expect(setSettings).toHaveBeenCalledWith(
+      { languageQaInlinePrecision: 60, languageQaInlineConfidence: "high" }));
+    expect(await screen.findByText("Applied.")).toBeInTheDocument();
+    expect(screen.getByText(/confirmed less than 60% of the time are listed, not drawn/)).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("offers the threshold with no project open, and asks for one before the pack and house style", async () => {
+    render(SettingsModal, { props: { initialPane: "languageQa", onClose: vi.fn() } });
+    expect(await screen.findByLabelText(/Minimum measured precision: 0%/)).toBeInTheDocument();
+    expect(screen.getByText("Every indic-qa finding is drawn.")).toBeInTheDocument();
+    expect(screen.getByText(/Open a project to choose its Language QA rules/)).toBeInTheDocument();
+    expect(languageQaStatus).not.toHaveBeenCalled();
+    expect(housestyleList).not.toHaveBeenCalled();
   });
 });

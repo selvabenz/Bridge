@@ -78,7 +78,7 @@
   let triagePollGeneration = 0;
   let engineNotice = "";
   let engineNoticeTimer: ReturnType<typeof setTimeout> | undefined;
-  let settingsInitialPane: "ai" | "quality" | "connections" | "resources" | "security" = "ai";
+  let settingsInitialPane: "ai" | "quality" | "connections" | "resources" | "terminology" | "languageQa" | "security" = "ai";
   let navigationPollInFlight = false;
   let handlingNavigationRequest = "";
   let lastNavigationReference = "";
@@ -87,7 +87,7 @@
   let navigationRetryReference = "";
   let navigationRetries = 0;
 
-  function openSettings(pane: "ai" | "quality" | "connections" | "resources" | "security" = "ai"): void {
+  function openSettings(pane: "ai" | "quality" | "connections" | "resources" | "terminology" | "languageQa" | "security" = "ai"): void {
     settingsInitialPane = pane;
     settingsOpen.set(true);
   }

@@ -136,6 +136,13 @@ def human_main(args: argparse.Namespace) -> int:
         baseline_path.write_text(json.dumps(bench.human_baseline_of(result), ensure_ascii=False, indent=1) + "\n",
                                  encoding="utf-8")
         print(f"human baseline written to {baseline_path}", file=sys.stderr)
+    if args.write_precision:
+        # The per-rule precision the Settings > Language QA threshold reads.
+        # It ships inside the pack folder; benchmark/ does not.
+        precision_path = REPO / "engine" / "language_packs" / pack / "rule_precision.json"
+        precision_table = bench.human_precision_table(result, pack)
+        precision_path.write_text(json.dumps(precision_table, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+        print(f"rule precision written to {precision_path} ({len(precision_table['rules'])} rules)", file=sys.stderr)
     if args.gate:
         failures = bench.human_gate(result, baseline)
         for failure in failures:
@@ -169,6 +176,8 @@ def main() -> int:
     parser.add_argument("--baseline", type=Path, default=REPO / "benchmark" / "baseline.json")
     parser.add_argument("--gate", action="store_true")
     parser.add_argument("--write-baseline", action="store_true")
+    parser.add_argument("--write-precision", action="store_true",
+                        help="with --human-labels: write the pack's rule_precision.json (the inline threshold's data)")
     parser.add_argument("--update-doc", action="store_true")
     parser.add_argument("--write-labelled", action="store_true")
     parser.add_argument("--housestyle", type=Path,

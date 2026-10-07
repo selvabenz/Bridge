@@ -378,3 +378,16 @@ def test_cli_human_gate_runs_on_the_committed_labels_without_the_corpus():
     assert gated.returncode == 0 and "human gate: pass" in gated.stderr, gated.stderr
     assert "| `ta-irv/sandhi.vallinam.dative` | yes |" in gated.stdout
     assert "Recall proxies" in gated.stdout
+
+
+def test_the_precision_table_keeps_only_the_packs_labelled_rules():
+    """rule_precision.json (the inline threshold's data) carries aggregates
+    only, for rules a reviewer labelled, of the one pack it ships in."""
+    result = {"packVersion": "hi-irv@1.0.0", "labelsFile": "benchmark/human/hi", "generatedAt": "2026-10-07T12:00:00",
+              "rules": {"hi-irv/hi.lex.known-misspelling": {"labelled": 40, "tp": 38, "fp": 2, "precision": 0.95},
+                        "hi-irv/hi.shape.errors": {"labelled": 0, "tp": 0, "fp": 0, "precision": None},
+                        "common/spacing.extra": {"labelled": 23, "tp": 23, "fp": 0, "precision": 1.0}}}
+    table = bench.human_precision_table(result, "hi-irv")
+    assert table["rules"] == {"hi-irv/hi.lex.known-misspelling": {"precision": 0.95, "labelled": 40}}
+    assert (table["packVersion"], table["labelsFile"]) == ("hi-irv@1.0.0", "benchmark/human/hi")
+    assert "examples" not in json.dumps(table) and "text" not in json.dumps(table)

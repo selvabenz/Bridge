@@ -85,6 +85,8 @@ RULE_KEYS = {"id", "version", "legacyId", "legacyVersion", "enabled", "category"
              "examples", "provenance", "contexts"}
 OVERRIDE_RULE_KEYS = {"enabled", "inline", "abstain"}
 OVERRIDES_PATH = Path(".apps") / "translationCoreAI" / "language-packs"
+# Per-rule human precision, beside pack.json (RulePack.precision).
+RULE_PRECISION = "rule_precision.json"
 
 
 class PackError(ValueError):
@@ -299,6 +301,16 @@ class RulePack:
         if not file or self.directory is None:
             return None
         return _confusion(self.directory / file)
+
+    def precision(self) -> dict[str, dict[str, Any]]:
+        """ruleId -> {"precision", "labelled"} from the pack's
+        `rule_precision.json` (scripts/language_qa_benchmark.py
+        --write-precision), {} when it has none. Read once per pass for the
+        inline threshold (language_qa_drawn). The threshold is applied per
+        request, so the table never touches findings or the cache key."""
+        if self.directory is None:
+            return {}
+        return _precision(self.directory / RULE_PRECISION)
 
     def stamp(self, rule: Rule) -> tuple[str, str]:
         """(packVersion, ruleVersion) a rule's findings carry."""
@@ -706,6 +718,23 @@ def _confusion(path: Path) -> Any:
         _CONFUSION[path] = (ConfusionSet(json.loads(path.read_text(encoding="utf-8")), where=path.name)
                             if path.is_file() else None)
     return _CONFUSION[path]
+
+
+_PRECISION: dict[tuple[Path, int], dict[str, dict[str, Any]]] = {}
+
+
+def _precision(path: Path) -> dict[str, dict[str, Any]]:
+    """Keyed by mtime as well as path: the table is regenerated in place by
+    the benchmark script, and a long-lived engine should see the new one."""
+    try:
+        mtime = path.stat().st_mtime_ns
+    except OSError:
+        return {}
+    key = (path, mtime)
+    if key not in _PRECISION:
+        rules = json.loads(path.read_text(encoding="utf-8")).get("rules", {})
+        _PRECISION[key] = {rule_id: dict(row) for rule_id, row in rules.items() if isinstance(row, dict)}
+    return _PRECISION[key]
 
 
 def overrides_path(project_path: Path | str, name: str) -> Path:

@@ -596,6 +596,7 @@ class BridgeEngine:
         # inject an isolated instance rather than touch the real machine's
         # settings. See tests/test_bridge_service.py.
         self.settings = settings if settings is not None else AppSettings()
+        self._configure_language_qa()
         # Resolved lazily by current_actor_id(): working it out opens the
         # workspace database, and plenty of requests never write anything (#78).
         self._local_user: dict[str, str] | None = None
@@ -4520,6 +4521,8 @@ class BridgeEngine:
             "paratextNavigation": self.settings.paratext_navigation,
             "logosNavigation": self.settings.logos_navigation,
             "triageHideThreshold": self.settings.triage_hide_threshold,
+            "languageQaInlinePrecision": self.settings.language_qa_inline_precision,
+            "languageQaInlineConfidence": self.settings.language_qa_inline_confidence,
             "hasApiKey": bool(self.settings.get_api_key()),
             "aiUsage": self.settings.get_ai_usage_totals(),
         }
@@ -4549,11 +4552,22 @@ class BridgeEngine:
             self.settings.logos_navigation = bool(kwargs["logosNavigation"])
         if "triageHideThreshold" in kwargs:
             self.settings.triage_hide_threshold = kwargs["triageHideThreshold"]
+        if "languageQaInlinePrecision" in kwargs:
+            self.settings.language_qa_inline_precision = kwargs["languageQaInlinePrecision"]
+        if "languageQaInlineConfidence" in kwargs:
+            self.settings.language_qa_inline_confidence = kwargs["languageQaInlineConfidence"]
+        self._configure_language_qa()
         self._navigation.configure(
             paratext=self.settings.paratext_navigation,
             logos=self.settings.logos_navigation,
         )
         return self.get_settings()
+
+    def _configure_language_qa(self) -> None:
+        """Hand the reviewer's Language QA preferences to the manager. The inline
+        threshold is read per request, so nothing is rescanned."""
+        self._language_qa.configure(inline_precision=self.settings.language_qa_inline_precision,
+                                    inline_confidence=self.settings.language_qa_inline_confidence)
 
     def _require_project(self) -> None:
         if not self.project:
@@ -4652,7 +4666,14 @@ class BridgeEngine:
                     view = p.get("view", "findings")
                     if view not in {"findings", "recheck", "falsePositives"}:
                         raise ProjectError("view must be findings, recheck or falsePositives")
-                    result = self._language_qa.status(offset=p.get("offset", 0), limit=p.get("limit", 0), view=view)
+                    chapter, categories = p.get("chapter"), p.get("categories")
+                    if chapter is not None and not isinstance(chapter, str):
+                        raise ProjectError("chapter must be a string when given")
+                    if categories is not None and (not isinstance(categories, list)
+                                                   or not all(isinstance(c, str) for c in categories)):
+                        raise ProjectError("categories must be a list of strings when given")
+                    result = self._language_qa.status(offset=p.get("offset", 0), limit=p.get("limit", 0), view=view,
+                                                      chapter=chapter, categories=categories)
                 return EngineResponse.ok(request.id, result=result)
 
             if m == Methods.PING:

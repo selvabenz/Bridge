@@ -404,6 +404,33 @@ that Bridge already checks; applying a fix to a heading; turning
 **Revisit when:** reviewer labels exist for an `indicqa.*` rule (inline gate), or
 a heading writer exists.
 
+## 2026-10-07 — indic-qa findings are drawn in the text by default, behind the reviewer's own threshold
+**Decision:** Every enabled indic-qa rule (pa/ml/hi/or packs and ta-irv's
+layer) is drawn in the verse text unless the reviewer's Settings > Language QA
+threshold hides it. Two settings must both pass: a minimum measured reviewer
+precision (0–100, default 0) and a lowest rule confidence (default low). A
+rule nobody labelled has no measured precision and passes the slider.
+Precision ships per pack as `rule_precision.json`, written by
+`language_qa_benchmark.py --write-precision`. A finding now carries two
+answers. `inline` is the reviewed flag and stays exactly as before. `drawn`
+is what the text shows, worked out per request by `language_qa_drawn.py`.
+**Because:** the maintainer of the indic-qa work (Benz) wants the reviewer to
+see what indic-qa sees, as indic-qa's own editor shows it, and to narrow it
+themselves. Flipping `inline: true` in the pack files instead would fail the
+CI human gate for every rule with fewer than 20 labels, and Odia and Punjabi
+have none. It would also erase the difference between "reviewed as reliable"
+and "shown because the reviewer asked".
+**Rules out:** treating `drawn` as review evidence. The human gate, the
+2026-09-28 rule and CI still read only `inline`, and promoting a rule is still
+a `rule_versions.json` edit with its own entry here. It also rules out
+applying the threshold during a pass: it must never rescan, touch a cache key
+or change a finding id.
+**Supersedes:** the "panel-only" clause of "indic-qa findings are recomputed
+per pass…" and the Policy bullet of the Tamil layer entry, as far as the
+verse text goes. Both still hold for the reviewed `inline` flag.
+**Revisit when:** a team shares one threshold (the hub, #46), or reviewers
+find the default too noisy and want a different starting value.
+
 <!-- New entries go above this line. -->
 
 ## 2026-10-07 — indic-qa's checker core is vendored in-process for Punjabi, Malayalam, Hindi and Odia

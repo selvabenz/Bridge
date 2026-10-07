@@ -1399,7 +1399,11 @@ FINDING_FIELDS = {"id", "book", "chapter", "verse", "rule", "severity", "start",
 
 
 def assert_finding_shape(finding):
-    assert set(finding) == FINDING_FIELDS, set(finding) ^ FINDING_FIELDS
+    # A served finding (status, inline, verse) adds exactly one field: `drawn`,
+    # the user's inline threshold applied to it (language_qa_drawn). A producer's
+    # finding (scan_text) has the shape below and nothing more.
+    assert set(finding) - {"drawn"} == FINDING_FIELDS, (set(finding) - {"drawn"}) ^ FINDING_FIELDS
+    assert isinstance(finding.get("drawn", False), bool)
     pack = ta_pack()
     pack_rule = pack.by_id(finding["ruleId"].split("/", 1)[1]) if finding["ruleId"].startswith("ta-irv/") else None
     if pack_rule is not None:

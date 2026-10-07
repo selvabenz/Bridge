@@ -47,8 +47,13 @@ export interface LanguageQaFinding {
   /** The rule's own version; with packVersion it decides when an old
    * "ignored" decision stops applying. */
   ruleRevision: number;
-  /** Decided by the engine: whether this finding is drawn in the verse text. */
+  /** The reviewed flag: the rule is inline by review (rule_versions.json,
+   * INLINE_RULES), which the CI human gate checks. Never the user's setting. */
   inline: boolean;
+  /** Whether the verse text draws it: reviewed-inline, or an indic-qa finding
+   * the Settings > Language QA threshold lets through (language_qa_drawn.py).
+   * Every finding languageQa.inline returns is drawn. */
+  drawn?: boolean;
   /** Set when the finding was ignored under an older rule or pack version and
    * is shown again for re-checking. */
   previouslyIgnored?: boolean;
@@ -177,6 +182,13 @@ export interface LanguageQaStatus {
    * language_qa.py) -- the one authority for which findings are drawn in the
    * verse text. highlight.ts only maps these names to CSS classes. */
   inlineRules?: string[];
+  /** The rule names drawn under the user's threshold: inlineRules plus the
+   * indic-qa rules it lets through. */
+  drawnRules?: string[];
+  inlinePolicy?: { minPrecision: number; minConfidence: "low" | "medium" | "high" };
+  /** Open findings per category in the list (narrowed by chapter only), for
+   * the panel's kind legend. */
+  categoryCounts?: Record<string, number>;
 }
 
 /** languageQa.inline: every inline-rule finding for one chapter (or the whole
@@ -190,6 +202,7 @@ export interface LanguageQaInline {
   ruleVersion: string;
   chapter: string | null;
   inlineRules: string[];
+  drawnRules?: string[];
   findings: LanguageQaFinding[];
 }
 

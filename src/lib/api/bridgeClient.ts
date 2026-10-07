@@ -319,8 +319,13 @@ export const bridge = {
    * re-checking, or those marked as false positives. */
   languageQaStatus(
     projectPath: string, offset = 0, limit = 0, view: LanguageQaView = "findings",
+    filters: { chapter?: string; categories?: string[] } = {},
   ): Promise<LanguageQaStatus> {
-    return call("languageQa.status", { projectPath, offset, limit, view });
+    // Filters are sent only when set: the panel's scope switch and kind legend.
+    const params: Record<string, unknown> = { projectPath, offset, limit, view };
+    if (filters.chapter !== undefined) params.chapter = filters.chapter;
+    if (filters.categories !== undefined) params.categories = filters.categories;
+    return call("languageQa.status", params);
   },
 
   /** Every decision recorded on this verse's Language QA findings (or one of

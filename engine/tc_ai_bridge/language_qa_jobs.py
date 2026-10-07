@@ -5,6 +5,7 @@ checks isolate edits, pause/resume and project switches from in-flight work.
 """
 from __future__ import annotations
 
+import collections
 import copy
 import hashlib
 import itertools
@@ -12,12 +13,13 @@ import json
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from . import terminology
 from .housestyle import bundled_seed, house_style, name_findings, preferences_from, with_seed
 from .language_packs import PackError, default_pack, load_project_overrides, loaded_pack
 from .language_packs import indic_qa_adapter
+from .language_qa_drawn import InlinePolicy, drawn_rule_names, gated_rules, is_drawn, with_drawn
 from .language_packs.indic import ConfusionSet
 from .language_packs.lexicon import lexicon_findings, lexicon_fingerprint
 from .language_packs.loader import apply_overrides
@@ -386,6 +388,18 @@ class LanguageQaManager:
         self._decisions_loader: Callable[[], list[dict[str, Any]]] | None = None
         self._housestyle_loader: Callable[[], list[dict[str, Any]]] | None = None
         self._summary: dict[str, Any] = {"state": "idle", "findings": [], "limitations": []}
+        # The user's inline threshold, and the indic-qa rules of the last pass it
+        # decides (language_qa_drawn). Applied per request: never in a pass.
+        self._policy = InlinePolicy()
+        self._gated: dict[str, dict[str, Any]] = {}
+
+    def configure(self, *, inline_precision: Any = 0, inline_confidence: Any = "low") -> None:
+        """Settings > Language QA. Takes effect on the next request; no rescan."""
+        with self._lock:
+            self._policy = InlinePolicy.of(inline_precision, inline_confidence)
+
+    def _drawn_rules(self) -> list[str]:
+        return drawn_rule_names(self._inline_rules(), self._gated, self._policy)
 
     def touch(self) -> None:
         self._foreground = time.monotonic()
@@ -415,6 +429,7 @@ class LanguageQaManager:
             self._context = (str(project.path), project.book_id, declared, project.book_dir,
                              pack_setting(project.manifest))
             self._pack_name = None
+            self._gated = {}
             self._cache = {}
             self._cache_loaded = False
             self._by_verse = {}
@@ -442,6 +457,7 @@ class LanguageQaManager:
         with self._lock:
             self._context = None
             self._pack_name = None
+            self._gated = {}
             self._generation += 1
             self._wake.set()
             self._cache = {}
@@ -546,37 +562,54 @@ class LanguageQaManager:
                     self._schedule()
 
     def inline(self, *, chapter: str | None = None) -> dict[str, Any]:
-        """Every finding drawn inline (its `inline` flag), for one chapter or the whole
-        book -- not paged. The verse marks are drawn from this; status() is a
-        page for the panel's list, and a page cannot back marks (a book with
-        more findings than one page lost marks past it). Still bounded: the
-        summary itself never holds more than MAX_BOOK_FINDINGS, and each
-        verse contributes at most MAX_VERSE_FINDINGS."""
+        """Every finding drawn in the text, for one chapter or the whole book --
+        not paged. Drawn means reviewed-inline, or an indic-qa finding the
+        user's threshold lets through (language_qa_drawn). The verse marks are
+        drawn from this; status() is a page for the panel's list, and a page
+        cannot back marks (a book with more findings than one page lost marks
+        past it). Still bounded: the summary itself never holds more than
+        MAX_BOOK_FINDINGS, and each verse contributes at most
+        MAX_VERSE_FINDINGS.
+
+        The findings are picked under the lock and copied after it is released.
+        Since every indic-qa finding is drawn by default, a chapter's copy can
+        be large, and verse.decide and the pass wait on the same lock. That is
+        safe because a published finding is never changed in place: a pass
+        replaces `_summary` whole, and `update()` touches only top-level keys."""
         self._refresh_if_due()
         with self._lock:
             wanted = None if chapter is None else str(chapter)
+            gated, policy = self._gated, self._policy
             findings = [
                 f for f in self._summary.get("findings", [])
-                if f.get("inline")
-                and (wanted is None or str(f.get("chapter")) == wanted)
+                if (wanted is None or str(f.get("chapter")) == wanted)
+                and is_drawn(f, gated, policy)
             ]
-            return copy.deepcopy({
+            result = {
                 "projectPath": self._context[0] if self._context else "",
                 "book": self._context[1] if self._context else "",
                 "generation": self._generation,
                 "state": self._summary.get("state", "idle"),
                 "ruleVersion": RULE_VERSION, "chapter": wanted,
-                "inlineRules": self._inline_rules(), "findings": findings,
-            })
+                "inlineRules": list(self._inline_rules()), "drawnRules": self._drawn_rules(),
+            }
+        result["findings"] = [{**copy.deepcopy(f), "drawn": True} for f in findings]
+        return result
 
-    def status(self, *, offset: int = 0, limit: int = 0, view: str = "findings") -> dict[str, Any]:
+    def status(self, *, offset: int = 0, limit: int = 0, view: str = "findings",
+               chapter: str | None = None, categories: Iterable[str] | None = None) -> dict[str, Any]:
         """One page of one list. `view`: "findings" (every open finding),
         "recheck" (only those shown again after an old decision expired) or
         "falsePositives" (findings marked as false positives, now hidden).
-        totalFindings counts the chosen list; the other two lists' sizes are
-        always reported as recheckCount and falsePositiveCount."""
+        `chapter` and `categories` narrow the list before it is paged (the
+        panel's scope switch and kind legend). totalFindings counts the
+        narrowed list; categoryCounts counts the list narrowed by chapter only,
+        so the legend shows every kind. The other two lists' sizes are always
+        reported as recheckCount and falsePositiveCount. Each finding on the
+        page carries `drawn` (language_qa_drawn)."""
         if view not in STATUS_VIEWS:
             raise ValueError(f"view must be one of {sorted(STATUS_VIEWS)}")
+        wanted_categories = None if categories is None else {str(c) for c in categories}
         self._refresh_if_due()
         with self._lock:
             offset = max(0, int(offset))
@@ -585,6 +618,11 @@ class LanguageQaManager:
             findings = (false_positives if view == "falsePositives" else
                         [f for f in self._summary.get("findings", []) if f.get("previouslyIgnored")]
                         if view == "recheck" else self._summary.get("findings", []))
+            if chapter is not None:
+                findings = [f for f in findings if str(f.get("chapter")) == str(chapter)]
+            category_counts = collections.Counter(str(f.get("category") or "") for f in findings)
+            if wanted_categories is not None:
+                findings = [f for f in findings if str(f.get("category") or "") in wanted_categories]
             result = {k: v for k, v in self._summary.items() if k not in {"findings", "falsePositives"}}
             result.update({
                 "view": view, "falsePositiveCount": len(false_positives),
@@ -592,9 +630,12 @@ class LanguageQaManager:
                 "projectPath": self._context[0] if self._context else "",
                 "book": self._context[1] if self._context else "",
                 "generation": self._generation, "ruleVersion": RULE_VERSION,
-                "inlineRules": self._inline_rules(),
+                "inlineRules": self._inline_rules(), "drawnRules": self._drawn_rules(),
+                "inlinePolicy": {"minPrecision": self._policy.min_precision,
+                                 "minConfidence": self._policy.min_confidence},
+                "categoryCounts": dict(sorted(category_counts.items())),
                 "totalFindings": len(findings), "offset": offset,
-                "findings": findings[offset:offset + limit],
+                "findings": with_drawn(findings[offset:offset + limit], self._gated, self._policy),
                 "coverage": coverage(self._summary.get("coverageCategories")),
                 # Settings > Language QA: the project's setting and what it may name.
                 "setting": self._context[4] if self._context else AUTO,
@@ -807,6 +848,7 @@ class LanguageQaManager:
             if self._cancelled(generation) and cancelled is None:
                 return None
             self._pack_name = rule_pack.name if rule_pack is not None else None
+            self._gated = gated_rules(rule_pack)
             self._summary["inlineRules"] = inline_rule_names(rule_pack)
             self._summary["coverageCategories"] = coverage_categories
         # The pack's lexicon, loaded on this first pass that needs it (never at
@@ -1075,7 +1117,8 @@ class LanguageQaManager:
             return {"projectPath": self._context[0] if self._context else "",
                     "generation": self._generation, "state": self._summary.get("state", "idle"),
                     "chapter": chapter, "verse": verse,
-                    "findings": slot["findings"], "hidden": slot.get("hidden", [])}
+                    "findings": with_drawn(slot["findings"], self._gated, self._policy),
+                    "hidden": slot.get("hidden", [])}
 
     def verse_results(self, chapter: str, verse: str) -> dict[str, Any]:
         """The last pass's findings for one verse: `findings` (open, after

@@ -250,6 +250,41 @@ class AppSettings:
         self.data['triage_hide_threshold'] = 0 if number <= 0 else max(50, min(100, number))
         self.save_sanitized()
 
+    @property
+    def language_qa_inline_precision(self) -> int:
+        """Settings > Language QA: draw an indic-qa finding in the verse text only
+        when its rule's measured reviewer precision is at least this (0-100).
+        A rule nobody has labelled always passes. 0, the default, draws every
+        one. A reviewer's tolerance, like triage_hide_threshold, so app-level
+        rather than per project (language_qa_drawn)."""
+        try:
+            value = int(self.data.get('language_qa_inline_precision', 0))
+        except (TypeError, ValueError):
+            return 0
+        return max(0, min(100, value))
+
+    @language_qa_inline_precision.setter
+    def language_qa_inline_precision(self, value: Any) -> None:
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            number = 0
+        self.data['language_qa_inline_precision'] = max(0, min(100, number))
+        self.save_sanitized()
+
+    @property
+    def language_qa_inline_confidence(self) -> str:
+        """The lowest rule confidence drawn in the text: "low" (the default:
+        every one), "medium" or "high"."""
+        value = str(self.data.get('language_qa_inline_confidence') or 'low').lower()
+        return value if value in ('low', 'medium', 'high') else 'low'
+
+    @language_qa_inline_confidence.setter
+    def language_qa_inline_confidence(self, value: Any) -> None:
+        text = str(value or 'low').lower()
+        self.data['language_qa_inline_confidence'] = text if text in ('low', 'medium', 'high') else 'low'
+        self.save_sanitized()
+
     @staticmethod
     def _seed_reviewer_name() -> str:
         """A brand-new profile has never had a reviewer name typed in.

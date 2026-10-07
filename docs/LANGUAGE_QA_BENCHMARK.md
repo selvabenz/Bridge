@@ -5,7 +5,12 @@ two ways:
 
 - **Human precision** against a Tamil reviewer's verdicts on a sample of the
   engine's own findings. This is the only number that may put a rule inline
-  (DECISIONS.md, 2026-09-28), and CI gates on it.
+  (DECISIONS.md, 2026-09-28), and CI gates on it. Since 2026-10-07 the same
+  numbers also ship per pack as `rule_precision.json` (`--write-precision`).
+  There they feed the reviewer's own Settings threshold, which decides what
+  the text *draws*. That threshold never changes a rule's reviewed `inline`
+  flag, which is what this gate reads (DECISIONS.md, 2026-10-07, "drawn in
+  the text by default").
 - **AI agreement** with the Round 2 and Pass 3 review reports (Phase 2 of the
   layered-rules plan in [LANGUAGE_QA_PLAN.md](LANGUAGE_QA_PLAN.md)). It is a
   lower bound, not accuracy, so it is diagnostic only: it guards against

@@ -3,10 +3,10 @@
   import { bridge, type EngineInfo } from "../api/bridgeClient";
   import { nudgeLanguageQa } from "../languageQaInline";
   import { manualOverrideMode, navigationStatus, project, reviewerMode } from "../stores";
-  import type { NavigationSyncState, SettingsData, TerminologyRule } from "../types/finding";
+  import type { InlineConfidence, NavigationSyncState, SettingsData, TerminologyRule } from "../types/finding";
   import type { HouseStyleEntry, HouseStyleListResponse, HouseStyleProposal } from "../types/houseStyle";
 
-  type Pane = "ai" | "quality" | "connections" | "resources" | "terminology" | "security";
+  type Pane = "ai" | "quality" | "connections" | "resources" | "terminology" | "languageQa" | "security";
 
   export let onClose: () => void;
   export let initialPane: Pane = "ai";
@@ -27,6 +27,12 @@
   let reviewerName = "";
   let reviewerNameUpdatedAt = "";
   let engineInfo: EngineInfo | null = null;
+  // Settings > Language QA: which indic-qa findings are drawn in the text.
+  // App-level (a reviewer's tolerance), applied by the engine per request.
+  let inlinePrecision = 0;
+  let inlineConfidence: InlineConfidence = "low";
+  let inlineSaving = false;
+  let inlineMessage = "";
 
   let terminologyRules: TerminologyRule[] = [];
   let terminologyLoaded = false;
@@ -93,6 +99,8 @@
       logosNavigation = s.logosNavigation;
       reviewerName = s.reviewerName || "";
       reviewerNameUpdatedAt = s.reviewerNameUpdatedAt || "";
+      inlinePrecision = s.languageQaInlinePrecision ?? 0;
+      inlineConfidence = s.languageQaInlineConfidence ?? "low";
       reviewerMode.set(s.reviewerMode);
       navigationStatus.set(await bridge.navigationStatus());
     } catch (e) {
@@ -158,6 +166,26 @@
       return target.error ? `Saved. ${name}: ${target.error}` : `Saved. Waiting for ${name}…`;
     }
     return "";
+  }
+
+  /** Its own save: the threshold is not part of the AI/quality form, and the
+   *  panel and marks should follow at once (the engine rescans nothing). */
+  async function saveInlineThreshold(): Promise<void> {
+    inlineSaving = true;
+    inlineMessage = "";
+    try {
+      const result = await bridge.setSettings({
+        languageQaInlinePrecision: inlinePrecision, languageQaInlineConfidence: inlineConfidence,
+      });
+      inlinePrecision = result.languageQaInlinePrecision ?? inlinePrecision;
+      inlineConfidence = result.languageQaInlineConfidence ?? inlineConfidence;
+      inlineMessage = "Applied.";
+      nudgeLanguageQa();
+    } catch (e) {
+      inlineMessage = e instanceof Error ? e.message : String(e);
+    } finally {
+      inlineSaving = false;
+    }
   }
 
   async function refreshConnections(): Promise<void> {
@@ -240,13 +268,20 @@
       const result = await bridge.terminologyList();
       terminologyRules = result.rules;
       terminologyLoaded = true;
-      houseStyle = await bridge.housestyleList().catch(() => null);
-      nameSuggestions = (await bridge.housestyleNameSuggestions().catch(() => null))?.suggestions ?? [];
     } catch (e) {
       terminologyMessage = e instanceof Error ? e.message : String(e);
     } finally {
       terminologyLoading = false;
     }
+  }
+
+  // House style lives in the Language QA pane; loaded when that pane opens.
+  let houseStyleLoaded = false;
+
+  async function loadHouseStyle(): Promise<void> {
+    houseStyleLoaded = true;
+    houseStyle = await bridge.housestyleList().catch(() => null);
+    nameSuggestions = (await bridge.housestyleNameSuggestions().catch(() => null))?.suggestions ?? [];
   }
 
   // Language QA's pack for this project (manifest language_qa.pack). Loaded
@@ -285,8 +320,12 @@
     }
   }
 
-  $: if (activePane === "terminology" && $project && !lqaLoaded) {
+  $: if (activePane === "languageQa" && $project && !lqaLoaded) {
     void loadLanguageQaSetting($project.path);
+  }
+
+  $: if (activePane === "languageQa" && $project && !houseStyleLoaded) {
+    void loadHouseStyle();
   }
 
   // Rules are book-scoped, so this only fires once a project is actually
@@ -348,6 +387,7 @@
       <button class="nav-item" class:active={activePane === "connections"} on:click={() => (activePane = "connections")}>Connections</button>
       <button class="nav-item" class:active={activePane === "resources"} on:click={() => (activePane = "resources")}>Resources & licenses</button>
       <button class="nav-item" class:active={activePane === "terminology"} on:click={() => (activePane = "terminology")}>Terminology</button>
+      <button class="nav-item" class:active={activePane === "languageQa"} on:click={() => (activePane = "languageQa")}>Language QA</button>
       <button class="nav-item" class:active={activePane === "security"} on:click={() => (activePane = "security")}>Security</button>
       {#if engineInfo}
         <div class="about-version" title="What this window is actually running, not what Windows says was installed">
@@ -543,6 +583,47 @@
             {#if editingConcept}<button class="btn" on:click={resetTerminologyForm} disabled={terminologySaving}>Cancel</button>{/if}
             {#if terminologyMessage}<span class="save-msg">{terminologyMessage}</span>{/if}
           </div>
+          {#if terminologyConflict}
+            <div class="term-conflict" role="alertdialog" aria-label="Replace existing terminology rule">
+              <p>
+                A rule for <strong>{terminologyConflict.conceptId}</strong> already exists
+                (preferred: {terminologyConflict.approvedRenderings.join(", ") || "none"} · rejected:
+                {terminologyConflict.rejectedRenderings.join(", ") || "none"}). Replace it?
+              </p>
+              <div class="save-row">
+                <button class="btn primary" on:click={() => addTerminologyRule(true)} disabled={terminologySaving}>Replace</button>
+                <button class="btn" on:click={() => (terminologyConflict = null)} disabled={terminologySaving}>Keep existing</button>
+              </div>
+            </div>
+          {/if}
+        {/if}
+      {:else if activePane === "languageQa"}
+        <h3>Language QA</h3>
+        <p class="desc">Offline spelling, punctuation and consistency checks of the target text. Nothing here changes Scripture text.</p>
+        <h3 class="sub">Drawn in the text</h3>
+        <p class="desc">indic-qa findings (Punjabi, Malayalam, Hindi, Odia, and the Tamil OV layer) are underlined in the verse text unless this threshold hides them. Hidden ones stay in the Language QA panel. A rule reviewers have not labelled has no measured precision and always passes the slider. Rules reviewed as inline are always drawn.</p>
+        <div class="field">
+          <label for="lqa-precision">Minimum measured precision: {inlinePrecision}%</label>
+          <input id="lqa-precision" type="range" min="0" max="100" step="5" bind:value={inlinePrecision}
+            aria-valuetext={inlinePrecision === 0 ? "0: draw every finding" : `${inlinePrecision} percent`} />
+          <div class="hint">{inlinePrecision === 0 ? "Every indic-qa finding is drawn." : `Rules reviewers confirmed less than ${inlinePrecision}% of the time are listed, not drawn.`}</div>
+        </div>
+        <div class="field">
+          <label for="lqa-confidence">Lowest rule confidence drawn</label>
+          <select id="lqa-confidence" bind:value={inlineConfidence}>
+            <option value="low">Low and above (every rule)</option>
+            <option value="medium">Medium and above</option>
+            <option value="high">High only</option>
+          </select>
+          <div class="hint">A rule must pass both the precision and the confidence threshold to be drawn.</div>
+        </div>
+        <div class="save-row">
+          <button class="btn primary" on:click={saveInlineThreshold} disabled={inlineSaving}>{inlineSaving ? "Saving…" : "Apply"}</button>
+          {#if inlineMessage}<span class="save-msg" role="status">{inlineMessage}</span>{/if}
+        </div>
+        {#if !$project}
+          <p class="muted">Open a project to choose its Language QA rules and manage its house style.</p>
+        {:else}
           {#if lqaPacks.length && $project}
             {@const projectPath = $project.path}
             <h3 class="sub">Language QA</h3>
@@ -615,19 +696,6 @@
             <button class="btn" on:click={importHouseStyle} disabled={houseStyleBusy}>Import…</button>
             {#if houseStyleMessage}<span class="save-msg">{houseStyleMessage}</span>{/if}
           </div>
-          {#if terminologyConflict}
-            <div class="term-conflict" role="alertdialog" aria-label="Replace existing terminology rule">
-              <p>
-                A rule for <strong>{terminologyConflict.conceptId}</strong> already exists
-                (preferred: {terminologyConflict.approvedRenderings.join(", ") || "none"} · rejected:
-                {terminologyConflict.rejectedRenderings.join(", ") || "none"}). Replace it?
-              </p>
-              <div class="save-row">
-                <button class="btn primary" on:click={() => addTerminologyRule(true)} disabled={terminologySaving}>Replace</button>
-                <button class="btn" on:click={() => (terminologyConflict = null)} disabled={terminologySaving}>Keep existing</button>
-              </div>
-            </div>
-          {/if}
         {/if}
       {:else if activePane === "security"}
         <h3>Security & privacy</h3>

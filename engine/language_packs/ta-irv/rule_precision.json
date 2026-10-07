@@ -1,0 +1,55 @@
+{
+ "packVersion": "language-qa-7+ta-irv@1.1.0",
+ "labelsFile": "benchmark/human",
+ "generatedAt": "2026-10-07T18:05:44",
+ "rules": {
+  "ta-irv/integrity.space-before-note-end": {
+   "precision": 0.0,
+   "labelled": 15
+  },
+  "ta-irv/lexicon.known-misspelling": {
+   "precision": 1.0,
+   "labelled": 47
+  },
+  "ta-irv/lexicon.known-split": {
+   "precision": 1.0,
+   "labelled": 10
+  },
+  "ta-irv/sandhi.compound.direction": {
+   "precision": 1.0,
+   "labelled": 25
+  },
+  "ta-irv/sandhi.vallinam.accusative": {
+   "precision": 0.9737,
+   "labelled": 76
+  },
+  "ta-irv/sandhi.vallinam.dative": {
+   "precision": 1.0,
+   "labelled": 87
+  },
+  "ta-irv/sandhi.vallinam.demonstrative": {
+   "precision": 1.0,
+   "labelled": 24
+  },
+  "ta-irv/sandhi.vallinam.manner-adverb": {
+   "precision": 1.0,
+   "labelled": 21
+  },
+  "ta-irv/sandhi.vallinam.wrong-consonant": {
+   "precision": 1.0,
+   "labelled": 1
+  },
+  "ta-irv/typo.divine-name.dative-stem": {
+   "precision": 1.0,
+   "labelled": 4
+  },
+  "ta-irv/typo.divine-name.vowel-drop": {
+   "precision": 1.0,
+   "labelled": 5
+  },
+  "ta-irv/typo.suffix.dropped-tha": {
+   "precision": 1.0,
+   "labelled": 2
+  }
+ }
+}

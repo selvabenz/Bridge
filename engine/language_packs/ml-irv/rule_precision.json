@@ -1,0 +1,87 @@
+{
+ "packVersion": "language-qa-7+ml-irv@1.0.0",
+ "labelsFile": "benchmark/human/ml",
+ "generatedAt": "2026-10-07T18:08:04",
+ "rules": {
+  "ml-irv/ml.lex.archaic-form": {
+   "precision": 1.0,
+   "labelled": 12
+  },
+  "ml-irv/ml.lex.known-misspelling": {
+   "precision": 1.0,
+   "labelled": 11
+  },
+  "ml-irv/ml.lex.rare-near-common": {
+   "precision": 1.0,
+   "labelled": 26
+  },
+  "ml-irv/ml.norm.colon-for-visarga": {
+   "precision": 1.0,
+   "labelled": 5
+  },
+  "ml-irv/ml.norm.encoding": {
+   "precision": 1.0,
+   "labelled": 31
+  },
+  "ml-irv/ml.punct.dash": {
+   "precision": 1.0,
+   "labelled": 1
+  },
+  "ml-irv/ml.punct.double": {
+   "precision": 1.0,
+   "labelled": 14
+  },
+  "ml-irv/ml.punct.no-space-after": {
+   "precision": 1.0,
+   "labelled": 1
+  },
+  "ml-irv/ml.punct.quote-direction": {
+   "precision": 1.0,
+   "labelled": 25
+  },
+  "ml-irv/ml.punct.quotes-unbalanced": {
+   "precision": 1.0,
+   "labelled": 12
+  },
+  "ml-irv/ml.punct.straight-quote": {
+   "precision": 1.0,
+   "labelled": 16
+  },
+  "ml-irv/ml.shape.errors": {
+   "precision": 1.0,
+   "labelled": 20
+  },
+  "ml-irv/ml.shape.independent-vowel-mid-word": {
+   "precision": 1.0,
+   "labelled": 46
+  },
+  "ml-irv/ml.style.chillu-conjunct": {
+   "precision": 1.0,
+   "labelled": 16
+  },
+  "ml-irv/ml.style.divine-names": {
+   "precision": 1.0,
+   "labelled": 2
+  },
+  "ml-irv/ml.style.gemination": {
+   "precision": 1.0,
+   "labelled": 11
+  },
+  "ml-irv/ml.style.nasal-form": {
+   "precision": 1.0,
+   "labelled": 9
+  },
+  "ml-irv/ml.style.rejected-names": {
+   "precision": 1.0,
+   "labelled": 7
+  },
+  "ml-irv/ml.style.vowel-length": {
+   "precision": 1.0,
+   "labelled": 17
+  },
+  "ml-irv/ml.style.yk": {
+   "precision": 1.0,
+   "labelled": 21
+  }
+ }
+}

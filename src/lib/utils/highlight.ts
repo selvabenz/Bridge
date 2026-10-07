@@ -204,10 +204,13 @@ export function buildSegments(
   // (see language_qa_jobs.py's own docstring) and never get cast into a fake
   // QaFinding here, matching how nativeChecks/aiReviews above are mapped in
   // their own native shape rather than forced into QaFinding's either.
-  // Only findings the engine marked `inline` carry a span; the rest are
-  // listed in the panel only.
+  // Only findings the engine says are drawn carry a span; the rest are listed
+  // in the panel only. `drawn` is the engine's answer under the user's inline
+  // threshold (language_qa_drawn.py), so an unreviewed indic-qa rule can be
+  // drawn while `inline` stays the reviewed flag. A payload without `drawn`
+  // falls back to `inline`.
   for (const finding of languageQaFindings) {
-    if (!finding.inline) continue;
+    if (!(finding.drawn ?? finding.inline)) continue;
     spans.push({
       start: finding.start, end: finding.end, id: finding.id,
       className: languageQaMarkClass(finding), title: finding.message,

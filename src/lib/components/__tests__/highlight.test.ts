@@ -106,6 +106,29 @@ describe("verse-text underlines", () => {
       rule: "spacing.extra", layer: "integrity", category: "spacing", inline: true,
     })]))).toEqual([["beta", "m-lqa-spacing"]]);
   });
+
+  it("draws an indic-qa finding the engine says is drawn, though its rule is not reviewed inline", () => {
+    // Settings > Language QA: `drawn` is the engine's answer under the user's
+    // threshold; `inline` stays the reviewed flag the CI human gate reads.
+    const consistency = { rule: "hi.style.ye-ending-consistency", category: "consistency" as const, inline: false };
+    expect(marked(buildSegments(TEXT, [], [], [], [termFinding({ ...consistency, drawn: true })])))
+      .toEqual([["beta", "m-lqa-typo"]]);
+    expect(marked(buildSegments(TEXT, [], [], [], [termFinding({ ...consistency, drawn: false })]))).toEqual([]);
+  });
+
+  it("segments a dense verse with many drawn findings quickly", () => {
+    // Every indic-qa finding is drawn by default now: a verse can carry many marks.
+    const long = "word ".repeat(400);
+    const findings = Array.from({ length: 200 }, (_, i) => termFinding({
+      id: `f${i}`, start: (i * 7) % (long.length - 10), end: ((i * 7) % (long.length - 10)) + 6,
+      originalText: long.slice((i * 7) % (long.length - 10), ((i * 7) % (long.length - 10)) + 6),
+      inline: false, drawn: true,
+    }));
+    const started = performance.now();
+    const segments = buildSegments(long, [], [], [], findings);
+    expect(performance.now() - started).toBeLessThan(250);
+    expect(segments.filter((s) => s.className).length).toBeGreaterThan(0);
+  });
 });
 
 describe("Language QA indicator per category", () => {

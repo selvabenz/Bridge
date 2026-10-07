@@ -870,6 +870,20 @@ def human_baseline_of(result: dict[str, Any]) -> dict[str, Any]:
                               for cls, s in result["recallProxies"].items()}}
 
 
+def human_precision_table(result: dict[str, Any], pack_name: str) -> dict[str, Any]:
+    """The pack's `rule_precision.json`: each of its rules that reviewers
+    labelled, with the human precision and the label count. It ships with the
+    pack, so the engine can apply a user's inline threshold. Aggregates only,
+    no Scripture or review text. A rule with no label is left out, and the
+    engine treats a missing rule as unmeasured."""
+    prefix = f"{pack_name}/"
+    rules = {rule_id: {"precision": s["precision"], "labelled": s.get("labelled", 0)}
+             for rule_id, s in sorted(result["rules"].items())
+             if rule_id.startswith(prefix) and s.get("labelled") and s.get("precision") is not None}
+    return {"packVersion": result["packVersion"], "labelsFile": result.get("labelsFile", ""),
+            "generatedAt": result.get("generatedAt", ""), "rules": rules}
+
+
 def human_markdown(result: dict[str, Any]) -> str:
     lines = [
         f"Pack version `{result['packVersion']}`; {len(result['books'])} books; "
