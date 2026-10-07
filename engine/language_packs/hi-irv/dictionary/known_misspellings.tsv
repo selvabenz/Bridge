@@ -1,0 +1,260 @@
+wrong	right	rule	note
+आर्शीवाद	आशीर्वाद	hi.lex.known-misspelling	common Hindi misspelling (rules §4.3); the right form is in the corpora
+प्राथर्ना	प्रार्थना	hi.lex.known-misspelling	common Hindi misspelling (rules §4.3); the right form is in the corpora
+अत्याधिक	अत्यधिक	hi.lex.known-misspelling	common Hindi misspelling (rules §4.3); the right form is in the corpora
+आधीन	अधीन	hi.lex.known-misspelling	common Hindi misspelling (rules §4.3); the right form is in the corpora
+कृप्या	कृपया	hi.lex.known-misspelling	common Hindi misspelling (rules §4.3); the right form is in the corpora
+द्वितिय	द्वितीय	hi.lex.known-misspelling	common Hindi misspelling (rules §4.3); the right form is in the corpora
+परिक्षा	परीक्षा	hi.lex.known-misspelling	common Hindi misspelling (rules §4.3); the right form is in the corpora
+इतिहासिक	ऐतिहासिक	hi.lex.known-misspelling	common Hindi misspelling (rules §4.3); the right form is in the corpora
+नें	ने	hi.lex.known-misspelling	common Hindi misspelling (rules §4.3); the right form is in the corpora
+उद्दार	उद्धार	hi.lex.known-misspelling	common Hindi misspelling (rules §4.3); the right form is in the corpora
+उद्दारकर्ता	उद्धारकर्ता	hi.lex.known-misspelling	common Hindi misspelling (rules §4.3); the right form is in the corpora
+जबकी	जबकि	hi.lex.known-misspelling	common Hindi misspelling (rules §4.3); the right form is in the corpora
+परमेशवर	परमेश्वर	hi.style.divine-names	IRV spelling of the divine name
+परमश्वर	परमेश्वर	hi.style.divine-names	IRV spelling of the divine name
+परमेस्वर	परमेश्वर	hi.style.divine-names	IRV spelling of the divine name
+परमेश्र्वर	परमेश्वर	hi.style.divine-names	IRV spelling of the divine name
+यहुवा	यहोवा	hi.style.divine-names	IRV spelling of the divine name
+यहोव	यहोवा	hi.style.divine-names	IRV spelling of the divine name
+यीसु	यीशु	hi.style.divine-names	IRV spelling of the divine name
+यिशु	यीशु	hi.style.divine-names	IRV spelling of the divine name
+यीशू	यीशु	hi.style.divine-names	IRV spelling of the divine name
+मसिह	मसीह	hi.style.divine-names	IRV spelling of the divine name
+प्रभू	प्रभु	hi.style.divine-names	IRV spelling of the divine name
+उज्जवल	उज्ज्वल	hi.lex.known-misspelling	reviewed 1 Oct 2026: Q20
+हदास्सा	हदस्सा	hi.lex.known-misspelling	reviewed 1 Oct 2026: EST 2:7 verse spelling
+वैद्द्यों	वैद्यों	hi.lex.known-misspelling	reviewed 1 Oct 2026: doubled द
+निर्मोल	अनमोल	hi.lex.known-misspelling	reviewed 1 Oct 2026: not a Hindi word
+खम्भें	खम्भे	hi.lex.known-misspelling	reviewed 1 Oct 2026: direct plural of खम्भा
+मुर्झ*	मुरझ*	hi.lex.known-misspelling	reviewed 1 Oct 2026: मुरझाना
+यिश्वीयों	यिश्वियों	hi.lex.known-misspelling	reviewed 1 Oct 2026: oblique plural shortens ी
+प्रतिक्षा*	प्रतीक्षा*	hi.lex.known-misspelling	reviewed 1 Oct 2026: प्रतीक्षा
+सदृश्य	सदृश	hi.lex.known-misspelling	reviewed 1 Oct 2026: सदृश
+संगीतकारो	संगीतकारों	hi.lex.known-misspelling	reviewed 1 Oct 2026: oblique plural
+परिक्ष*	परीक्ष*	hi.lex.known-misspelling	reviewed 1 Oct 2026: परीक्षा
+बंधाया	बँधाया	hi.lex.known-misspelling	reviewed 1 Oct 2026: from बाँधना
+बन्धाया	बँधाया	hi.lex.known-misspelling	reviewed 1 Oct 2026: from बाँधना
+मुँण्ड़न	मुण्डन	hi.lex.known-misspelling	reviewed 1 Oct 2026: the noun
+चढूँगा	चढ़ूँगा	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+ढूँढ़ूगा	ढूँढ़ूँगा	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+पकहयाह	पकह्याह	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+पुनरूद्धार	पुनरुद्धार	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+मुख्यत	मुख्यतः	hi.lex.known-misspelling	reviewed final 3 Oct 2026: Stem left by a colon typed for the visarga.
+अँगुठी	अँगूठी	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+जरुरी	जरूरी	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+तख्तो	तख्तों	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+थाः	था;	hi.lex.known-misspelling	reviewed final 3 Oct 2026: A visarga typed for the punctuation mark.
+दिहात	देहात	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+धन-सम्पति	धन-सम्पत्ति	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+पापड़ी	पपड़ी	hi.lex.known-misspelling	reviewed final 3 Oct 2026: Wafer: पपड़ी, as in the OV.
+प्रवृति	प्रवृत्ति	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+मुँण्डवाकर	मुँड़वाकर	hi.lex.known-misspelling	reviewed final 3 Oct 2026: Same decision as the flap rule (मुँड़-).
+मुँण्डवाना	मुँड़वाना	hi.lex.known-misspelling	reviewed final 3 Oct 2026: Same decision as the flap rule (मुँड़-).
+मुँण्डा	मुँड़ा	hi.lex.known-misspelling	reviewed final 3 Oct 2026: Same decision as the flap rule (मुँड़-).
+यद्धपि	यद्यपि	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+व्यवहारिक	व्यावहारिक	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+सुईं	सुई	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+सैंकड़ों	सैकड़ों	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+हष्टपुष्टों	हृष्टपुष्टों	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+अठानवे	अट्ठानवे	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+अनाधिकृत	अनधिकृत	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+अम्मोरियों	एमोरियों	hi.lex.known-misspelling	reviewed final 3 Oct 2026: Amorites.
+अलोकिक	अलौकिक	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+उँघने	ऊँघने	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+उकसाओं	उकसाओ	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+खींच-खांचकर	खींच-खाँचकर	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+खूंखार	खूँखार	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+गर्जते	गरजते	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+गुरू	गुरु	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+गौत्र	गोत्र	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+घुँघरूओं	घुँघरुओं	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+चारागाह	चरागाह	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+ठट्टा	ठट्ठा	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+दुरूपयोग	दुरुपयोग	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+दूयोतक	द्योतक	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+निष्छल	निश्छल	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+पुर्वियों	पूर्वियों	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+प्रस्तुतिकरण	प्रस्तुतीकरण	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+फूलें-फलेंगे	फूलेंगे-फलेंगे	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+बिन्यामिनियों	बिन्यामीनियों	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+भलीभांति	भली-भाँति	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+भिगाए	भिगोए	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+महानतम्	महानतम	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+माँगू	माँगूँ	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+मूर्तों	मूरतों	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+योतान	योताम	hi.lex.known-misspelling	reviewed final 3 Oct 2026: Jotham.
+वचनरुपी	वचनरूपी	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+विशाद	विषाद	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+संघी	संधि	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+सताईस	सत्ताईस	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+सातवा	सातवाँ	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+स्वास्थ	स्वास्थ्य	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+हैः	है:	hi.lex.known-misspelling	reviewed final 3 Oct 2026: A visarga typed for the colon.
+अदूल्लाम	अदुल्लाम	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+अधिकारिक	आधिकारिक	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+अनुपातिक	आनुपातिक	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+अनुभोदन	अनुमोदन	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+अनुवांशिक	आनुवंशिक	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+अन्त्येष्टी	अन्त्येष्टि	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+अब्यातार	एब्यातार	hi.lex.known-misspelling	reviewed final 3 Oct 2026: The IRV writes एब्यातार.
+अमूल	आमूल	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+अर्तनांद	आर्तनाद	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+अव्दैत	अद्वैत	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+असदाय	असहाय	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+आंकड़ा	आँकड़ा	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+आंकड़ियाँ	आँकड़ियाँ	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+आनवरत	अनवरत	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+आपदायें	आपदाएँ	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+आम्तौर	आमतौर	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+इकुनियुस	इकुनियुम	hi.lex.known-misspelling	reviewed final 3 Oct 2026: Iconium.
+उँघता	ऊँघता	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+उत्तरीय	उत्तरी	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+उदगार	उद्गार	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+उपन्यायधिशों	उपन्यायाधीशों	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+उपयोग्य	उपयोग	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+उप्लाबद्धि	उपलब्धि	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+ऊफान	उफान	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+एलिमेलेक	एलीमेलेक	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+कठिनाईयाँ	कठिनाइयाँ	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+कनिष्ट	कनिष्ठ	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+कमज़ोर	कमजोर	hi.lex.known-misspelling	reviewed final 3 Oct 2026: Nuqta-light (Q1): the IRV writes कमजोर.
+केन्द्रिता	केन्द्रीयता	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+कोशल्य	कौशल	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+कौशल्य	कौशल	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+क्रब	कब्र	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+क्रियान्वन	क्रियान्वयन	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+खीच	खींच	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+गरूड़	गरुड़	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+गुरूओं	गुरुओं	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+घोसला	घोंसला	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+घोसले	घोंसले	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+चरावाहों	चरवाहों	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+चारागाहों	चरागाहों	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+चुप-चाप	चुपचाप	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+छाटना	छाँटना	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+छिड़ेंगा	छिड़ेगा	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+छिपूँगाः	छिपूँगा:	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+जरुरत	जरूरत	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+जरुरतमन्द	जरूरतमन्द	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+ज़हरीला	जहरीला	hi.lex.known-misspelling	reviewed final 3 Oct 2026: Nuqta-light (Q1): the IRV writes जहरीले.
+जाएः	जाए:	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+जाएगाः	जाएगा:	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+जाओः	जाओ:	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+जीये	जीएँ	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+ठहराऊँगाः	ठहराऊँगा:	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+ढांचा	ढाँचा	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+ढूँढ़ूगी	ढूँढ़ूँगी	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+ढूँढ़ेंगें	ढूँढ़ेंगे	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+तत्कालिक	तात्कालिक	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+तरागण	तारागण	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+तरूण	तरुण	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+तारकले	तारवाले	hi.lex.known-misspelling	reviewed final 3 Oct 2026: तारवाले बाजों (stringed instruments).
+तिस्सारता	निस्सारता	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+थरथारएँगे	थरथराएँगे	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+थीः	थी:	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+थें	थे	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+दरवाज़ो	दरवाजों	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+दिवार	दीवार	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+देवदारू	देवदारु	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+धुमला	धुँधला	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+धूमकेतू	धूमकेतु	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+धोका	धोखा	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+ध्वनी	ध्वनि	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+निभागज	निज	hi.lex.known-misspelling	reviewed final 3 Oct 2026: निज भाग (own inheritance).
+निरक्षक	निरीक्षक	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+निरापराध	निरपराध	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+निरिक्षण	निरीक्षण	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+निर्णयक	निर्णायक	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+निर्बुधि	निर्बुद्धि	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+निर्वाहन	निर्वाह	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+निर्विष्ट	निर्दिष्ट	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+निवेषित	निवेशित	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+निष्कर्षो	निष्कर्षों	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+न्यायधीश	न्यायाधीश	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+पंखडियां	पंखुड़ियाँ	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+पंद्रहवे	पन्द्रहवें	hi.lex.known-misspelling	reviewed final 3 Oct 2026: Missing bindu; pancham as in the IRV.
+पद्दति	पद्धति	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+पापड़ियाँ	पपड़ियाँ	hi.lex.known-misspelling	reviewed final 3 Oct 2026: Wafers: पपड़ियाँ, as in the OV.
+पीछला	पिछला	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+पुननिर्माण	पुनर्निर्माण	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+पुरूर्स	पुरुस	hi.lex.known-misspelling	reviewed final 3 Oct 2026: Pyrrhus.
+पैंठ	पैठ	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+प्रकृतिक	प्राकृतिक	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+प्रथक	पृथक	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+प्रदुषित	प्रदूषित	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+प्रमाणिक	प्रामाणिक	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+प्रशासनीय	प्रशंसनीय	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+प्राचीनतम्	प्राचीनतम	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+प्राय	प्रायः	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+फुले	फूले	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+फूँक्कारने	फुफकारने	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+फूलें-फलेंगी	फूलेंगी-फलेंगी	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+फेकने	फेंकने	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+बच्चपन	बचपन	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+बजारों	बाजारों	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+बन्धवाता	बँधवाता	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+बन्धुआओं	बँधुओं	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+बहुतायात	बहुतायत	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+बाँधू	बाँधूँ	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+बांसुरियों	बाँसुरियों	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+बारुक	बारूक	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+बैचेन	बेचैन	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+भट्टी	भट्ठी	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+भविष्यकालिन	भविष्यकालीन	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+भविष्यदृष्टा	भविष्यद्रष्टा	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+भांप	भाँप	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+भिगाने	भिगोने	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+भोंगू	भोगूँ	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+मटको	मटकों	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+मनशा	मंशा	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+मनोवेश	मनोवेग	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+मलिनीकिरण	मलिनीकरण	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+मसी	मसीह	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+माइके	मायके	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+मुँण्डवा	मुँड़वा	hi.lex.known-misspelling	reviewed final 3 Oct 2026: Same decision as the flap rule (मुँड़-).
+मुँण्डवाए	मुँड़वाए	hi.lex.known-misspelling	reviewed final 3 Oct 2026: Same decision as the flap rule (मुँड़-).
+मुँण्डवाता	मुँड़वाता	hi.lex.known-misspelling	reviewed final 3 Oct 2026: Same decision as the flap rule (मुँड़-).
+मुँण्डाऊँगा	मुँड़ाऊँगा	hi.lex.known-misspelling	reviewed final 3 Oct 2026: Same decision as the flap rule (मुँड़-).
+मुहाँमुहँ	मुँहामुँह	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+मूगा	मूँगा	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+मूलत	मूलतः	hi.lex.known-misspelling	reviewed final 3 Oct 2026: Visarga missing.
+मृद्यु	मृदु	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+मौजदारी	फौजदारी	hi.lex.known-misspelling	reviewed final 3 Oct 2026: Criminal (cases): फौजदारी.
+रकाब	रेकाब	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+रहोबाम	रहबाम	hi.lex.known-misspelling	reviewed final 3 Oct 2026: Rehoboam: the IRV writes रहबाम.
+रुपा	रूपा	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+रुबेनवंशियों	रूबेनवंशियों	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+रूचियों	रुचियों	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+वक्तत्व	वक्तृत्व	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+वाद्द्यों	वाद्यों	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+विकरण	विवरण	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+विधमान	विद्यमान	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+विसमयकारी	विस्मयकारी	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+वैश्यावृति	वेश्यावृत्ति	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+व्यक्ता	वक्ता	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+व्यस्क	वयस्क	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+शोशन	शूशन	hi.lex.known-misspelling	reviewed final 3 Oct 2026: Susa: the IRV writes शूशन.
+संक्रीण	संकीर्ण	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+सतत्	सतत	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+सदृढ़	सुदृढ़	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+सद्दबुद्धि	सद्बुद्धि	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+समाजिक	सामाजिक	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+समादा	सम्पदा	hi.lex.known-misspelling	reviewed final 3 Oct 2026: मृतक की … सम्पदा.
+सर्न्दभ	सन्दर्भ	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+सिद्धान्तिक	सैद्धान्तिक	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+सुचारू	सुचारु	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+सुजन	सूजन	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+सूखाऊँगा	सुखाऊँगा	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+सोतेली	सौतेली	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+स्पष्टतम्	स्पष्टतम	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+लिब्नायों	लिब्नियों	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+प्रतिउत्तर	प्रत्युत्तर	hi.lex.known-misspelling	reviewed final 3 Oct 2026
+रुपये	रुपये	hi.lex.known-misspelling	reviewed final 3 Oct 2026: keep (Noun in -या (रुपया, पहिया, पुरनिया, किराया, तकिया): the य belongs to the stem, so the plural keeps -ये.)
+पुरनिये	पुरनिये	hi.lex.known-misspelling	reviewed final 3 Oct 2026: keep (Noun in -या (रुपया, पहिया, पुरनिया, किराया, तकिया): the य belongs to the stem, so the plural keeps -ये.)
+पहिये	पहिये	hi.lex.known-misspelling	reviewed final 3 Oct 2026: keep (Noun in -या (रुपया, पहिया, पुरनिया, किराया, तकिया): the य belongs to the stem, so the plural keeps -ये.)
+किराये	किराये	hi.lex.known-misspelling	reviewed final 3 Oct 2026: keep (Noun in -या (रुपया, पहिया, पुरनिया, किराया, तकिया): the य belongs to the stem, so the plural keeps -ये.)
+पाये	पाये	hi.lex.known-misspelling	reviewed final 3 Oct 2026: keep (Noun पाया (leg) keeps -ये (EXO 25:31, 1KI 7:31); where it is the verb (पाए जाते, ISA 5:12) change it to पाए in the editor.)
+तकिये	तकिये	hi.lex.known-misspelling	reviewed final 3 Oct 2026: keep (Noun in -या (रुपया, पहिया, पुरनिया, किराया, तकिया): the य belongs to the stem, so the plural keeps -ये.)
+परिक्षेपण	परिक्षेपण	hi.lex.known-misspelling	reviewed final 3 Oct 2026: keep (Not a form of परीक्षा; check the EST introduction in the editor (perhaps परिप्रेक्ष्य or प्रक्षेपण is meant).)
+च्यूं-च्यूं	च्यूँ-च्यूँ	hi.style.chandrabindu-consistency	reviewed final 3 Oct 2026: reviewer form

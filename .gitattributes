@@ -4,3 +4,8 @@ engine/resources/hbo/bibles/uhb/v3.0.0_unfoldingWord/** -text -diff
 engine/resources/el-x-koine/bibles/ugnt/v0.34_unfoldingWord/** -text -diff
 engine/resources/hbo/lexicons/strongs/v1.0.2_openscriptures/** -text -diff
 engine/resources/el-x-koine/lexicons/strongs/v1.0.2_openscriptures/** -text -diff
+# indic-qa's checker and its dictionaries (scripts/sync_indic_qa.py): byte-exact
+# as committed upstream, so VENDORED.json's sha256 check holds on every machine.
+# The code keeps its diffs for review; the dictionaries are data.
+engine/vendor/indic-qa/** -text
+engine/language_packs/*-irv/dictionary/** -text -diff

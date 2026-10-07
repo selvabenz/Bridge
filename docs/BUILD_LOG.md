@@ -14459,3 +14459,47 @@ Verified on the rebased tree, 2026-10-07:
 - **Frozen pair.** `build-sidecars.ps1` copied `engine/language_packs` to
   `src-tauri/language_packs`, and `smoke_sidecars.py` passed. The engine exe
   went from 13.48 MB to 13.04 MB because the lexicon now ships outside it.
+
+## 2026-10-07 — indic-qa vendored: checker core and four dictionaries (PR 1 of the indic-qa plan)
+
+`scripts/sync_indic_qa.py --source <clone> --commit 248eb81` copied 55 files:
+
+| What | Where | Size |
+|---|---|---|
+| Checker core, the profiles and `scripts/build_dictionary.py` | `engine/vendor/indic-qa/` | 0.6 MB |
+| Hindi dictionary | `engine/language_packs/hi-irv/dictionary/` | 1.3 MB |
+| Malayalam dictionary | `engine/language_packs/ml-irv/dictionary/` | 7.5 MB |
+| Odia dictionary | `engine/language_packs/or-irv/dictionary/` | 2.3 MB |
+| Punjabi dictionary | `engine/language_packs/pa-irv/dictionary/` | 1.6 MB |
+
+The allow-list is every file name that `Lexicon.load` or a profile's
+`load_lexicon_extra` opens, checked with grep against the four profiles and
+the table modules, plus `clusters.tsv` for seeding and `build_info.json` for
+provenance. Every vendored `open`/`read_text` names its encoding (grep).
+
+**Found while integrating.** The first copy came from a Windows clone with
+`core.autocrlf=true`, so every file was CRLF. Python's text-mode reads would
+have hidden this, but the hashes would differ from a Linux checkout. The sync
+now reads `git show <commit>:<path>`, and `.gitattributes` marks both trees
+`-text`.
+
+No `pack.json` yet. `test_packs.py` treats any folder with one as a shipped,
+registered pack. The manifests land with the adapter that can load them.
+
+`tc_ai_bridge/language_packs/indic_qa_vendor.py` resolves the tree (under
+`sys._MEIPASS` when frozen) and imports it on first need.
+`bridge-engine.spec` adds it to `datas`.
+
+**Verified:** `tests/language_packs`: 41 passed, including the new
+`test_indic_qa_vendor.py` (`packs` marker). That test checks:
+
+- every vendored file matches its hash;
+- the modules and `build_dictionary` resolve to the vendor tree, not Bridge's
+  `scripts/`;
+- each dictionary loads with its `build_info` word count and no `\r`;
+- a `Checker` builds its suggestion index.
+
+**Not yet verified:** the frozen exe exercises none of this until the PR 2
+smoke extension.
+
+**Open:** the licence of the OV-derived wordlists (`NOTICE.md`).

@@ -1,0 +1,66 @@
+{
+  "inputs": {
+    "extra_words_sha256": "268440d86aec9ea804ba317acffb3fc51aec10c29236da8af7b1b00acb5e4e38",
+    "irv_dir": "D:\\Claude Lab\\IRV Hindi",
+    "irv_sha256": "40740b493ad51dfc358bd59684a92959396a9c35d1776d6102e04a38413068f2",
+    "ov_dir": "D:\\Claude Lab\\OV Hindi",
+    "ov_sha256": "8f30218b64860c519d9edaa3bf91c0f54b26b3f12b49ba8e96d2e0a982d10fd6"
+  },
+  "lang": "hi",
+  "rows_written": {
+    "archaic.tsv": 80,
+    "clusters.tsv": 232,
+    "gender.tsv": 1632,
+    "malformed_words.tsv": 7,
+    "oblique.tsv": 747,
+    "suspect_words.tsv": 99,
+    "verses.tsv": 31102,
+    "wordlist.txt": 18099,
+    "words.tsv": 18099
+  },
+  "rules": "docs/HINDI_RULES.md",
+  "stats": {
+    "archaic": 80,
+    "clusters": {
+      "chandrabindu": 24,
+      "halant": 4,
+      "nuqta": 3,
+      "pancham": 49,
+      "ye": 36
+    },
+    "coverage": {
+      "irv_types_not_in_lexicon": 1482,
+      "irv_types_not_in_lexicon_ge5": 465,
+      "lexicon": {
+        "tokens": 870513,
+        "tokens_pct": 99.08,
+        "types": 16578,
+        "types_pct": 91.79
+      },
+      "ov_keys": {
+        "tokens": 866331,
+        "tokens_pct": 98.6,
+        "types": 15089,
+        "types_pct": 83.55
+      }
+    },
+    "extra_words": 1487,
+    "gender_nouns_ge20": 506,
+    "gender_nouns_ge20_clean95": 466,
+    "irv_books": 66,
+    "irv_tokens": 878635,
+    "irv_types": 18060,
+    "joined_forms": 22,
+    "lexicon_types": 18099,
+    "oblique_stems_ge15": 321,
+    "ov_books": 66,
+    "ov_keys": 16591,
+    "ov_tokens": 779654,
+    "ov_tokens_malformed": 16,
+    "ov_types": 16600,
+    "ov_types_malformed": 7,
+    "ov_verses": 31102,
+    "suspects": 99
+  },
+  "version": "1.0.0"
+}

@@ -1,0 +1,62 @@
+{
+  "inputs": {
+    "extra_words_sha256": "20f1d64829cc38ce104f90b9e51d4655c35aa59dbb8bb1e47cac30635438e701",
+    "irv_dir": "D:\\Claude Lab\\IRV Punjabi",
+    "irv_sha256": "ad0ea8734b63b8404a7b027fce20cbc29398540f8494ae24d1520d249ec158c9",
+    "ov_dir": "D:\\Claude Lab\\OV Punjabi",
+    "ov_sha256": "1454c875148c3e9cc020bdff61bd58674c9800d20ccb0c3fc091d222e6e10400"
+  },
+  "lang": "pa",
+  "rows_written": {
+    "archaic.tsv": 259,
+    "clusters.tsv": 1426,
+    "gender.tsv": 3743,
+    "malformed_words.tsv": 322,
+    "oblique.tsv": 579,
+    "suspect_words.tsv": 581,
+    "verses.tsv": 31104,
+    "wordlist.txt": 24763,
+    "words.tsv": 24763
+  },
+  "rules": "docs/PUNJABI_RULES.md",
+  "stats": {
+    "clusters": {
+      "adhak": 269,
+      "haha": 135,
+      "nukta": 265,
+      "rara": 38
+    },
+    "coverage": {
+      "irv_types_not_in_lexicon": 3494,
+      "irv_types_not_in_lexicon_ge5": 493,
+      "lexicon": {
+        "tokens": 816957,
+        "tokens_pct": 98.36,
+        "types": 15516,
+        "types_pct": 81.62
+      },
+      "ov_verse_raw": {
+        "tokens": 816885,
+        "tokens_pct": 98.35,
+        "types": 15512,
+        "types_pct": 81.6
+      }
+    },
+    "extra_words": 0,
+    "gender_nouns_ge20": 989,
+    "gender_nouns_ge20_clean95": 864,
+    "irv_books": 66,
+    "irv_tokens": 830615,
+    "irv_types": 19010,
+    "lexicon_types": 24763,
+    "oblique_stems_ge15": 206,
+    "ov_books": 66,
+    "ov_tokens": 793176,
+    "ov_tokens_malformed": 550,
+    "ov_types": 25057,
+    "ov_types_malformed": 294,
+    "ov_verses": 31104,
+    "suspects": 581
+  },
+  "version": "1.0.0"
+}

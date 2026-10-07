@@ -1,0 +1,65 @@
+{
+  "inputs": {
+    "extra_words_sha256": "b06cb7320f38d06fd040455b7dc02196e762d44262068ee5e81b3e9c38c1294e",
+    "irv_dir": "D:\\Claude Lab\\IRV Odia",
+    "irv_sha256": "a00e8481e71acc5438b190e894f7e489cc51969ebfe8dd2c6398c0c6051e293f",
+    "ov_dir": "D:\\Claude Lab\\OV Odia\\OdiaOROV_USFM",
+    "ov_sha256": "ced6f807c6a7482e90dffe1c5f6bc60b1c771b8462e73681da076b706d4d4103"
+  },
+  "lang": "or",
+  "rows_written": {
+    "archaic.tsv": 38,
+    "clusters.tsv": 1166,
+    "honorific.tsv": 365,
+    "malformed_words.tsv": 98,
+    "suspect_words.tsv": 109,
+    "verses.tsv": 31101,
+    "wordlist.txt": 32138,
+    "words.tsv": 32138
+  },
+  "rules": "docs/ODIA_RULES.md",
+  "stats": {
+    "archaic": 38,
+    "clusters": {
+      "flap": 62,
+      "halant": 130,
+      "length": 271,
+      "lla": 44,
+      "pancham": 22,
+      "phala": 51,
+      "ya": 0
+    },
+    "coverage": {
+      "irv_types_not_in_lexicon": 4331,
+      "irv_types_not_in_lexicon_ge5": 320,
+      "lexicon": {
+        "tokens": 624671,
+        "tokens_pct": 98.22,
+        "types": 26910,
+        "types_pct": 86.14
+      },
+      "ov_keys": {
+        "tokens": 624671,
+        "tokens_pct": 98.22,
+        "types": 26910,
+        "types_pct": 86.14
+      }
+    },
+    "extra_words": 1,
+    "honorific_bases": 365,
+    "irv_books": 66,
+    "irv_tokens": 636009,
+    "irv_types": 31241,
+    "lexicon_types": 32138,
+    "misspellings_seeded": 133,
+    "ov_books": 66,
+    "ov_keys": 32138,
+    "ov_tokens": 607302,
+    "ov_tokens_malformed": 623,
+    "ov_types": 32198,
+    "ov_types_malformed": 98,
+    "ov_verses": 31101,
+    "suspects": 109
+  },
+  "version": "1.0.0"
+}

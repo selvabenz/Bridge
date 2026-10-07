@@ -1,0 +1,13 @@
+{
+ "commit": "248eb8195462db1b5af7851c19fe664be0658d15",
+ "files": {
+  "archaic.tsv": "0a6290f1dc52c8b1a41c02c84c0e8cc2626a2b9c257318c35dcacf6c4968d592",
+  "build_info.json": "bb49c920010a6f2e786af031d9ee98d805e544a6390cc2027cc3314f8c946168",
+  "clusters.tsv": "33581a32418ea611b2b305099ceb2aee900014a742bbd487e335250c4388f8d4",
+  "extra_words.txt": "e895a1d2f92d6cc79b7ce3269fe2d5c85cdab542de47029479d4d79574ec198a",
+  "known_misspellings.tsv": "c0cf83a0946a3f815c96d1a9cb1405c5745e594e136fbf12490ce1f49eccacae",
+  "names.tsv": "0d12031a315b22ef07cf870dffa1adba6721cf7cdc40eb6efa2b84016fc92add",
+  "wordlist.txt": "8d2fb050443ce14b1b9f93e35e656d1fcbbaf0b0bb26e184cef15947dcc39f51",
+  "words.tsv": "4fce5fab8cbff98c4c34e585e4d4c235bb9575044bff2a78b42ab11c815e9e25"
+ }
+}

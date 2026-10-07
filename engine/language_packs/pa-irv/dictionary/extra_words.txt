@@ -1,0 +1,8 @@
+# extra_words.txt -- Punjabi supplement lexicon for the IRV spell check (dictionary_pa/)
+# One word per line (Gurmukhi, NFC).  Lines starting with # are comments.
+# Words added in the editor are appended below; a rebuild folds them into wordlist.txt.
+# added by qa_app (one word per line)
+ਜ਼ਵਾਬ
+ਮੱਟ
+ਅਰਾਧਕਾਂ
+ਤਲਾਬ

@@ -1,0 +1,62 @@
+"""The vendored indic-qa checker imports and loads every shipped dictionary.
+
+`packs` marker (tests/conftest.py _FILE_MARKERS): reads the real
+dictionaries in engine/language_packs/<code>-irv/dictionary/."""
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+from tc_ai_bridge.language_packs import indic_qa_vendor
+from tc_ai_bridge.language_packs.registry import packs_dir
+from tests.support.paths import REPO_ROOT
+
+VENDORED = json.loads((indic_qa_vendor.vendor_root() / "VENDORED.json").read_text(encoding="utf-8"))
+
+
+def test_every_vendored_file_matches_its_recorded_hash():
+    for key, digest in VENDORED["files"].items():
+        assert hashlib.sha256((REPO_ROOT / key).read_bytes()).hexdigest() == digest, key
+
+
+def test_the_vendored_modules_import_from_the_vendor_tree():
+    mods = indic_qa_vendor.modules()
+    root = indic_qa_vendor.vendor_root().resolve()
+    for module in (mods.checker, mods.usfm_doc, mods.kinds, mods.langs):
+        assert Path(module.__file__).resolve().is_relative_to(root), module.__file__
+    # usfm_doc's own sys.path insert must resolve to the vendored copy, never a
+    # build_dictionary elsewhere on the path (Bridge's scripts/ is on it in tests).
+    assert Path(sys.modules["build_dictionary"].__file__).resolve() == root / "scripts" / "build_dictionary.py"
+    assert sorted(mods.langs.all_codes()) == ["hi", "ml", "or", "pa", "ta"]
+
+
+@pytest.mark.parametrize("code", indic_qa_vendor.PROFILES)
+def test_each_dictionary_loads_and_a_checker_builds(code):
+    mods = indic_qa_vendor.modules()
+    lang = mods.langs.get(code)
+    folder = packs_dir() / f"{code}-irv" / "dictionary"
+    info = json.loads((folder / "build_info.json").read_text(encoding="utf-8"))
+    assert info["lang"] == code
+    lex = mods.checker.Lexicon.load(folder, lang)
+    assert len(lex.ov) == info["rows_written"]["wordlist.txt"]
+    assert not any(w.endswith("\r") for w in list(lex.ov)[:1000])
+    checker = mods.checker.Checker(lex, None, lang)
+    checker.build_index()
+    assert checker.index.words
+    assert indic_qa_vendor.profile(code).PROFILE is lang
+
+
+def test_each_dictionary_manifest_matches_its_files():
+    for code in indic_qa_vendor.PROFILES:
+        folder = packs_dir() / f"{code}-irv" / "dictionary"
+        manifest = json.loads((folder / "MANIFEST.json").read_text(encoding="utf-8"))
+        assert manifest["commit"] == VENDORED["commit"]
+        for name, digest in manifest["files"].items():
+            assert hashlib.sha256((folder / name).read_bytes()).hexdigest() == digest, (code, name)
+
+
+def test_tamil_is_not_offered():
+    with pytest.raises(KeyError):
+        indic_qa_vendor.profile("ta")

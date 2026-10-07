@@ -1,0 +1,25 @@
+wrong	right	rule	note
+യാഹോവ-	യഹോവ-	ml.style.divine-names	IRV spelling of the divine name (യഹോവ 7,097×)
+യെഹോവ-	യഹോവ-	ml.style.divine-names	rejected by the reviewer (Bridge, 29 Sep 2026); not the names യെഹോവാശ്, യെഹോവാഹാസ്
+ഈശോ-	യേശു-	ml.style.divine-names	rejected by the reviewer; the IRV writes യേശു
+മെസ്സീയ-	ക്രിസ്തു-	ml.style.divine-names	rejected by the reviewer; IRV majority ക്രിസ്തു (Q7: approved rendering pending)
+മോശ-	മോശെ-	ml.style.rejected-names	rejected by the reviewer; the IRV form is മോശെ (not മോശം / മോശമായ, bad)
+അബ്രഹാം-	അബ്രാഹാം-	ml.style.rejected-names	rejected by the reviewer
+അബ്രഹാമ*	അബ്രാഹാമ*	ml.style.rejected-names	rejected by the reviewer (case forms: അബ്രഹാമിന്റെ)
+ഇസ്രായേൽ-	യിസ്രായേൽ-	ml.style.rejected-names	rejected by the reviewer
+ഇസ്രായേല*	യിസ്രായേല*	ml.style.rejected-names	rejected by the reviewer (case forms: ഇസ്രായേലിന്റെ)
+ജെറുസലേം-	യെരൂശലേം-	ml.style.rejected-names	rejected by the reviewer
+ജെറുസലേമ*	യെരൂശലേമ*	ml.style.rejected-names	rejected by the reviewer (case forms)
+എലാം	ഏലാം	ml.style.rejected-names	Elam (NEH 1:1); reviewed 1 Oct 2026 (round 3)
+വ്യാഖാന*	വ്യാഖ്യാന*	ml.lex.known-misspelling	വ്യാഖ്യാനം (1TI 3:11); reviewed 1 Oct 2026 (round 4)
+ഈജിപ്ത്കാര*	മിസ്രയീമ്യര*	ml.style.rejected-names	Egyptians: മിസ്രയീമ്യർ (reviewed 1 Oct 2026)
+ഈജിപ്ത്	മിസ്രയീം	ml.style.rejected-names	rejected by the reviewer
+ഈജിപ്ത*	മിസ്രയീമ*	ml.style.rejected-names	rejected by the reviewer (case forms: ഈജിപ്തിലെ)
+യോർദാൻ-	യോർദ്ദാൻ-	ml.style.rejected-names	rejected by the reviewer
+യോർദാന*	യോർദ്ദാന*	ml.style.rejected-names	rejected by the reviewer (case forms: യോർദാനിൽ)
+ഒരോ*	ഓരോ*	ml.lex.known-misspelling	reviewer decision 1 Oct 2026: ഓരോ (IRV 230×; ഒരോ- 11×)
+ദുഷ്ക്കർമ്മി*	ദുഷ്കർമ്മി*	ml.lex.known-misspelling	final review 1 Oct 2026: ദുഷ്കർമ്മി
+വാഞ്ചി*	വാഞ്ഛി*	ml.lex.known-misspelling	final review 1 Oct 2026: വാഞ്ഛിക്കുന്നു
+വെളിപാട*	വെളിപ്പാട*	ml.lex.known-misspelling	final review 1 Oct 2026: വെളിപ്പാട്
+യെരിഹോ*	യെരീഹോ*	ml.style.rejected-names	final review 1 Oct 2026: യെരീഹോ is the IRV's usual spelling
+ഹിസ്ക്കീയാവ*	ഹിസ്കീയാവ*	ml.style.rejected-names	final review 1 Oct 2026: ഹിസ്കീയാവ് (40×) is approved

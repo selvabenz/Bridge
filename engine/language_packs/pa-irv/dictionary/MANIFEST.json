@@ -1,0 +1,14 @@
+{
+ "commit": "248eb8195462db1b5af7851c19fe664be0658d15",
+ "files": {
+  "archaic.tsv": "5e896aa34bbf58606752a9084c22d785e1a7c142aafc3312ca3d47d145c73da9",
+  "build_info.json": "5778af55295fd9819601eb1e72593d6c206981aee176bbe3bab6dbb0ac950c39",
+  "clusters.tsv": "8c1c1d1b7b133bd4e3f56e76be52bdf1c7a7636e2a74bba902477f4814e3072c",
+  "extra_words.txt": "04000318dc976a36d7c97f61c4bccba1855c4a303921b3d8483fcc2f9ef406de",
+  "gender.tsv": "f4ee9cbb84aa36abaf341d092eb910b4b1805ac73c17e8c5851a9915c96deead",
+  "known_misspellings.tsv": "a2b52cc9a1c287a9ba6b6b3d2f5152bd9706152d047dfd47861f1da0f6048768",
+  "oblique.tsv": "c3c9ddd3209396e7edfef3365e6f741eb679ccbec1b7eceae3dd4b11c6ada127",
+  "wordlist.txt": "a018f449e4713a87942d2151d745c8cf523efccc23b9905018251c1eaa0c432d",
+  "words.tsv": "b47508f48c79cc527436f5605783d18ddaaaf14af30b837f530d38b7cb1a52b3"
+ }
+}

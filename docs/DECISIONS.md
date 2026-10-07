@@ -366,3 +366,20 @@ The finding is medium confidence, with the message "தான்: பிரத�
 **Revisit when:** a review round finds splits of a different shape (more than two tokens, or not single-grapheme).
 
 <!-- New entries go above this line. -->
+
+## 2026-10-07 — indic-qa's checker core is vendored in-process for Punjabi, Malayalam, Hindi and Odia
+**Decision:** Language QA for pa, ml, hi and or runs indic-qa's own checker
+(`selvabenz/indic-qa`, pinned). The code is a byte-exact copy in
+`engine/vendor/indic-qa/`, imported into the engine like versification. Its
+dictionaries are pack data in `engine/language_packs/<code>-irv/dictionary/`.
+Tamil stays on `ta-irv`. This answers CLAUDE.md's "stop and ask" item for a
+new vendored tree; the maintainer chose it on 2026-10-07.
+**Because:** those rules already went through reviewer rounds (1–3 Oct 2026).
+Porting each profile's tables into rule-pack JSON would take weeks per language
+and lose that review. A pip git dependency would need an upstream package and a
+network fetch at build time.
+**Rules out:** editing the vendored files (adaptations live in Bridge's
+adapter); running indic-qa's Tamil profile; writing to its dictionaries; any
+part of its editor, store or `.SFM` writer.
+**Revisit when:** indic-qa is published as a package, or a language needs
+behaviour that its profile hooks cannot express.

@@ -186,6 +186,23 @@ concurrency). Read the relevant `NOTICE.md` before touching either vendor
 tree or adding a third — don't edit vendored files in place; adaptations
 belong in Bridge's own adapter/wrapper code.
 
+A second upstream repo is vendored the in-process way: **indic-qa's checker
+core** (`engine/vendor/indic-qa/`, from `selvabenz/indic-qa`, maintainer's
+decision 2026-10-07). It runs Language QA for Punjabi, Malayalam, Hindi and
+Odia. Tamil stays on Bridge's own `ta-irv` pack. Its dictionaries are pack data
+in `engine/language_packs/<code>-irv/dictionary/`, outside the onefile exe.
+Rules for this tree:
+
+- Files enter only through `scripts/sync_indic_qa.py`, which reads committed
+  blobs and records sha256 in `VENDORED.json`. `.gitattributes` keeps both
+  trees byte-exact.
+- `qa_app.usfm_doc` imports `scripts/build_dictionary.py` from the vendor
+  tree through `sys.path`. Bridge's own `scripts/` is on the pytest path, so
+  never add a Bridge `scripts/build_dictionary.py`.
+- Bridge builds the checker's `Line`/`Book` objects from chapter JSON. It never
+  calls indic-qa's USFM parser (gotcha 14).
+- The dictionaries are never written.
+
 ### On-disk project shape
 
 A raw Scripture import becomes a translationCore-compatible book project:

@@ -1,0 +1,127 @@
+{
+  "inputs": {
+    "extra_words_sha256": "935ecf97b0f38209ff7b31fe5d558dad9df710f8a55381818920d2464bb3eb96",
+    "irv_dir": "D:\\Claude Lab\\IRV Malayalam",
+    "irv_sha256": "b05682aea05388889ec3d3bb773387591ba901f33340d3b6059bf07bd1cc7976",
+    "ov_dir": "D:\\Claude Lab\\OV Malayalam",
+    "ov_sha256": "4bff0c57c9a4f772937c7be802317cd6a1c215bab170769352b97555ee6544a5"
+  },
+  "lang": "ml",
+  "rows_written": {
+    "archaic.tsv": 133,
+    "archaic_map.tsv": 5,
+    "clusters.tsv": 2567,
+    "malformed_words.tsv": 57,
+    "names.tsv": 127,
+    "sandhi.tsv": 10,
+    "stems.tsv": 12,
+    "suffixes.tsv": 119,
+    "suspect_words.tsv": 95,
+    "verses.tsv": 31098,
+    "wordlist.txt": 76477,
+    "words.tsv": 76515
+  },
+  "rules": "docs/MALAYALAM_RULES.md",
+  "stats": {
+    "archaic": 133,
+    "clusters": {
+      "chillu_conjunct": 109,
+      "gemination": 160,
+      "nasal_form": 7,
+      "samvruthokaram": 612,
+      "samvruthokaram_all": 1659,
+      "vowel_length": 248,
+      "yk": 144
+    },
+    "coverage": {
+      "archaic_map": {
+        "tokens": 388721,
+        "tokens_pct": 89.28,
+        "types": 54586,
+        "types_pct": 68.03,
+        "types_unknown": 25647,
+        "types_unknown_ge5": 1140
+      },
+      "compound_split": {
+        "tokens": 401715,
+        "tokens_pct": 92.26,
+        "types": 62521,
+        "types_pct": 77.92,
+        "types_unknown": 17712,
+        "types_unknown_ge5": 794
+      },
+      "encoding_normalised": {
+        "tokens": 340910,
+        "tokens_pct": 78.3,
+        "types": 48037,
+        "types_pct": 58.42,
+        "types_unknown": 34190,
+        "types_unknown_ge5": 2498
+      },
+      "folded": {
+        "tokens": 379310,
+        "tokens_pct": 87.12,
+        "types": 52630,
+        "types_pct": 65.6,
+        "types_unknown": 27603,
+        "types_unknown_ge5": 1464
+      },
+      "gain": {
+        "compound_tokens": 5479,
+        "compound_types": 3494,
+        "suffix_tokens": 7515,
+        "suffix_types": 4441
+      },
+      "residual": {
+        "tokens": 33690,
+        "tokens_pct": 7.74,
+        "types": 17712,
+        "types_ge5": 794,
+        "types_hapax": 13819
+      },
+      "suffix_strip": {
+        "tokens": 396236,
+        "tokens_pct": 91.0,
+        "types": 59027,
+        "types_pct": 73.57,
+        "types_unknown": 21206,
+        "types_unknown_ge5": 928
+      }
+    },
+    "encoding": {
+      "au_legacy": 1,
+      "dot_reph": 0,
+      "legacy_chillu": 2683,
+      "ml_digits": 0,
+      "nta_no_virama": 0,
+      "nta_ന്റ": 3,
+      "nta_ന്‍റ": 24479,
+      "nta_ൻ്റ": 1472,
+      "zwj_stray": 39,
+      "zwnj_after_virama": 334,
+      "zwnj_final": 115,
+      "zwnj_misplaced": 2
+    },
+    "extra_words": 14,
+    "irv_books": 66,
+    "irv_tokens": 435405,
+    "irv_types": 80233,
+    "irv_types_enc": 82227,
+    "irv_types_raw": 82930,
+    "lexicon_types": 76477,
+    "names": 127,
+    "ov_books": 66,
+    "ov_tokens": 406888,
+    "ov_tokens_malformed": 58,
+    "ov_types": 76572,
+    "ov_types_enc": 76609,
+    "ov_types_malformed": 57,
+    "ov_typos_excluded": 49,
+    "ov_verses": 31098,
+    "suffixes": 119,
+    "suffixes_learned": 275,
+    "suspects": 46,
+    "verses_aligned": 31093
+  },
+  "version": "1.0.0"
+}

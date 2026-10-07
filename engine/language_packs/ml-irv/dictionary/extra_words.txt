@@ -1,0 +1,74 @@
+# extra_words.txt -- Malayalam supplement lexicon for the IRV spell check (dictionary_ml/)
+# One word per line (Malayalam, NFC; any of the chillu / nta encodings is fine, the lookup folds them).
+# Lines starting with # are comments.  Words added in the editor are appended below; a rebuild folds
+# them into wordlist.txt.
+# reviewed 1 Oct 2026: ഞാൺ = bowstring (JDG 16:7), not ഞാൻ
+ഞാൺ
+# reviewed 1 Oct 2026 (round 2): കളിച്ചു = performed / played (JDG 16:25)
+കളിച്ചു
+# reviewed 1 Oct 2026 (round 2): അവ്വ = the place Avva (2KI 17:24)
+അവ്വ
+# reviewed 1 Oct 2026 (round 2): ഇവ്വ = the place Ivvah (2KI 19:13)
+ഇവ്വ
+# reviewed 1 Oct 2026 (round 2): കാടി = sour wine (NUM 6:3)
+കാടി
+# reviewed 1 Oct 2026 (round 2): പിടച്ചു = throbbed (ISA 60:5)
+പിടച്ചു
+# reviewed 1 Oct 2026 (round 2): സാക്ഷ = door bolt (NEH 3:6)
+സാക്ഷ
+# reviewed 1 Oct 2026 (round 3): ഉയർപ്പിക്കുന്നത് = lifting up, the heave offering (NUM 6:20)
+ഉയർപ്പിക്കുന്നത്
+# reviewed 1 Oct 2026 (round 3): കോണിനും = and the corner (NEH 3:25)
+കോണിനും
+# reviewed 1 Oct 2026 (round 3): കരണം = cheek (MAT 5:39)
+കരണം
+# reviewed 1 Oct 2026 (round 4): നിശ്ചയിപ്പീൻ = older plural imperative, Bible register (JOS 20:2)
+നിശ്ചയിപ്പീൻ
+# reviewed 1 Oct 2026 (round 4): മനോഹരമായൊരു = മനോഹരമായ + ഒരു (MAL 3:12)
+മനോഹരമായൊരു
+# reviewed 1 Oct 2026 (round 4): മനുഷ്യരല്ല = not men (MAT 6:18)
+മനുഷ്യരല്ല
+# reviewed 1 Oct 2026 (round 4): അനുഷ്ഠിച്ച = participle, the vow he kept (NUM 6:21)
+അനുഷ്ഠിച്ച
+# added by qa_app (one word per line)
+വെള്ളത്തിനും
+വേർതിരിവായിരിക്കട്ടെ
+ഉണ്ടാക്കിയിട്ട്
+മുളച്ചുവന്നു
+വേർതിരിക്കുവാൻ
+തിരിച്ചറിയുവാനായും
+വർഷങ്ങളും
+ഋതുക്കളും
+പ്രകാശിപ്പിക്കുവാൻ
+നിയന്ത്രിക്കുവാനും
+പ്രകാശിപ്പിക്കുവാനും
+വേർപിരിക്കുവാനുമായി
+നിറയുവിൻ
+ഇഴജന്തുക്കളെയും
+നിന്നുണ്ടാകട്ടെ
+ഇഴജാതിയിന്മേലും
+സന്താന
+ജന്തുക്കൾക്കും
+രൂപരഹിതവും
+ശൂന്യവുമായിരുന്നു
+പൂർത്തിയാക്കി
+അവിടുന്ന്
+വിശ്രമിച്ചതുകൊണ്ട്
+സകലപ്രവൃത്തിയിൽ
+വിവരണം
+മുളച്ചിരുന്നതുമില്ല
+വേലചെയ്യുവാൻ
+നനച്ചുവന്നു
+ഭക്ഷ്യയോഗ്യവുമായ
+മുളപ്പിച്ചു
+നനയ്ക്കുവാൻ
+കൈവഴിയായി
+മേൽത്തരമാകുന്നു
+വേലചെയ്യുവാനും
+സൂക്ഷിക്കുവാനും
+തുണയെ
+കാണുവാൻ
+എടുത്തിരിക്കുകയാൽ
+തോന്നിയതുമില്ല
+ജീവനുള്ളവനായിതീർന്നു
+കാണാൻ

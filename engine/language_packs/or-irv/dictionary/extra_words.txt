@@ -1,0 +1,15 @@
+# extra_words.txt -- Odia supplement lexicon for the IRV spell check (dictionary_or/)
+# One word per line (Odia, NFC).  Lines starting with # are comments.
+# Words added in the editor are appended below; a rebuild folds them into wordlist.txt.
+# Correct words that look like a slip of a commoner word:
+କାଳି
+# added by qa_app (one word per line)
+ଦୀପ୍ତିକୁ
+ପ୍ରଜାବନ୍ତ
+ଦୁଇସ୍ଥିତ
+ନିତାନ୍ତ
+ସଫଳତାର
+ନିର୍ମଳାନ୍ତଃକରଣ
+ଦିନସାରା
+ମୂର୍ତ୍ତିକୁ
+ଅତ୍ୟନ୍ତ
