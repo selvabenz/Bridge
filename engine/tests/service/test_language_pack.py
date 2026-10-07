@@ -34,8 +34,9 @@ def test_a_status_request_never_loads_the_pack_and_concurrent_first_loads_share_
     monkeypatch.setattr(loader, "_LOADED", {})
     status = LanguageQaManager(debounce=0, yield_seconds=0).status()
     assert loaded_pack("ta-irv") is None
-    # Before any pass no pack finding exists: the in-code inline rules are the answer.
-    assert status["inlineRules"] == ["spacing.extra", "terminology.deprecated-form"]
+    # Before any pass no pack finding exists: the in-code inline rules are the answer
+    # (learned.replacement is the reviewer's own learned fixes, language_qa_learned.py).
+    assert status["inlineRules"] == ["learned.replacement", "spacing.extra", "terminology.deprecated-form"]
     calls = []
     real = loader.load_pack
     monkeypatch.setattr(loader, "load_pack", lambda name: calls.append(name) or real(name))
