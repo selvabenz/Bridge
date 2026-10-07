@@ -15,7 +15,7 @@ describe("withNoteMarkers", () => {
   it("splits a segment so the marker lands where the note was", () => {
     const parsed = displayFor("alpha\\f + \\ft n\\f* bravo");
     const pieces = withNoteMarkers([seg(parsed.plain)], parsed.notes);
-    expect(pieces.map((p) => (p.kind === "note" ? "[f]" : p.seg.text))).toEqual([
+    expect(pieces.map((p) => (p.kind === "note" ? "[f]" : p.kind === "text" ? p.seg.text : "⚑"))).toEqual([
       "alpha",
       "[f]",
       " bravo",
@@ -55,12 +55,29 @@ describe("withNoteMarkers", () => {
   it("orders several markers by position", () => {
     const parsed = displayFor("a\\f + \\ft one\\f*b\\x + \\xt G 1:1\\x*c");
     const pieces = withNoteMarkers([seg(parsed.plain)], parsed.notes);
-    expect(pieces.map((p) => (p.kind === "note" ? p.note.kind : p.seg.text))).toEqual([
+    expect(pieces.map((p) => (p.kind === "note" ? p.note.kind : p.kind === "text" ? p.seg.text : "⚑"))).toEqual([
       "a",
       "footnote",
       "b",
       "xref",
       "c",
     ]);
+  });
+});
+
+describe("withNoteMarkers with reviewer flags", () => {
+  const flag = { flagId: "f1", status: "open" } as never;
+
+  it("puts a flag's ⚑ after the flagged text, before a footnote callout at the same spot", () => {
+    const parsed = displayFor("alpha\\f + \\ft n\\f* bravo");
+    const pieces = withNoteMarkers([seg(parsed.plain)], parsed.notes, [{ position: 5, flag }]);
+    expect(pieces.map((p) => (p.kind === "note" ? "[f]" : p.kind === "flag" ? "⚑" : p.seg.text)))
+      .toEqual(["alpha", "⚑", "[f]", " bravo"]);
+  });
+
+  it("splits a segment for a flag in the middle of it, and keeps one at the end", () => {
+    const pieces = withNoteMarkers([seg("alpha bravo")], [], [{ position: 5, flag }, { position: 11, flag }]);
+    expect(pieces.map((p) => (p.kind === "flag" ? "⚑" : p.kind === "text" ? p.seg.text : "?")))
+      .toEqual(["alpha", "⚑", " bravo", "⚑"]);
   });
 });

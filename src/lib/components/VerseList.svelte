@@ -1,11 +1,16 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { verseNums, verseTexts, verseDisplay, headingsByVerse, findingsByVerse, checkStatusByVerse, alignmentStatusByVerse, selectedVerse, selectedVerseSet, currentChapter, verseKey, nativeChecksByVerse, aiCheckReviewsByVerse, checkingProgress, languageQaFindingsByVerse, project } from "../stores";
+  import { verseNums, verseTexts, verseDisplay, headingsByVerse, findingsByVerse, checkStatusByVerse, alignmentStatusByVerse, selectedVerse, selectedVerseSet, currentChapter, verseKey, nativeChecksByVerse, aiCheckReviewsByVerse, checkingProgress, languageQaFindingsByVerse, project, flagsByVerse } from "../stores";
   import { rangeBetween } from "../crossVerseRange";
   import { unionInChapterOrder } from "../crossVerseSuggest";
   import { buildSegments } from "../utils/highlight";
   import { withNoteMarkers, type VerseNote, type VerseNoteKind } from "../utils/usfmNotes";
-  import { identityDisplay, plainToUtf16, utf16Offset } from "../utils/verseDisplay";
+  import { identityDisplay, plainToUtf16, rawOffsetFromPlain, utf16Offset } from "../utils/verseDisplay";
+  import { selectionInVerse } from "../utils/selection";
+  import { addFlag } from "../flags";
+  import FlagDialog from "./FlagDialog.svelte";
+  import FlagPopover from "./FlagPopover.svelte";
+  import type { FlagInput, LanguageQaFlag } from "../types/languageQa";
   import type { VerseDisplay } from "../types/finding";
   import VerseNotesPopup from "./VerseNotesPopup.svelte";
   import FindingContextMenu from "./FindingContextMenu.svelte";
@@ -46,7 +51,13 @@
   // contextMenu above, which only ever opens on a finding span. The two
   // never open at once: a right-click on a mark stops propagation before it
   // reaches the row.
-  let verseMenu: { verse: string; x: number; y: number } | null = null;
+  // `selection`: the reader's selection in that verse when the menu opened
+  // (opening the menu moves focus, so it is read first), for "Flag selected text".
+  let verseMenu: { verse: string; x: number; y: number; selection: { start: number; end: number } | null } | null = null;
+  // A flag being written (FlagDialog), and the flag a ⚑ opened (FlagPopover).
+  let flagDraft: { chapter: string; verse: string; start: number; end: number; text: string;
+    suggested?: string; findingId?: string } | null = null;
+  let flagPopover: { flag: LanguageQaFlag; x: number; y: number } | null = null;
   // The verse whose Language QA decision history is open (verse menu).
   let historyFor: { projectPath: string; chapter: string; verse: string } | null = null;
   // Which underlined finding Left/Right last landed on, scoped to one verse
@@ -154,6 +165,12 @@
         disabled: langQaContextBusy,
         title: "This is not a problem: hide it and list it under False positives in the Language QA panel.",
       },
+      {
+        id: "flag",
+        label: "Flag for review…",
+        disabled: langQaContextBusy || !$project,
+        title: "Ask the team about this text; nothing in the verse changes",
+      },
       ...(isLearnedFinding(finding) ? [{
         id: "learned-forget",
         label: "Forget this learned fix",
@@ -181,9 +198,9 @@
    * buttons exactly (aiJobActive stands in for its local aiJobBusy) so the
    * menu and the panel never disagree about when an action is available.
    */
-  $: verseMenuActions = verseMenu ? buildVerseMenuActions(verseMenu.verse) : [];
+  $: verseMenuActions = verseMenu ? buildVerseMenuActions(verseMenu.verse, Boolean(verseMenu.selection)) : [];
 
-  function buildVerseMenuActions(verse: string) {
+  function buildVerseMenuActions(verse: string, hasSelection = false) {
     const busyTitle = "Wait for background checking, editing or a running AI review to finish";
     const alreadyEditingThis = $editingChapter === $currentChapter && $editingVerse === verse;
     const editBlocked = $checkingProgress.running || Boolean($editingChapter) || $editSaving || Boolean($recheckingKey);
@@ -231,21 +248,91 @@
         disabled: !$project,
         title: "Every Language QA decision recorded on this verse (read-only)",
       },
+      {
+        id: "flag-selection",
+        label: "Flag selected text…",
+        separatorBefore: true,
+        disabled: !$project || !hasSelection,
+        title: hasSelection ? "Ask the team about the text you selected; nothing in the verse changes"
+          : "Select some text in this verse first",
+      },
+      {
+        id: "flag-verse",
+        label: "Flag this verse…",
+        disabled: !$project,
+        title: "Ask the team about this whole verse; nothing in the verse changes",
+      },
     ];
   }
 
   function openVerseMenu(event: MouseEvent, verse: string): void {
     event.preventDefault();
     event.stopPropagation();
+    const text = (event.currentTarget as HTMLElement | null)?.querySelector(".vtext");
+    const selection = text ? selectionInVerse(text) : null;
     selectFromList(verse);
-    verseMenu = { verse, x: event.clientX, y: event.clientY };
+    verseMenu = { verse, x: event.clientX, y: event.clientY, selection };
+  }
+
+  /** A flag on the selected text (or the whole verse), in raw code points. A
+   * selection that runs across a lifted footnote is refused, not guessed. */
+  function startFlagFromVerse(verse: string, selection: { start: number; end: number } | null): void {
+    const key = verseKey($currentChapter, verse);
+    const raw = $verseTexts[key] ?? "";
+    const chars = Array.from(raw);
+    if (!chars.length) return;
+    let start = 0;
+    let end = chars.length;
+    if (selection) {
+      const display = $verseDisplay[key] ?? identityDisplay(raw);
+      start = rawOffsetFromPlain(display, selection.start, "start");
+      end = rawOffsetFromPlain(display, selection.end, "end");
+      if (display.removed.some(([from, to]) => from >= start && to <= end && from < to)) {
+        contextNotice = "Select text that does not run across a footnote.";
+        contextNoticeError = true;
+        return;
+      }
+    }
+    if (end <= start) return;
+    flagDraft = { chapter: $currentChapter, verse, start, end, text: chars.slice(start, end).join("") };
+  }
+
+  function startFlagFromFinding(finding: LanguageQaFinding): void {
+    flagDraft = { chapter: finding.chapter, verse: finding.verse, start: finding.start, end: finding.end,
+      text: finding.originalText, suggested: finding.suggestions?.[0]?.text, findingId: finding.id };
+  }
+
+  async function saveFlag(input: FlagInput): Promise<string> {
+    if (!$project) return "No project is open.";
+    const result = await addFlag($project.path, input);
+    if (result.error) return result.error;
+    flagDraft = null;
+    contextNotice = result.learned
+      ? `Flag saved. “${result.learned.old}” → “${result.learned.new}” is also a learned fix now.` : "Flag saved.";
+    contextNoticeError = false;
+    return "";
+  }
+
+  function openFlagPopover(event: MouseEvent, flag: LanguageQaFlag): void {
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    flagPopover = { flag, x: rect.left, y: rect.bottom + 4 };
+  }
+
+  /** ⚑ markers for a verse, after the flagged text, in the display's UTF-16. */
+  function flagMarkers(flags: LanguageQaFlag[], display: VerseDisplay): { position: number; flag: LanguageQaFlag }[] {
+    return flags.map((flag) => ({ position: utf16Offset(display, flag.end), flag }));
   }
 
   function onVerseContextAction(event: CustomEvent<{ id: string }>): void {
     if (!verseMenu) return;
     const verse = verseMenu.verse;
+    const selection = verseMenu.selection;
     const id = event.detail.id;
     verseMenu = null;
+    if (id === "flag-selection" || id === "flag-verse") {
+      startFlagFromVerse(verse, id === "flag-selection" ? selection : null);
+      return;
+    }
     if (id === "edit-verse") {
       startVerseEdit($currentChapter, verse);
       return;
@@ -391,6 +478,8 @@
       }).finally(() => { langQaContextBusy = false; });
     } else if (id === "edit") {
       void editWithSelection(finding, verse);
+    } else if (id === "flag") {
+      startFlagFromFinding(finding);
     } else if (id.startsWith("use-scope:")) {
       const [, rank, scope] = id.split(":");
       const chosen = languageQaSuggestions(finding).find((s) => String(s.rank) === rank);
@@ -517,7 +606,8 @@
       onSelect(verse);
       const row = event.currentTarget as HTMLElement;
       const rect = row.getBoundingClientRect();
-      verseMenu = { verse, x: rect.left, y: rect.bottom };
+      const text = row.querySelector(".vtext");
+      verseMenu = { verse, x: rect.left, y: rect.bottom, selection: text ? selectionInVerse(text) : null };
       return;
     }
     const index = activeIndexFor(key, findingIds.length);
@@ -797,8 +887,16 @@
         </div>
       {:else}
         <div class="vtext">
-          {#each withNoteMarkers(segments, notesForLayout(display)) as piece}
-            {#if piece.kind === "note"}<button
+          {#each withNoteMarkers(segments, notesForLayout(display), flagMarkers($flagsByVerse[key] ?? [], display)) as piece}
+            {#if piece.kind === "flag"}<button
+                type="button"
+                class="flag-btn"
+                class:resolved={piece.flag.status === "resolved"}
+                on:dblclick|stopPropagation
+                on:click|stopPropagation={(event) => openFlagPopover(event, piece.flag)}
+                title={`Flagged (${piece.flag.type}): ${piece.flag.note || piece.flag.text}`}
+                aria-label={`Flag on “${piece.flag.text}”, ${piece.flag.status}. Open it.`}
+              >⚑</button>{:else if piece.kind === "note"}<button
                 class="note-btn {piece.note.kind}"
                 on:dblclick|stopPropagation
                 on:click|stopPropagation={() =>
@@ -906,6 +1004,19 @@
   />
 {/if}
 
+{#if flagDraft}
+  <FlagDialog
+    draft={flagDraft}
+    verseNums={$verseNums}
+    reference={`${($project?.bookId ?? "").toUpperCase()} ${flagDraft.chapter}:${flagDraft.verse}`}
+    onSave={saveFlag}
+    onCancel={() => (flagDraft = null)}
+  />
+{/if}
+{#if flagPopover && $project}
+  <FlagPopover flag={flagPopover.flag} projectPath={$project.path} x={flagPopover.x} y={flagPopover.y}
+    onClose={() => (flagPopover = null)} />
+{/if}
 {#if historyFor}
   <LanguageQaHistoryPopup
     projectPath={historyFor.projectPath}
@@ -965,6 +1076,14 @@
     background: var(--surface-2); color: var(--text-2);
   }
   .note-btn:hover { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
+  /* A reviewer's flag, after the flagged text. A plain Unicode glyph with a
+     label (gotcha 9), never an icon font. */
+  .flag-btn {
+    font: inherit; font-size: var(--fs-sm); line-height: 1; vertical-align: super; margin: 0 2px 0 1px;
+    padding: 0 2px; cursor: pointer; border: 0; background: transparent; color: var(--flag);
+  }
+  .flag-btn:hover, .flag-btn:focus-visible { background: var(--flag-bg); border-radius: 3px; outline: none; }
+  .flag-btn.resolved { color: var(--text-3); }
   .note-btn.xref { color: var(--accent); }
   /* Edit pencil stacked above the alignment arrow (issue #73), so a reviewer
      working from the alignment control has an edit entry point without

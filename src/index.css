@@ -67,6 +67,8 @@
   --lqa-hatch:rgba(107, 114, 128, 0.35);
   /* A learned fix (a word the reviewer replaced before, recurring). */
   --learned:#1D4ED8; --learned-bg:#E8EFFD;
+  /* A reviewer's flag (⚑): a question on a passage, not a finding. */
+  --flag:#9A3412; --flag-bg:#FFEDD5;
   /* Generic "this succeeded" green: passed coverage, a ready gate, the live
      check indicator, a confirmed validation. Split out of --gr, which used to
      serve both and would now paint every one of those red. Same value tN

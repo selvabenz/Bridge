@@ -5,6 +5,9 @@
   import { languageQaChannel } from "../languageQaInline";
   import { forgetLearnedFix, isLearnedFinding, learnedPairOf } from "../learnedFixes";
   import { openScopeDialog } from "../scopedApply";
+  import { addFlag } from "../flags";
+  import FlagDialog from "./FlagDialog.svelte";
+  import type { FlagInput } from "../types/languageQa";
   import type { LanguageQaFinding, LanguageQaScope, LanguageQaSuggestion } from "../types/languageQa";
   import AlignmentModal from "./AlignmentModal.svelte";
   import TranslationHelpsReview from "./TranslationHelpsReview.svelte";
@@ -160,6 +163,19 @@
       lqaNoticeError = true;
       removed.forEach(restoreLqa);
     });
+  }
+
+  // Flag for review: a question for the team, never a change to the verse.
+  let lqaFlagDraft: LanguageQaFinding | null = null;
+
+  async function saveLqaFlag(input: FlagInput): Promise<string> {
+    if (!$project) return "No project is open.";
+    const result = await addFlag($project.path, input);
+    if (result.error) return result.error;
+    lqaFlagDraft = null;
+    lqaNotice = "Flag saved.";
+    lqaNoticeError = false;
+    return "";
   }
 
   function decideLqa(finding: LanguageQaFinding, status: "ignored" | "rejected"): void {
@@ -767,6 +783,8 @@
                     <button class="ignore" title="Stop offering this replacement anywhere in the book; it can be restored"
                       on:click={() => forgetLqa(f)}>Forget this fix</button>
                   {/if}
+                  <button class="flag" title="Ask the team about this text; nothing in the verse changes"
+                    on:click={() => (lqaFlagDraft = f)}>⚑ Flag…</button>
                 </div>
                 {#if lqaSuggestions(f).length && !f.context}
                   <div class="scope-row" role="radiogroup" aria-label="Apply a suggestion to">
@@ -927,6 +945,16 @@
   <AlignmentModal chapter={$currentChapter} verse={$selectedVerse} onClose={() => alignmentOpen.set(false)} />
 {/if}
 
+{#if lqaFlagDraft}
+  <FlagDialog
+    draft={{ chapter: lqaFlagDraft.chapter, verse: lqaFlagDraft.verse, start: lqaFlagDraft.start, end: lqaFlagDraft.end,
+      text: lqaFlagDraft.originalText, suggested: lqaFlagDraft.suggestions?.[0]?.text, findingId: lqaFlagDraft.id }}
+    reference={`${lqaFlagDraft.book.toUpperCase()} ${lqaFlagDraft.chapter}:${lqaFlagDraft.verse}`}
+    onSave={saveLqaFlag}
+    onCancel={() => (lqaFlagDraft = null)}
+  />
+{/if}
+
 <style>
   .panel { width: 400px; flex-shrink: 0; background: var(--surface); display: flex; flex-direction: column; overflow: hidden; border-left: 1px solid var(--border); }
   .panel-header { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
@@ -1010,6 +1038,7 @@
   .decision-row button { padding: 7px; font-size: var(--fs-xs); font-weight: 700; border-radius: 6px; border: none; cursor: pointer; }
   .accept { background: var(--success); color: #fff; }
   .ignore { background: #F5EBFC; color: #9333EA; }
+  .flag { background: var(--flag-bg); color: var(--flag); }
   .undo-ignore, .undo-accept { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border-strong); }
   .edit-inline { background: var(--accent-bg); color: var(--accent); }
   .none { font-size: var(--fs-xs); color: var(--text-3); }

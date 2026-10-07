@@ -45,3 +45,19 @@ export function utf16Offset(display: VerseDisplay, rawOffset: number): number {
 export function plainToUtf16(display: VerseDisplay, plainCodePoint: number): number {
   return codePointToUtf16(display.plain, plainCodePoint);
 }
+
+/**
+ * The inverse of `plainOffset`: a code-point offset in `display.plain` back to
+ * the raw verse string, by adding every removed range before it. At a removal
+ * boundary the two sides of a span differ: a span's start belongs after a
+ * lifted note (side "start"), its end before it (side "end"), so a selection
+ * that ends just before a footnote never swallows the footnote.
+ */
+export function rawOffsetFromPlain(display: VerseDisplay, plainCodePoint: number, side: "start" | "end"): number {
+  let raw = Math.max(0, plainCodePoint);
+  for (const [start, end] of display.removed) {
+    if (side === "start" ? start <= raw : start < raw) raw += end - start;
+    else break;
+  }
+  return raw;
+}

@@ -2,7 +2,8 @@
   import { onDestroy } from "svelte";
   import { bridge } from "../api/bridgeClient";
   import { languageQaChannel, nudgeLanguageQa } from "../languageQaInline";
-  import type { LanguageQaStatus, LanguageQaView, LearnedFix } from "../types/languageQa";
+  import type { LanguageQaFlag, LanguageQaStatus, LanguageQaView, LearnedFix } from "../types/languageQa";
+  import { deleteFlag, setFlagStatus } from "../flags";
   import LanguageQaHistoryList from "./LanguageQaHistoryList.svelte";
 
   export let projectPath: string;
@@ -14,13 +15,18 @@
   let view: LanguageQaView = "findings";
   // The panel's own tabs. "findings" holds the three engine lists above; the
   // others are the reviewer's own data (learned fixes in Dictionary).
-  type PanelTab = "findings" | "dictionary";
+  type PanelTab = "findings" | "flags" | "dictionary";
   let panelTab: PanelTab = "findings";
   let learned: LearnedFix[] = [];
   let learnedOn = true;
   let learnedLoaded = false;
   let learnedBusy = false;
   let learnedError = "";
+  let flags: LanguageQaFlag[] = [];
+  let flagsLoaded = false;
+  let flagsError = "";
+  let showResolved = false;
+  $: listedFlags = showResolved ? flags : flags.filter((f) => f.status === "open");
   // Finding ids whose decision history is expanded.
   let historyOpen = new Set<string>();
   let offset = 0;
@@ -111,6 +117,29 @@
   function showPanelTab(next: PanelTab): void {
     panelTab = next;
     if (next === "dictionary") void loadLearned();
+    if (next === "flags") void loadFlags();
+  }
+
+  /** The whole book's flags, fetched when the tab opens. */
+  async function loadFlags(): Promise<void> {
+    flagsError = "";
+    try {
+      flags = (await bridge.languageQaFlagsList(projectPath)).flags;
+    } catch (cause) {
+      flagsError = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      flagsLoaded = true;
+    }
+  }
+
+  async function flagAction(flag: LanguageQaFlag, action: "resolved" | "open" | "delete"): Promise<void> {
+    const error = action === "delete" ? await deleteFlag(projectPath, flag) : await setFlagStatus(projectPath, flag, action);
+    if (error) {
+      flagsError = error;
+      return;
+    }
+    flags = action === "delete" ? flags.filter((f) => f.flagId !== flag.flagId)
+      : flags.map((f) => (f.flagId === flag.flagId ? { ...f, status: action } : f));
   }
 
   /** Fetched when the Dictionary tab opens, never polled. */
@@ -217,6 +246,7 @@
         {/if}
         <div class="panel-tabs" role="tablist" aria-label="Language QA panel">
           <button role="tab" aria-selected={panelTab === "findings"} on:click={() => showPanelTab("findings")}>Issues</button>
+          <button role="tab" aria-selected={panelTab === "flags"} on:click={() => showPanelTab("flags")}>Flags</button>
           <button role="tab" aria-selected={panelTab === "dictionary"} on:click={() => showPanelTab("dictionary")}>Dictionary</button>
         </div>
         {#if panelTab === "findings"}
@@ -269,6 +299,39 @@
             <button on:click={() => turnPage(50)} disabled={busy || offset + 50 >= status.totalFindings}>Next</button>
           </div>
         {/if}
+        {:else if panelTab === "flags"}
+          <section aria-label="Flags" class="flags">
+            <p class="muted">Questions reviewers raised on the text (⚑). A flag never changes the verse.</p>
+            <label class="toggle"><input type="checkbox" bind:checked={showResolved} /> Show resolved</label>
+            {#if flagsError}<p role="alert">{flagsError}</p>{/if}
+            {#if !flagsLoaded}
+              <p class="muted">Loading…</p>
+            {:else if !listedFlags.length}
+              <p class="muted">No {showResolved ? "" : "open "}flags in this book. Right-click a word or a verse to flag it.</p>
+            {:else}
+              <ol>
+                {#each listedFlags as flag (flag.flagId)}
+                  <li class:resolved={flag.status === "resolved"}>
+                    <button on:click={() => onNavigate(status?.book ?? "", flag.chapter, flag.verse)}>
+                      {(status?.book ?? "").toUpperCase()} {flag.chapter}:{flag.verse}{flag.verseEnd ? `–${flag.verseEnd}` : ""}
+                    </button>
+                    <span class="category">⚑ {flag.type}</span>
+                    <span class="severity">{flag.status}</span>
+                    <p class="evidence">{flag.text}</p>
+                    {#if flag.note}<p>{flag.note}</p>{/if}
+                    {#if flag.suggested}<p>Suggested: <b>{flag.suggested}</b></p>{/if}
+                    <p class="muted">{flag.reviewer} · {new Date(flag.createdAt).toLocaleDateString()}</p>
+                    {#if flag.status === "open"}
+                      <button on:click={() => flagAction(flag, "resolved")}>Resolve</button>
+                    {:else}
+                      <button on:click={() => flagAction(flag, "open")}>Reopen</button>
+                    {/if}
+                    <button on:click={() => flagAction(flag, "delete")}>Delete</button>
+                  </li>
+                {/each}
+              </ol>
+            {/if}
+          </section>
         {:else if panelTab === "dictionary"}
           <section aria-label="Learned fixes" class="dictionary">
             <h3>Learned fixes</h3>
@@ -335,6 +398,8 @@
   .panel-tabs { display: flex; gap: 6px; margin: 10px 0 2px; padding-bottom: 6px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
   .panel-tabs button[aria-selected="true"] { border-color: var(--accent); background: var(--accent-bg); font-weight: 600; }
   .dictionary h3 { font-size: 13px; margin: 10px 0 4px; }
+  .flags .toggle { display: flex; gap: 6px; align-items: center; }
+  .flags li.resolved { opacity: .7; }
   .dictionary table { width: 100%; border-collapse: collapse; }
   .dictionary th { text-align: left; font-size: 11px; color: var(--text-3); padding: 4px; border-bottom: 1px solid var(--border); }
   .dictionary td { padding: 4px; border-bottom: 1px solid var(--border); }

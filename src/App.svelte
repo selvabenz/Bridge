@@ -9,6 +9,7 @@
   import ScopeConfirmDialog from "./lib/components/ScopeConfirmDialog.svelte";
   import ScopeNotice from "./lib/components/ScopeNotice.svelte";
   import { resetScopedApply, scopeDialog } from "./lib/scopedApply";
+  import { startFlagLoader } from "./lib/flags";
   import AlignmentReview from "./lib/components/AlignmentReview.svelte";
   import CrossVerseAlignmentModal from "./lib/components/CrossVerseAlignmentModal.svelte";
   import {
@@ -263,19 +264,27 @@
   // LanguageQaPanel below -- running while a book is open, restarted when the
   // book changes -- but independent of the panel, which only pages its list.
   let stopLanguageQaInline: (() => void) | null = null;
+  let stopFlagLoader: (() => void) | null = null;
   let languageQaInlinePath = "";
   $: {
     const path = $project && opened ? $project.path : "";
     if (path !== languageQaInlinePath) {
       stopLanguageQaInline?.();
       stopLanguageQaInline = null;
+      stopFlagLoader?.();
+      stopFlagLoader = null;
       languageQaInlinePath = path;
       // A scoped correction's batch belongs to the book it was made in.
       resetScopedApply();
       if (path) stopLanguageQaInline = startLanguageQaInline(path);
+      // Reviewer flags (⚑) of each chapter as it is shown.
+      if (path) stopFlagLoader = startFlagLoader(path);
     }
   }
-  onDestroy(() => stopLanguageQaInline?.());
+  onDestroy(() => {
+    stopLanguageQaInline?.();
+    stopFlagLoader?.();
+  });
 
   // Collection QA (layered-rules 4.4): while a run checks every book, the app
   // is read-only. checkingProgress.running is what already holds editing,

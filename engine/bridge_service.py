@@ -389,6 +389,10 @@ class Methods:
     LANGUAGE_QA_SCOPE_APPLY = "languageQa.scopeApply"
     LANGUAGE_QA_BATCH_UNDO = "languageQa.batchUndo"
     LANGUAGE_QA_BATCHES = "languageQa.batches"
+    LANGUAGE_QA_FLAGS_LIST = "languageQa.flags.list"
+    LANGUAGE_QA_FLAGS_ADD = "languageQa.flags.add"
+    LANGUAGE_QA_FLAGS_UPDATE = "languageQa.flags.update"
+    LANGUAGE_QA_FLAGS_DELETE = "languageQa.flags.delete"
     CHECKS_STATUS = "checks.status"
     CHECKS_CANCEL = "checks.cancel"
     CHECKS_RETRY = "checks.retry"
@@ -4325,6 +4329,104 @@ class BridgeEngine:
         self._language_qa.invalidate_all()
         return {"fix": fix}
 
+    # -- flags (indic-qa's reviewer flags) -----------------------------------
+    #
+    # A reviewer's question on a passage: never a Scripture write, never a
+    # finding. Stored in the workbench (v6, language_qa_flags); delete is a
+    # status so change_log keeps every image.
+
+    FLAG_TYPES = ("spelling", "grammar", "meaning", "style", "encoding", "font", "other")
+    FLAG_STATUSES = ("open", "resolved", "deleted")
+    FLAG_NOTE_MAX = 4000
+
+    def language_qa_flags(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
+        """languageQa.flags.list | .add | .update | .delete."""
+        self._require_project()
+        if action == "list":
+            chapter, status = params.get("chapter"), params.get("status")
+            if chapter is not None and not isinstance(chapter, str):
+                raise ProjectError("chapter must be a string when given")
+            if status is not None and status not in self.FLAG_STATUSES:
+                raise ProjectError(f"status must be one of {list(self.FLAG_STATUSES)} when given")
+            return {"flags": self.project.language_qa_flags(chapter=chapter, status=status)}
+        if action == "add":
+            flag = self._valid_flag(params.get("flag"))
+            reviewer = self.settings.reviewer_name or "Bridge Reviewer"
+            record = self.project.record_language_qa_flag(flag, reviewer=reviewer)
+            learned = None
+            suggested = flag.get("suggested")
+            if suggested and self.settings.language_qa_learned_fixes:
+                one = lambda text: len(language_qa_word_occurrences(text)) == 1  # noqa: E731
+                if one(flag["text"]) and one(suggested):
+                    old = unicodedata.normalize("NFC", flag["text"].strip())
+                    fix = self.project.record_learned_fix(
+                        old, suggested.strip(), ref=f"{self.project.book_id.upper()} {flag['chapter']}:{flag['verse']}",
+                        reviewer=reviewer, source="flag")
+                    learned = {"old": old, "new": suggested.strip(), "count": fix["count"]}
+                    self._language_qa.invalidate(flag["chapter"])
+            return {"flag": record, **({"learned": learned} if learned else {})}
+        flag_id = params.get("flagId")
+        if not isinstance(flag_id, str) or not flag_id:
+            raise ProjectError("flagId must be a non-empty string")
+        if action == "delete":
+            patch: dict[str, Any] = {"status": "deleted"}
+        else:
+            raw_patch = params.get("patch")
+            if not isinstance(raw_patch, dict) or not raw_patch:
+                raise ProjectError("patch must be a non-empty object")
+            allowed = {"status", "note", "type", "suggested"}
+            if set(raw_patch) - allowed:
+                raise ProjectError(f"patch may change only {sorted(allowed)}")
+            patch = dict(raw_patch)
+            if "status" in patch and patch["status"] not in self.FLAG_STATUSES:
+                raise ProjectError(f"status must be one of {list(self.FLAG_STATUSES)}")
+            if "type" in patch and patch["type"] not in self.FLAG_TYPES:
+                raise ProjectError(f"type must be one of {list(self.FLAG_TYPES)}")
+            if "note" in patch and (not isinstance(patch["note"], str) or len(patch["note"]) > self.FLAG_NOTE_MAX):
+                raise ProjectError(f"note must be a string of at most {self.FLAG_NOTE_MAX} characters")
+            if "suggested" in patch and patch["suggested"] is not None and not isinstance(patch["suggested"], str):
+                raise ProjectError("suggested must be a string or null")
+        try:
+            record = self.project.update_language_qa_flag(flag_id, patch)
+        except KeyError as exc:
+            raise ProjectError(f"No flag {flag_id} in this book.") from exc
+        return {"flag": record}
+
+    def _valid_flag(self, flag: Any) -> dict[str, Any]:
+        """A new flag's fields, checked against the verse as it is now: the
+        span must be inside the verse and `text` must be exactly what is there
+        (raw code points), so a flag always points at real text."""
+        if not isinstance(flag, dict):
+            raise ProjectError("flag must be an object")
+        chapter, verse = flag.get("chapter"), flag.get("verse")
+        if not isinstance(chapter, str) or not isinstance(verse, str) or not chapter or not verse:
+            raise ProjectError("flag.chapter and flag.verse must be non-empty strings")
+        current = self.project.target_verse_text(chapter, verse)
+        if current is None or current == "":
+            raise ProjectError(f"There is no verse {chapter}:{verse} in this book.")
+        start, end = flag.get("start"), flag.get("end")
+        if not isinstance(start, int) or not isinstance(end, int) or not 0 <= start < end <= len(current):
+            raise ProjectError("flag.start and flag.end must mark a non-empty span inside the verse")
+        text = flag.get("text")
+        if text != current[start:end]:
+            raise ProjectError("flag.text is not the verse text at that span; reload the verse and try again")
+        flag_type = flag.get("type")
+        if flag_type not in self.FLAG_TYPES:
+            raise ProjectError(f"flag.type must be one of {list(self.FLAG_TYPES)}")
+        note = flag.get("note", "")
+        if not isinstance(note, str) or len(note) > self.FLAG_NOTE_MAX:
+            raise ProjectError(f"flag.note must be a string of at most {self.FLAG_NOTE_MAX} characters")
+        suggested = flag.get("suggested")
+        if suggested is not None and (not isinstance(suggested, str) or not suggested.strip()):
+            raise ProjectError("flag.suggested must be a non-empty string when given")
+        verse_end = flag.get("verseEnd")
+        if verse_end is not None and (not isinstance(verse_end, str) or not verse_end):
+            raise ProjectError("flag.verseEnd must be a non-empty string when given")
+        return {"chapter": chapter, "verse": verse, "verseEnd": verse_end, "start": start, "end": end,
+                "text": text, "textHash": language_qa_text_hash(current), "type": flag_type, "note": note,
+                "suggested": suggested.strip() if suggested else None,
+                "findingId": flag.get("findingId") if isinstance(flag.get("findingId"), str) else None}
+
     # -- scoped corrections (indic-qa's "Here / Chapter / Book") -------------
     #
     # Scripture is still written only by apply_scripture_edit, once per verse,
@@ -4872,7 +4974,9 @@ class BridgeEngine:
                      Methods.LANGUAGE_QA_HISTORY, Methods.LANGUAGE_QA_VERSE, Methods.LANGUAGE_QA_SET_PACK,
                      Methods.LANGUAGE_QA_LEARNED_LIST, Methods.LANGUAGE_QA_LEARNED_FORGET,
                      Methods.LANGUAGE_QA_LEARNED_RESTORE, Methods.LANGUAGE_QA_SCOPE_FIND,
-                     Methods.LANGUAGE_QA_SCOPE_APPLY, Methods.LANGUAGE_QA_BATCH_UNDO, Methods.LANGUAGE_QA_BATCHES}:
+                     Methods.LANGUAGE_QA_SCOPE_APPLY, Methods.LANGUAGE_QA_BATCH_UNDO, Methods.LANGUAGE_QA_BATCHES,
+                     Methods.LANGUAGE_QA_FLAGS_LIST, Methods.LANGUAGE_QA_FLAGS_ADD, Methods.LANGUAGE_QA_FLAGS_UPDATE,
+                     Methods.LANGUAGE_QA_FLAGS_DELETE}:
                 self._require_project()
                 # Compared canonically, not as strings. `project.open` resolves
                 # the path it is given, so a caller echoing back the path *it*
@@ -4887,6 +4991,9 @@ class BridgeEngine:
                 if m in {Methods.LANGUAGE_QA_LEARNED_LIST, Methods.LANGUAGE_QA_LEARNED_FORGET,
                          Methods.LANGUAGE_QA_LEARNED_RESTORE}:
                     result = self.language_qa_learned(m.rsplit(".", 1)[1], p)
+                elif m in {Methods.LANGUAGE_QA_FLAGS_LIST, Methods.LANGUAGE_QA_FLAGS_ADD,
+                           Methods.LANGUAGE_QA_FLAGS_UPDATE, Methods.LANGUAGE_QA_FLAGS_DELETE}:
+                    result = self.language_qa_flags(m.rsplit(".", 1)[1], p)
                 elif m == Methods.LANGUAGE_QA_SCOPE_FIND:
                     result = self.language_qa_scope_find(p)
                 elif m == Methods.LANGUAGE_QA_SCOPE_APPLY:

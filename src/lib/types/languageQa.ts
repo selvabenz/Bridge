@@ -184,6 +184,46 @@ export interface BatchUndoResult {
   conflicts: { chapter: string; verse: string; reason: string }[];
 }
 
+/** Mirrors BridgeEngine.FLAG_TYPES (engine). */
+export const FLAG_TYPES = ["spelling", "grammar", "meaning", "style", "encoding", "font", "other"] as const;
+export type FlagType = (typeof FLAG_TYPES)[number];
+export type FlagStatus = "open" | "resolved" | "deleted";
+
+/** A reviewer's question on a passage (workbench v6). Never a Scripture write. */
+export interface LanguageQaFlag {
+  flagId: string;
+  chapter: string;
+  verse: string;
+  /** A flag that runs on through later verses names the last one. */
+  verseEnd: string | null;
+  /** Raw code points into the verse text when the flag was made. */
+  start: number;
+  end: number;
+  text: string;
+  textHash: string;
+  type: FlagType;
+  note: string;
+  suggested: string | null;
+  findingId: string | null;
+  reviewer: string;
+  status: FlagStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FlagInput {
+  chapter: string;
+  verse: string;
+  verseEnd?: string;
+  start: number;
+  end: number;
+  text: string;
+  type: FlagType;
+  note: string;
+  suggested?: string;
+  findingId?: string;
+}
+
 /** What verse.edit says it learned from a single-word edit. */
 export interface VerseEditLearned {
   old: string;

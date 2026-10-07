@@ -2,6 +2,7 @@ import type {
   LanguageQaDecisionIssue, LanguageQaHistory, LanguageQaInline, LanguageQaStatus, LanguageQaVerse, LanguageQaView,
   LearnedFix, LearnedFixesResponse, VerseEditLearned,
   BatchUndoResult, LanguageQaScope, ScopeAcceptResult, ScopeFindResult, ScopeIgnoreResult,
+  FlagInput, FlagStatus, FlagType, LanguageQaFlag,
 } from "../types/languageQa";
 import type { CollectionQaSnapshot } from "../types/collectionQa";
 import type {
@@ -206,6 +207,10 @@ export type EngineMethod =
   | "languageQa.scopeApply"
   | "languageQa.batchUndo"
   | "languageQa.batches"
+  | "languageQa.flags.list"
+  | "languageQa.flags.add"
+  | "languageQa.flags.update"
+  | "languageQa.flags.delete"
   | "housestyle.list"
   | "housestyle.nameSuggestions"
   | "housestyle.record"
@@ -399,6 +404,29 @@ export const bridge = {
     projectPath: string, chapter: string, verse: string, findingId: string, scope: LanguageQaScope,
   ): Promise<ScopeIgnoreResult> {
     return call("languageQa.scopeApply", { projectPath, action: "ignore", chapter, verse, findingId, scope });
+  },
+
+  /** This book's flags (one chapter's when given), in reading order. */
+  languageQaFlagsList(projectPath: string, chapter?: string): Promise<{ flags: LanguageQaFlag[] }> {
+    const params: Record<string, unknown> = { projectPath };
+    if (chapter !== undefined) params.chapter = chapter;
+    return call("languageQa.flags.list", params);
+  },
+
+  languageQaFlagAdd(projectPath: string, flag: FlagInput): Promise<{ flag: LanguageQaFlag; learned?: { old: string; new: string } }> {
+    return call("languageQa.flags.add", { projectPath, flag });
+  },
+
+  languageQaFlagUpdate(
+    projectPath: string, flagId: string,
+    patch: { status?: FlagStatus; note?: string; type?: FlagType; suggested?: string | null },
+  ): Promise<{ flag: LanguageQaFlag }> {
+    return call("languageQa.flags.update", { projectPath, flagId, patch });
+  },
+
+  /** Delete is a status: the flag's history is kept. */
+  languageQaFlagDelete(projectPath: string, flagId: string): Promise<{ flag: LanguageQaFlag }> {
+    return call("languageQa.flags.delete", { projectPath, flagId });
   },
 
   /** Undo a scoped correction: verses changed since are left and reported. */

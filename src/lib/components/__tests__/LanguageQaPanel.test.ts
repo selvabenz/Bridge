@@ -11,6 +11,8 @@ const historyCall = vi.fn();
 const learnedListCall = vi.fn();
 const learnedForgetCall = vi.fn();
 const learnedRestoreCall = vi.fn();
+const flagsListCall = vi.fn();
+const flagUpdateCall = vi.fn();
 vi.mock("../../api/bridgeClient", () => ({ bridge: {
   languageQaStatus: (...args: unknown[]) => statusCall(...args),
   languageQaPause: (...args: unknown[]) => pauseCall(...args),
@@ -18,6 +20,8 @@ vi.mock("../../api/bridgeClient", () => ({ bridge: {
   languageQaLearnedList: (...args: unknown[]) => learnedListCall(...args),
   languageQaLearnedForget: (...args: unknown[]) => learnedForgetCall(...args),
   languageQaLearnedRestore: (...args: unknown[]) => learnedRestoreCall(...args),
+  languageQaFlagsList: (...args: unknown[]) => flagsListCall(...args),
+  languageQaFlagUpdate: (...args: unknown[]) => flagUpdateCall(...args),
 } }));
 import LanguageQaPanel from "../LanguageQaPanel.svelte";
 import { languageQaChannel } from "../../languageQaInline";
@@ -280,5 +284,24 @@ describe("Language QA", () => {
     await fireEvent.click(await screen.findByRole("button", { name: "Restore" }));
     await waitFor(() => expect(learnedRestoreCall).toHaveBeenCalledWith("C:/project", "தேவன்", "கர்த்தர்"));
     expect(await screen.findByRole("button", { name: "Forget" })).toBeTruthy();
+  });
+
+  it("lists the book's open flags in the Flags tab, navigates to one and resolves it", async () => {
+    const flag = { flagId: "f1", chapter: "3", verse: "4", verseEnd: null, start: 0, end: 4, text: "அவன்", textHash: "h",
+      type: "meaning" as const, note: "Is this the sense?", suggested: null, findingId: null, reviewer: "Benz",
+      status: "open" as const, createdAt: "2026-10-07T10:00:00Z", updatedAt: "2026-10-07T10:00:00Z" };
+    flagsListCall.mockReset().mockResolvedValue({ flags: [flag] });
+    flagUpdateCall.mockReset().mockResolvedValue({ flag: { ...flag, status: "resolved" } });
+    const onNavigate = vi.fn();
+    render(LanguageQaPanel, { projectPath: "C:/project", onNavigate });
+    await fireEvent.click(await screen.findByRole("button", { name: /Language QA · completed/ }));
+    await fireEvent.click(screen.getByRole("tab", { name: "Flags" }));
+    expect(await screen.findByText("Is this the sense?")).toBeTruthy();
+    expect(flagsListCall).toHaveBeenCalledWith("C:/project");
+    await fireEvent.click(screen.getByRole("button", { name: "PHP 3:4" }));
+    expect(onNavigate).toHaveBeenCalledWith("php", "3", "4");
+    await fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
+    await waitFor(() => expect(flagUpdateCall).toHaveBeenCalledWith("C:/project", "f1", { status: "resolved" }));
+    await waitFor(() => expect(screen.queryByText("Is this the sense?")).toBeNull());
   });
 });

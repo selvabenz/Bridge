@@ -218,6 +218,19 @@ also recorded as house style. `languageQa.batchUndo` restores every verse
 not edited since and keeps both batches. The sidecar allows these calls
 600 s.
 
+### Reviewer flags (every pack)
+
+A flag is a reviewer's question on a passage, not a finding, and it never
+writes the verse. It lives in `language_qa_flags` (workbench v6). The RPCs
+are `languageQa.flags.list`, `.add`, `.update` and `.delete`; delete is a
+status, so every image is kept. A new flag must name exactly the text at its
+span (raw code points), so it always points at real text. Its type is one of
+spelling, grammar, meaning, style, encoding, font or other. A one-word
+suggested form on a one-word flag is also recorded as a learned fix. The text
+shows ⚑ after the flagged span. The panel's Flags tab lists the book's flags;
+flags are created from a Language QA mark, the Review panel, a text selection
+or the whole verse.
+
 ### Phase 1 data rules (DECISIONS 2026-10-07)
 
 - No rule has high severity together with high confidence, so none blocks

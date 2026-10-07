@@ -15352,3 +15352,65 @@ handoff will ask.
 **Not verified.** The desktop app, and how long a book-wide accept takes on a
 long book. Each verse pays a full journal transaction with its backup;
 expect seconds for Genesis.
+
+## 2026-10-07 — Reviewer flags (branch `indic-qa-editor`, commit 5)
+
+This is indic-qa's ⚑: a question for the team on a passage. It is stored in
+the workbench (`language_qa_flags`, v6). It is not a finding, and it never
+writes the verse.
+
+**Engine.**
+- `languageQa.flags.list`, `.add`, `.update` and `.delete`, inside the
+  project-guarded block.
+- `_valid_flag` checks the verse as it is now: the span must be non-empty and
+  inside the verse, and `text` must be exactly `verse[start:end]` in raw code
+  points. A flag can never point at text that is not there.
+- The type comes from `FLAG_TYPES`; the note may be up to 4,000 characters.
+- An update may change only status, note, type or the suggested form, never
+  the span. Delete is a status.
+- A one-word flag with a one-word suggested form records a learned fix
+  (`source: "flag"`), as indic-qa does; a passage records nothing.
+
+**Frontend.**
+- `utils/verseDisplay.rawOffsetFromPlain` is the inverse of `plainOffset`. A
+  span's start goes after a lifted note and its end before one. A test checks
+  it round-trips at every raw offset of every engine display fixture.
+- `utils/selection.selectionInVerse` turns the reader's selection into code
+  points of the rendered text, skipping the note, flag and history buttons.
+- `withNoteMarkers` threads ⚑ markers too. A flag comes before a footnote
+  callout at the same spot. `VersePiece` gains `flag`, and the old
+  `usfmNotes` tests narrow on it.
+- VerseList draws ⚑ (plain Unicode, labelled) after the flagged text. The
+  verse menu gains "Flag selected text…", disabled with a reason when nothing
+  is selected, and "Flag this verse…". The Language QA menu gains "Flag for
+  review…". A selection that runs across a footnote is refused, not guessed.
+  The selection is read before the menu takes focus, on mouse and on
+  Shift+F10.
+- `FlagDialog`: type radiogroup, note, optional suggested form, and "through
+  verse" offering only later verses. Save stays disabled until a type is
+  chosen. Focus starts in the note and is restored on close.
+- `FlagPopover`: kept inside the window; Resolve, Reopen, and Delete behind a
+  second click. Changes show at once and are put back on a refusal
+  (`src/lib/flags.ts`).
+- Flags load per chapter as chapters are shown, through `startFlagLoader` in
+  App. They are cleared in `resetBookState`.
+- The Review panel gains "⚑ Flag…". The Language QA panel gains a **Flags**
+  tab: the whole book, open by default or with resolved ones, with
+  navigation, Resolve or Reopen, and Delete.
+
+**Verified.**
+- Engine:
+  - `test_language_qa_flags.py`, 4 tests:
+    - add, list, update and delete, with three change_log images and the
+      verse unchanged;
+    - seven invalid flags refused;
+    - an update may not move the span;
+    - a one-word suggestion is learned and a passage is not.
+  - Touched suites: 350 passed.
+- Frontend:
+  - `npm run check`: 0 errors, 0 warnings.
+  - `npm run test`: 566 passed, 13 new.
+  - `npm run build`: ok.
+
+**Not verified.** The desktop app. Mouse selection in a real WebView2 is the
+part jsdom cannot show (QA matrix A105).
