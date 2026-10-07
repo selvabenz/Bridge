@@ -65,6 +65,8 @@
   --lqa-sandhi:#15803D;
   --lqa-neutral:#6B7280;
   --lqa-hatch:rgba(107, 114, 128, 0.35);
+  /* A learned fix (a word the reviewer replaced before, recurring). */
+  --learned:#1D4ED8; --learned-bg:#E8EFFD;
   /* Generic "this succeeded" green: passed coverage, a ready gate, the live
      check indicator, a confirmed validation. Split out of --gr, which used to
      serve both and would now paint every one of those red. Same value tN
@@ -137,6 +139,7 @@ mark.m-lqa-typo-high {
   text-decoration-thickness: 1.5px; text-underline-offset: 4px; text-decoration-skip-ink: none;
 }
 mark.m-lqa-typo { border-bottom: 2px dotted var(--lqa-typo); }
+mark.m-lqa-learned { border-bottom: 2px dotted var(--learned); }
 mark.m-lqa-sandhi { border-bottom: 2px dashed var(--lqa-sandhi); }
 mark.m-lqa-spacing { border-bottom: 1px solid var(--lqa-neutral); }
 mark.m-lqa-unicode {

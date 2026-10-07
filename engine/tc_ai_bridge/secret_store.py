@@ -285,6 +285,17 @@ class AppSettings:
         self.data['language_qa_inline_confidence'] = text if text in ('low', 'medium', 'high') else 'low'
         self.save_sanitized()
 
+    @property
+    def language_qa_learned_fixes(self) -> bool:
+        """Settings > Language QA: learn a word the reviewer replaced and offer
+        the same change where it recurs. On by default."""
+        return bool(self.data.get('language_qa_learned_fixes', True))
+
+    @language_qa_learned_fixes.setter
+    def language_qa_learned_fixes(self, value: Any) -> None:
+        self.data['language_qa_learned_fixes'] = bool(value)
+        self.save_sanitized()
+
     @staticmethod
     def _seed_reviewer_name() -> str:
         """A brand-new profile has never had a reviewer name typed in.

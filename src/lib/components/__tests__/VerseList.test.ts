@@ -2,7 +2,8 @@ import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { get } from "svelte/store";
 
-const { decideVerse, editVerse, runVerseChecks, languageQaHistory, housestyleRecord, housestyleSetState } = vi.hoisted(() => ({
+const { decideVerse, editVerse, runVerseChecks, languageQaHistory, housestyleRecord, housestyleSetState, languageQaLearnedForget } = vi.hoisted(() => ({
+  languageQaLearnedForget: vi.fn(),
   housestyleRecord: vi.fn(),
   housestyleSetState: vi.fn(),
   decideVerse: vi.fn(),
@@ -12,7 +13,7 @@ const { decideVerse, editVerse, runVerseChecks, languageQaHistory, housestyleRec
 }));
 
 vi.mock("../../api/bridgeClient", () => ({
-  bridge: { decideVerse, editVerse, runVerseChecks, languageQaHistory, housestyleRecord, housestyleSetState },
+  bridge: { decideVerse, editVerse, runVerseChecks, languageQaHistory, housestyleRecord, housestyleSetState, languageQaLearnedForget },
 }));
 import { lqaFinding } from "./languageQaFixture";
 import { displayFor } from "./verseDisplayFixtures";
@@ -281,6 +282,23 @@ describe("VerseList footnote handling", () => {
     }
 
     afterEach(() => languageQaFindingsByVerse.set({}));
+
+    it("offers Forget on a learned fix's mark, which drops it at once without recording a decision", async () => {
+      seed("அவர் தேவன் என்றார்.");
+      languageQaLearnedForget.mockReset().mockResolvedValue({ fix: {} });
+      project.set({ path: "/p", bookId: "php" } as never);
+      languageQaFindingsByVerse.set({ "1:6": [lqaFinding({
+        id: "l1", rule: "learned.replacement", category: "learned", layer: "housestyle", inline: true,
+        start: 4, end: 9, originalText: "தேவன்",
+        suggestions: [{ text: "கர்த்தர்", rank: 1, source: "learned", rationale: "Replaced with this 1× before." }],
+      })] });
+      render(VerseList, { props: { onSelect: vi.fn() } });
+      await fireEvent.contextMenu(document.querySelector("mark.m-lqa-learned") as HTMLElement);
+      await fireEvent.click(screen.getByRole("menuitem", { name: "Forget this learned fix" }));
+      expect(document.querySelector("mark.m-lqa-learned")).toBeNull();
+      await waitFor(() => expect(languageQaLearnedForget).toHaveBeenCalledWith("/p", "தேவன்", "கர்த்தர்"));
+      expect(decideVerse).not.toHaveBeenCalled();
+    });
 
     it("offers no Use item when the finding has no suggestion", async () => {
       expect((await openMenu({ suggestions: [] })).map(([label]) => label))

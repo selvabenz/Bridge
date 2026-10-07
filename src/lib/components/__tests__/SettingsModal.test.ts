@@ -511,10 +511,24 @@ describe("SettingsModal terminology (#171)", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Apply" }));
 
     await waitFor(() => expect(setSettings).toHaveBeenCalledWith(
-      { languageQaInlinePrecision: 60, languageQaInlineConfidence: "high" }));
+      { languageQaInlinePrecision: 60, languageQaInlineConfidence: "high", languageQaLearnedFixes: true }));
     expect(await screen.findByText("Applied.")).toBeInTheDocument();
     expect(screen.getByText(/confirmed less than 60% of the time are listed, not drawn/)).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("turns learned fixes off with the same Apply", async () => {
+    getSettings.mockResolvedValue({
+      provider: "openai", apiBaseUrl: "", model: "gpt-5.6", hasApiKey: false, reviewerMode: "basic",
+      paratextNavigation: false, logosNavigation: false, languageQaLearnedFixes: true,
+    });
+    setSettings.mockResolvedValue({ languageQaLearnedFixes: false });
+    render(SettingsModal, { props: { initialPane: "languageQa", onClose: vi.fn() } });
+    const box = (await screen.findByRole("checkbox", { name: /Offer my earlier replacements/ })) as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    await fireEvent.click(box);
+    await fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    await waitFor(() => expect(setSettings).toHaveBeenCalledWith(expect.objectContaining({ languageQaLearnedFixes: false })));
   });
 
   it("offers the threshold with no project open, and asks for one before the pack and house style", async () => {

@@ -144,6 +144,7 @@ describe("Language QA indicator per category", () => {
     [{ category: "unicode", confidence: "high", layer: "integrity" }, "m-lqa-unicode"],
     [{ category: "termbase", confidence: "high", layer: "housestyle" }, "m-term"],
     [{ category: "name", confidence: "medium", layer: "housestyle" }, "m-term"],
+    [{ category: "learned", confidence: "medium", layer: "housestyle" }, "m-lqa-learned"],
   ];
   it.each(cases)("%o -> %s", (overrides, expected) => {
     expect(languageQaMarkClass(lqaFinding(overrides))).toBe(expected);
@@ -151,9 +152,16 @@ describe("Language QA indicator per category", () => {
       .toEqual([["beta", expected]]);
   });
 
+  it("draws a learned fix over a possible typo where the two overlap", () => {
+    // The reviewer's own earlier change outranks a guess at the same severity.
+    const learned = termFinding({ id: "l", category: "learned", layer: "housestyle", severity: "low", inline: true });
+    const typo = termFinding({ id: "t", category: "typo", layer: "pattern", confidence: "medium", severity: "low", inline: true });
+    expect(marked(buildSegments(TEXT, [], [], [], [typo, learned]))).toEqual([["beta", "m-lqa-learned"]]);
+  });
+
   it("styles every category the engine can send", () => {
     const categories: LanguageQaCategory[] = ["typo", "sandhi", "word-joining", "punctuation", "unicode", "spacing", "termbase", "name", "usfm",
-      "consistency", "grammar"];
+      "consistency", "grammar", "learned"];
     expect(Object.keys(LANGUAGE_QA_CATEGORY_MARKS).sort()).toEqual([...categories].sort());
   });
 });

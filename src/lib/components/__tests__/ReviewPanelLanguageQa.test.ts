@@ -73,6 +73,26 @@ describe("ReviewPanel Language QA tab", () => {
     release({});
   });
 
+  it("labels a learned fix and Forget drops every recurrence without recording a decision", async () => {
+    const learned = (id: string, start: number) => lqaFinding({
+      id, rule: "learned.replacement", category: "learned", layer: "housestyle", originalText: "தேவன்",
+      start, end: start + 5, suggestions: [{ text: "கர்த்தர்", rank: 1, source: "learned", rationale: "Replaced with this 2× before." }],
+    });
+    languageQaVerse.mockResolvedValue({
+      projectPath: "/p", generation: 3, state: "completed", chapter: "1", verse: "6",
+      findings: [learned("l1", 0), learned("l2", 10)], hidden: [],
+    });
+    render(ReviewPanel);
+    await fireEvent.click(screen.getByRole("tab", { name: /Language QA/ }));
+    expect((await screen.findAllByText("learned fix")).length).toBe(2);
+    await fireEvent.click(screen.getAllByRole("button", { name: "Forget this fix" })[0]);
+    expect(document.querySelector('[data-lqa-id="l1"]')).toBeNull();
+    expect(document.querySelector('[data-lqa-id="l2"]')).toBeNull();
+    // The Proxy creates the stub on the panel's first call, so read it afterwards.
+    await waitFor(() => expect(known.languageQaLearnedForget).toHaveBeenCalledWith("/p", "தேவன்", "கர்த்தர்"));
+    expect(decideVerse).not.toHaveBeenCalled();
+  });
+
   it("refetches when a new completed pass lands, not on every status tick", async () => {
     render(ReviewPanel);
     await waitFor(() => expect(languageQaVerse).toHaveBeenCalledTimes(1));

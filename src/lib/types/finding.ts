@@ -998,6 +998,8 @@ export interface SettingsData {
   languageQaInlinePrecision: number;
   /** The lowest rule confidence drawn in the text. Default "low" (every rule). */
   languageQaInlineConfidence: InlineConfidence;
+  /** Learn a word the reviewer replaced and offer the change where it recurs. Default on. */
+  languageQaLearnedFixes?: boolean;
   hasApiKey: boolean;
   aiUsage: { tokens: number; estimatedCostUSD: number };
 }

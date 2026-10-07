@@ -2,7 +2,7 @@
 export type LanguageQaLayer = "pattern" | "lexicon" | "housestyle" | "integrity";
 export type LanguageQaCategory =
   "typo" | "sandhi" | "word-joining" | "punctuation" | "unicode" | "spacing" | "termbase" | "name" | "usfm"
-  | "consistency" | "grammar";
+  | "consistency" | "grammar" | "learned";
 export type LanguageQaConfidence = "high" | "medium" | "low";
 
 /** One ranked fix (language_qa.suggestion). */
@@ -10,7 +10,8 @@ export interface LanguageQaSuggestion {
   text: string;
   /** 1-based; suggestions arrive sorted by it. */
   rank: number;
-  source: "rule" | "lexicon" | "termbase" | "majority-form" | "housestyle";
+  /** "learned": a replacement the reviewer made before (language_qa_learned.py). */
+  source: "rule" | "lexicon" | "termbase" | "majority-form" | "housestyle" | "learned";
   /** Why this fix; shown as the menu item's tooltip. */
   rationale: string;
 }
@@ -100,6 +101,37 @@ export interface LanguageQaDecisionIssue {
 
 /** Which list languageQa.status pages. */
 export type LanguageQaView = "findings" | "recheck" | "falsePositives";
+
+/** A learned fix (workbench v6): the reviewer replaced `old` with `new`
+ * `count` times; offered again where `old` recurs while enabled. */
+export interface LearnedFix {
+  old: string;
+  new: string;
+  count: number;
+  firstRef: string;
+  lastRef: string;
+  reviewer: string;
+  source: "edit" | "scope" | "flag";
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LearnedFixesResponse {
+  fixes: LearnedFix[];
+  /** Settings > Language QA: whether learned fixes are on. */
+  enabled: boolean;
+}
+
+/** What verse.edit says it learned from a single-word edit. */
+export interface VerseEditLearned {
+  old: string;
+  new: string;
+  action: "learned" | "retracted" | "failed";
+  count?: number;
+  enabled?: boolean;
+  error?: string;
+}
 
 /** One recorded decision (tc_project.language_qa_decision_history). */
 export interface LanguageQaHistoryEntry {

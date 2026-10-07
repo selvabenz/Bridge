@@ -51,7 +51,10 @@ MAX_WORDLIST_FINDINGS = 200
 # Inline on human-labelled precision only (DECISIONS.md 2026-09-28):
 # spacing.extra 23/23 over both rounds (2026-09-29). (lexicon.known-misspelling
 # and lexicon.known-split are ta-irv pack rules now, inline in the pack.)
-INLINE_RULES = frozenset({"terminology.deprecated-form", "spacing.extra"})
+# learned.replacement repeats the reviewer's own earlier decision (a word they
+# replaced), so it is drawn like the termbase: it is project data, not a guess,
+# and pack "project" is outside the human gate.
+INLINE_RULES = frozenset({"terminology.deprecated-form", "spacing.extra", "learned.replacement"})
 # Every Language QA finding carries this, and the frontend sends it back in the
 # `issue` of a verse.decide call. decide_verse keys on it to keep Language QA
 # decisions out of the review-progress rollup. Origin is never inferred from
@@ -91,8 +94,9 @@ LAYERS = ("pattern", "lexicon", "housestyle", "integrity")
 # "consistency" and "grammar": the indic-qa profile packs (pa, ml, hi, or),
 # corpus-attested spelling consistency and agreement leads, panel-only
 # (DECISIONS 2026-10-07).
+# "learned": a word the reviewer replaced before, recurring (language_qa_learned).
 CATEGORIES = ("typo", "sandhi", "word-joining", "punctuation", "unicode", "spacing", "termbase", "name", "usfm",
-              "consistency", "grammar")
+              "consistency", "grammar", "learned")
 # What a Tamil (ta-irv) or common-checks project lists as in scope: unchanged
 # since Phase 7. A profile pack lists the categories its enabled rules use.
 DEFAULT_COVERAGE = CATEGORIES[:9]
@@ -117,6 +121,7 @@ _IN_SCOPE_LABELS = {
     # Profile packs only; no Tamil label is shown for them.
     "consistency": ("Spelling consistency with the rest of the translation", ""),
     "grammar": ("Agreement and case leads attested in the corpus (listed, not drawn)", ""),
+    "learned": ("Words you replaced before, where they recur", "முன்பு நீங்கள் மாற்றிய சொற்கள் மீண்டும் வரும் இடங்கள்"),
 }
 # A profile pack flags corpus-attested agreement pairs, so it cannot say
 # agreement is never checked; it says what it does not check instead.
@@ -175,6 +180,8 @@ RULES: dict[str, RuleMeta] = {
     # The project's approved proper nouns (house style, Phase 6.2).
     "name.minority-spelling": RuleMeta("project", "housestyle", "name", "medium"),
     "terminology.deprecated-form": RuleMeta("project", "housestyle", "termbase", "high"),
+    # The reviewer's learned fixes (language_qa_learned, workbench v6).
+    "learned.replacement": RuleMeta("project", "housestyle", "learned", "medium"),
 }
 # The version of the rules above, which live in code. A pack rule's findings
 # carry the pack's own version instead ("ta-irv@1.0.0") and the rule's own

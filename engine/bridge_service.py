@@ -76,6 +76,7 @@ from tc_ai_bridge.analysis_jobs import (
 from tc_ai_bridge.local_checks import run_local_qa
 from tc_ai_bridge.language_qa import FINDING_SOURCE as LANGUAGE_QA_SOURCE, UNSPECIFIED_DECISION_SOURCE
 from tc_ai_bridge.language_qa_jobs import LanguageQaManager, project_pack_name
+from tc_ai_bridge.language_qa_learned import learned_pair
 from tc_ai_bridge.language_packs.registry import available as available_language_packs
 from tc_ai_bridge.workbench_repository import WorkbenchConflict, WorkbenchValidationError
 from tc_ai_bridge.alignment_engine import (
@@ -376,6 +377,9 @@ class Methods:
     LANGUAGE_QA_HISTORY = "languageQa.history"
     LANGUAGE_QA_VERSE = "languageQa.verse"
     LANGUAGE_QA_SET_PACK = "languageQa.setPack"
+    LANGUAGE_QA_LEARNED_LIST = "languageQa.learned.list"
+    LANGUAGE_QA_LEARNED_FORGET = "languageQa.learned.forget"
+    LANGUAGE_QA_LEARNED_RESTORE = "languageQa.learned.restore"
     CHECKS_STATUS = "checks.status"
     CHECKS_CANCEL = "checks.cancel"
     CHECKS_RETRY = "checks.retry"
@@ -4249,9 +4253,12 @@ class BridgeEngine:
             username=self.settings.reviewer_name or "Bridge Reviewer",
             **strict_options,
         )
+        saved = str(result.get("newText", new_text))
+        learned = self._learn_from_edit(chapter, verse, str(result.get("oldText") or ""), saved)
         self._language_qa.invalidate(chapter)
         self._consistency_findings_by_book.pop(str(self.project.path), None)
         resolutions = self.project.list_issue_resolutions(chapter, verse)
+        display = verse_display(saved)
         return {
             "committed": True, "chapter": chapter, "verse": verse,
             "issueResolutionsNeedingRecheck": sum(
@@ -4260,9 +4267,54 @@ class BridgeEngine:
             ),
             # The saved text's display payload, so the reader refreshes from
             # the response instead of parsing the new string itself (#91).
-            "display": verse_display(str(result.get("newText", new_text))),
+            "display": display,
+            # Marker problems in the saved text (a raw USFM edit can unbalance
+            # them). Never blocking: the save already happened, and Language QA
+            # will not scan such a verse until it is fixed.
+            "warnings": list(display.get("warnings") or []),
+            **({"learned": learned} if learned else {}),
             **result,
         }
+
+    def _learn_from_edit(self, chapter: str, verse: str, old_text: str, new_text: str) -> dict[str, Any] | None:
+        """A learned fix from a saved edit that replaced exactly one word
+        (language_qa_learned.learned_pair). Typing a learned replacement back to
+        the original word retracts that fix instead of learning the reverse.
+        Per book: a fix is offered in the book it was learned in. Never fails
+        the edit, which is already saved."""
+        if not self.settings.language_qa_learned_fixes or not old_text:
+            return None
+        pair = learned_pair(old_text, new_text)
+        if pair is None:
+            return None
+        old, new = pair
+        ref = f"{self.project.book_id.upper()} {chapter}:{verse}"
+        try:
+            reverse = self.project.learned_fix(new, old)
+            if reverse and reverse.get("enabled") and int(reverse.get("count") or 0) > 0:
+                self.project.retract_learned_fix(new, old)
+                return {"old": new, "new": old, "action": "retracted"}
+            fix = self.project.record_learned_fix(old, new, ref=ref, source="edit",
+                                                  reviewer=self.settings.reviewer_name or "Bridge Reviewer")
+        except Exception as exc:  # the edit is saved; a learning failure is only reported
+            return {"old": old, "new": new, "action": "failed", "error": str(exc)}
+        return {"old": old, "new": new, "action": "learned", "count": fix["count"], "enabled": fix["enabled"]}
+
+    def language_qa_learned(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
+        """languageQa.learned.list | .forget | .restore. Forget and restore
+        re-write the row (never delete it) and run a pass."""
+        self._require_project()
+        if action == "list":
+            return {"fixes": self.project.learned_fixes(), "enabled": self.settings.language_qa_learned_fixes}
+        old, new = params.get("old"), params.get("new")
+        if not isinstance(old, str) or not isinstance(new, str) or not old or not new:
+            raise ProjectError("old and new must be non-empty strings")
+        try:
+            fix = self.project.set_learned_fix_enabled(old, new, action == "restore")
+        except KeyError as exc:
+            raise ProjectError(str(exc).strip("'\"")) from exc
+        self._language_qa.invalidate_all()
+        return {"fix": fix}
 
     # -- export -------------------------------------------------------------
     #
@@ -4523,6 +4575,7 @@ class BridgeEngine:
             "triageHideThreshold": self.settings.triage_hide_threshold,
             "languageQaInlinePrecision": self.settings.language_qa_inline_precision,
             "languageQaInlineConfidence": self.settings.language_qa_inline_confidence,
+            "languageQaLearnedFixes": self.settings.language_qa_learned_fixes,
             "hasApiKey": bool(self.settings.get_api_key()),
             "aiUsage": self.settings.get_ai_usage_totals(),
         }
@@ -4556,6 +4609,8 @@ class BridgeEngine:
             self.settings.language_qa_inline_precision = kwargs["languageQaInlinePrecision"]
         if "languageQaInlineConfidence" in kwargs:
             self.settings.language_qa_inline_confidence = kwargs["languageQaInlineConfidence"]
+        if "languageQaLearnedFixes" in kwargs:
+            self.settings.language_qa_learned_fixes = bool(kwargs["languageQaLearnedFixes"])
         self._configure_language_qa()
         self._navigation.configure(
             paratext=self.settings.paratext_navigation,
@@ -4567,7 +4622,8 @@ class BridgeEngine:
         """Hand the reviewer's Language QA preferences to the manager. The inline
         threshold is read per request, so nothing is rescanned."""
         self._language_qa.configure(inline_precision=self.settings.language_qa_inline_precision,
-                                    inline_confidence=self.settings.language_qa_inline_confidence)
+                                    inline_confidence=self.settings.language_qa_inline_confidence,
+                                    learned_fixes=self.settings.language_qa_learned_fixes)
 
     def _require_project(self) -> None:
         if not self.project:
@@ -4617,7 +4673,9 @@ class BridgeEngine:
             m, p = request.method, request.params
 
             if m in {Methods.LANGUAGE_QA_STATUS, Methods.LANGUAGE_QA_PAUSE, Methods.LANGUAGE_QA_INLINE,
-                     Methods.LANGUAGE_QA_HISTORY, Methods.LANGUAGE_QA_VERSE, Methods.LANGUAGE_QA_SET_PACK}:
+                     Methods.LANGUAGE_QA_HISTORY, Methods.LANGUAGE_QA_VERSE, Methods.LANGUAGE_QA_SET_PACK,
+                     Methods.LANGUAGE_QA_LEARNED_LIST, Methods.LANGUAGE_QA_LEARNED_FORGET,
+                     Methods.LANGUAGE_QA_LEARNED_RESTORE}:
                 self._require_project()
                 # Compared canonically, not as strings. `project.open` resolves
                 # the path it is given, so a caller echoing back the path *it*
@@ -4629,7 +4687,10 @@ class BridgeEngine:
                 # only ever echoes a path the engine itself produced.
                 if canonical_path_key(str(p.get("projectPath") or "")) != canonical_path_key(self.project.path):
                     raise ProjectError("Language QA request belongs to a different project.")
-                if m == Methods.LANGUAGE_QA_SET_PACK:
+                if m in {Methods.LANGUAGE_QA_LEARNED_LIST, Methods.LANGUAGE_QA_LEARNED_FORGET,
+                         Methods.LANGUAGE_QA_LEARNED_RESTORE}:
+                    result = self.language_qa_learned(m.rsplit(".", 1)[1], p)
+                elif m == Methods.LANGUAGE_QA_SET_PACK:
                     # The project's Language QA setting (Settings > Language QA):
                     # "auto", "off", or a registered pack. Rebinding starts a pass
                     # with the new pack; nothing else about the project changes.

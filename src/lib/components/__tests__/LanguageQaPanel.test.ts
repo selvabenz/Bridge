@@ -8,10 +8,16 @@ import { lqaFinding } from "./languageQaFixture";
 const statusCall = vi.fn();
 const pauseCall = vi.fn();
 const historyCall = vi.fn();
+const learnedListCall = vi.fn();
+const learnedForgetCall = vi.fn();
+const learnedRestoreCall = vi.fn();
 vi.mock("../../api/bridgeClient", () => ({ bridge: {
   languageQaStatus: (...args: unknown[]) => statusCall(...args),
   languageQaPause: (...args: unknown[]) => pauseCall(...args),
   languageQaHistory: (...args: unknown[]) => historyCall(...args),
+  languageQaLearnedList: (...args: unknown[]) => learnedListCall(...args),
+  languageQaLearnedForget: (...args: unknown[]) => learnedForgetCall(...args),
+  languageQaLearnedRestore: (...args: unknown[]) => learnedRestoreCall(...args),
 } }));
 import LanguageQaPanel from "../LanguageQaPanel.svelte";
 import { languageQaChannel } from "../../languageQaInline";
@@ -251,5 +257,28 @@ describe("Language QA", () => {
     render(LanguageQaPanel, { projectPath: "C:/project", onNavigate: vi.fn() });
     await fireEvent.click(await screen.findByRole("button", { name: /Language QA · unavailable/ }));
     expect(screen.getByRole("alert").textContent).toContain("Engine unavailable");
+  });
+
+  it("lists learned fixes only when the Dictionary tab opens, and forgets and restores one", async () => {
+    const fix = { old: "தேவன்", new: "கர்த்தர்", count: 3, firstRef: "RUT 1:1", lastRef: "RUT 2:4", reviewer: "Benz",
+      source: "edit" as const, enabled: true, createdAt: "t", updatedAt: "t" };
+    learnedListCall.mockReset().mockResolvedValue({ fixes: [fix], enabled: true });
+    learnedForgetCall.mockReset().mockResolvedValue({ fix: { ...fix, enabled: false } });
+    learnedRestoreCall.mockReset().mockResolvedValue({ fix });
+    render(LanguageQaPanel, { projectPath: "C:/project", onNavigate: vi.fn() });
+    await fireEvent.click(await screen.findByRole("button", { name: /Language QA · completed/ }));
+    await screen.findByText("Check source encoding.");
+    expect(learnedListCall).not.toHaveBeenCalled();
+
+    await fireEvent.click(screen.getByRole("tab", { name: "Dictionary" }));
+    expect(await screen.findByText("கர்த்தர்")).toBeTruthy();
+    expect(learnedListCall).toHaveBeenCalledWith("C:/project");
+    expect(screen.getByText("RUT 2:4")).toBeTruthy();
+
+    await fireEvent.click(screen.getByRole("button", { name: "Forget" }));
+    await waitFor(() => expect(learnedForgetCall).toHaveBeenCalledWith("C:/project", "தேவன்", "கர்த்தர்"));
+    await fireEvent.click(await screen.findByRole("button", { name: "Restore" }));
+    await waitFor(() => expect(learnedRestoreCall).toHaveBeenCalledWith("C:/project", "தேவன்", "கர்த்தர்"));
+    expect(await screen.findByRole("button", { name: "Forget" })).toBeTruthy();
   });
 });

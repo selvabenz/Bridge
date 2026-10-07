@@ -3,6 +3,7 @@
   import { bridge } from "../api/bridgeClient";
   import { decideLanguageQaFindingOptimistically, decideLocalFinding } from "../findingActions";
   import { languageQaChannel } from "../languageQaInline";
+  import { forgetLearnedFix, isLearnedFinding, learnedPairOf } from "../learnedFixes";
   import type { LanguageQaFinding, LanguageQaSuggestion } from "../types/languageQa";
   import AlignmentModal from "./AlignmentModal.svelte";
   import TranslationHelpsReview from "./TranslationHelpsReview.svelte";
@@ -130,6 +131,23 @@
       lqaNoticeError = !result.ok;
       if (!result.ok) restoreLqa(finding);
     }).finally(() => { lqaBusy = false; });
+  }
+
+  /** Forget a learned fix: every recurrence of it goes, not just this one. */
+  function forgetLqa(finding: LanguageQaFinding): void {
+    const pair = learnedPairOf(finding);
+    if (!pair) return;
+    const isSame = (f: LanguageQaFinding) => learnedPairOf(f)?.old === pair.old && learnedPairOf(f)?.newWord === pair.newWord;
+    const removed = lqaFindings.filter(isSame);
+    lqaFindings = lqaFindings.filter((f) => !isSame(f));
+    lqaNotice = `No longer offering “${pair.old}” → “${pair.newWord}”. Restore it in Language QA › Dictionary.`;
+    lqaNoticeError = false;
+    void forgetLearnedFix(pair.old, pair.newWord).then((error) => {
+      if (!error) return;
+      lqaNotice = error;
+      lqaNoticeError = true;
+      removed.forEach(restoreLqa);
+    });
   }
 
   function decideLqa(finding: LanguageQaFinding, status: "ignored" | "rejected"): void {
@@ -718,7 +736,7 @@
               <div class="finding lqa-finding" data-lqa-id={f.id}>
                 <div class="verdict">
                   <span class="badge {severityBadge[f.severity] ?? 'badge-review'}">{f.severity}</span>
-                  <span class="engine-badge">{f.category}</span>
+                  <span class="engine-badge">{isLearnedFinding(f) ? "learned fix" : f.category}</span>
                   <span class="check-id">{f.ruleId}</span>
                   {#if f.previouslyIgnored}<span class="badge badge-decided" title="Ignored under an older rule version; check it again">re-check</span>{/if}
                   {#if f.context}<span class="engine-badge" title={f.context === "heading" ? `Section heading: ${f.contextText ?? ""}` : "Footnote text"}>in {f.context}</span>{/if}
@@ -733,6 +751,10 @@
                   {/each}
                   <button class="ignore" on:click={() => decideLqa(f, "ignored")}>⊘ Ignore</button>
                   <button class="ignore" on:click={() => decideLqa(f, "rejected")}>False positive</button>
+                  {#if isLearnedFinding(f)}
+                    <button class="ignore" title="Stop offering this replacement anywhere in the book; it can be restored"
+                      on:click={() => forgetLqa(f)}>Forget this fix</button>
+                  {/if}
                 </div>
               </div>
             {:else}

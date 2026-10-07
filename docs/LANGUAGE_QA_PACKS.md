@@ -188,6 +188,23 @@ findings. Two categories exist for these packs only: `consistency` and
   (Tamil: `--human-labels benchmark/human`). A rule missing from it is
   unmeasured and passes any slider value.
 
+### Learned fixes (every pack, DECISIONS 2026-10-07)
+
+Not a pack rule: `learned.replacement` (pack `project`, category `learned`)
+runs for every project, Tamil included.
+
+- **Recording.** `verse.edit` calls `language_qa_learned.learned_pair`. When
+  the edit replaced exactly one word and nothing else visible changed, it
+  writes or counts (old, new) in `language_qa_learned_fixes`, and the result
+  says what it learned. Typing a learned replacement back retracts it.
+- **Offering.** Each pass reads the book's enabled fixes and reports every
+  recurrence of an old word. The step runs after the chapter loop, outside
+  the per-verse cache, so a new fix needs no rescan. Decisions, house style
+  and the finding cap apply as usual.
+- **Managing.** `languageQa.learned.list`, `.forget` and `.restore`, shown in
+  the panel's Dictionary tab. Forget is not a decision: the fix simply stops
+  being offered.
+
 ### Phase 1 data rules (DECISIONS 2026-10-07)
 
 - No rule has high severity together with high confidence, so none blocks

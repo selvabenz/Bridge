@@ -15176,3 +15176,82 @@ branch. The helpers belong in `tests/support/`, in a commit of their own.
 **Verified.**
 - `tests/persistence`: 214 passed.
 - Full engine suite: 4,874 passed, 1 skipped, 3 xfailed. Commits 1 and 2 add 28 tests, and nothing regressed.
+
+## 2026-10-07 — Learned fixes (branch `indic-qa-editor`, commit 3)
+
+DECISIONS 2026-10-07, "Learned fixes come from the reviewer's own single-word
+edits". This is indic-qa's learned-fix feature, built on Bridge's own
+tokenizer and the v6 table from commit 2.
+
+**Engine.**
+- `language_qa_learned.py` holds two pure functions:
+  - `learned_pair(old_raw, new_raw)` lifts both texts, then requires the same
+    word count, exactly one differing word, and identical visible text before
+    and after it. So a spacing or punctuation change, a footnote, or
+    unbalanced markup learns nothing.
+  - `learned_findings` turns a book's text plus the learned map into findings
+    with raw offsets and stable ids. Each suggestion's rationale says how
+    often and where the word was last replaced.
+- `language_qa.py` adds:
+  - the `learned` category;
+  - `learned.replacement` (pack `project`, layer `housestyle`, medium);
+  - that rule in `INLINE_RULES`. It repeats the reviewer's own decision, and
+    pack `project` is outside the human gate.
+- `LanguageQaManager`:
+  - reads `project.learned_fixes` on every pass;
+  - keeps the book text whenever there are fixes;
+  - runs the step after names, outside the per-verse cache, so the chapter
+    cache key is unchanged;
+  - `configure(learned_fixes=…)` runs a pass when the switch flips.
+- `edit_verse` records, or retracts when the reviewer types the word back.
+  It never fails a saved edit. The result now carries `learned` and
+  `warnings`, which are the display's marker warnings, for raw USFM edits.
+- New RPCs: `languageQa.learned.list`, `.forget` and `.restore`, inside the
+  project-guarded Language QA block. New setting:
+  `languageQaLearnedFixes`, default on.
+
+**Per book, not per collection.** The plan had each fix written to every
+materialized sibling book. That is one fsync'd transaction per sibling on
+every single-word edit, too slow for `verse.edit`, which is already the
+slowest RPC. Fixes stay in the book they were learned in. This is recorded in
+DECISIONS with its revisit condition.
+
+**Frontend.**
+- The `m-lqa-learned` mark is blue dotted (`--learned`). It ranks above a
+  possible typo when the two overlap, and is checked before the lexicon
+  shortcut in `languageQaMarkClass`.
+- The `learned` category and `learned` suggestion source are added to the
+  types. Both engine parity tests pass.
+- Review panel: a "learned fix" badge and "Forget this fix", which removes
+  every recurrence from the list.
+- Verse menu: "Forget this learned fix".
+- `src/lib/learnedFixes.ts`: a shared optimistic forget. It drops the
+  chapter's marks at once and puts them back if the engine refuses. It
+  records no decision.
+- Language QA panel: a panel-level tab row, **Issues** and **Dictionary**.
+  The Issues tab holds the three existing lists. The Dictionary tab lists
+  the learned fixes, with Forget and Restore, and fetches only when opened.
+  The panel-level tab is "Issues", not "Findings", so it never shares an
+  accessible name with the engine-view "Findings" tab.
+- Settings > Language QA: an "Offer my earlier replacements" switch.
+
+**Also fixed.** The verse menu's "Ignore more widely" tooltip still pointed at
+Settings → Terminology → House style, which moved in commit 1. It now says
+Language QA.
+
+**Verified.**
+- Engine:
+  - `test_language_qa_learned.py`, 7 dispatcher tests: learn and offer, a
+    multi-word edit, retract, forget and restore, ignore, the switch, and a
+    raw edit warning.
+  - `test_language_qa_learned_pure.py`: 5 tests.
+  - `test_language_qa.py` serially: 297 passed.
+  - Learned, jobs, indic, bridge service, packs, house style and persistence:
+    476 passed.
+  - Latency gate, Tamil and Hindi: pass.
+- Frontend:
+  - `npm run check`: 0 errors, 0 warnings.
+  - `npm run test`: 546 passed, 6 new.
+  - `npm run build`: ok.
+
+**Not verified.** The desktop app (QA matrix A103).

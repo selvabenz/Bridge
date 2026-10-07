@@ -13,6 +13,7 @@
   import { codePointToUtf16 } from "../utils/codePoints";
   import LanguageQaHistoryPopup from "./LanguageQaHistoryPopup.svelte";
   import { IGNORE_SCOPES, houseStyleNotice, recordScopedIgnore, undoLearned } from "../houseStyleUi";
+  import { forgetLearnedFix, isLearnedFinding, learnedPairOf } from "../learnedFixes";
   import type { HouseStyleScope } from "../types/houseStyle";
   import type { QaFinding } from "../types/finding";
   import type { LanguageQaFinding, LanguageQaSuggestion } from "../types/languageQa";
@@ -129,7 +130,7 @@
         id: "ignore-scope",
         label: "Ignore more widely",
         disabled: langQaContextBusy,
-        title: "Record this as the project's house style (Settings → Terminology → House style, where it can be removed).",
+        title: "Record this as the project's house style (Settings → Language QA → House style, where it can be removed).",
         submenu: IGNORE_SCOPES.filter((s) => s.scope !== "occurrence").map((s) => ({
           id: `ignore-scope:${s.scope}`, label: s.label, title: s.title, disabled: langQaContextBusy,
         })),
@@ -140,6 +141,13 @@
         disabled: langQaContextBusy,
         title: "This is not a problem: hide it and list it under False positives in the Language QA panel.",
       },
+      ...(isLearnedFinding(finding) ? [{
+        id: "learned-forget",
+        label: "Forget this learned fix",
+        separatorBefore: true,
+        disabled: langQaContextBusy,
+        title: "Stop offering this replacement anywhere in the book. Restore it in Language QA › Dictionary.",
+      }] : []),
     ];
   }
 
@@ -370,6 +378,17 @@
       }).finally(() => { langQaContextBusy = false; });
     } else if (id === "edit") {
       void editWithSelection(finding, verse);
+    } else if (id === "learned-forget") {
+      // Not a decision: the fix stops being offered everywhere, marks go at once.
+      const pair = learnedPairOf(finding);
+      if (!pair) return;
+      contextNotice = `No longer offering “${pair.old}” → “${pair.newWord}”.`;
+      contextNoticeError = false;
+      void forgetLearnedFix(pair.old, pair.newWord).then((error) => {
+        if (!error) return;
+        contextNotice = error;
+        contextNoticeError = true;
+      });
     } else if (id.startsWith("ignore-scope:")) {
       // House style: the occurrence is ignored at once, and the scope is
       // recorded as an explicit house-style entry the next pass applies.

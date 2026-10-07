@@ -431,6 +431,27 @@ verse text goes. Both still hold for the reviewed `inline` flag.
 **Revisit when:** a team shares one threshold (the hub, #46), or reviewers
 find the default too noisy and want a different starting value.
 
+## 2026-10-07 — Learned fixes come from the reviewer's own single-word edits, per book, and never touch a dictionary
+**Decision:** When a saved verse edit replaces exactly one word and changes
+nothing else visible, Bridge records (old → new) in the workbench
+(`language_qa_learned_fixes`). Recurrences of the old word in the same book
+become ordinary Language QA findings (`learned.replacement`, category
+`learned`, blue dotted) offering the new word. Typing the word back retracts
+the fix; Forget and Restore re-write the row. Settings > Language QA turns the
+feature off. One tokenizer, `language_qa.word_occurrences` over the lifted
+text, does both the recording and the offering.
+**Because:** this is indic-qa's editor feature, and the reviewer's own change
+is the most trustworthy suggestion Bridge can make. It is drawn inline as
+project data, like the termbase.
+**Rules out:**
+- Writing the word into a dictionary file (NOTICE contract 2).
+- Using indic-qa's `single_token_change` and per-profile `token_re` for
+  recording. They disagree with Bridge's tokenizer about what one word is.
+- Sharing fixes across a collection's books in this version. That would mean
+  one fsync'd write per sibling on every edit, up to 65 for a Bible.
+**Revisit when:** reviewers ask for a fix learned in one book to apply in its
+siblings (the read side could merge the siblings' tables once per pass).
+
 <!-- New entries go above this line. -->
 
 ## 2026-10-07 — indic-qa's checker core is vendored in-process for Punjabi, Malayalam, Hindi and Odia

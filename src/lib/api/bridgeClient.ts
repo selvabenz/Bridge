@@ -1,5 +1,6 @@
 import type {
   LanguageQaDecisionIssue, LanguageQaHistory, LanguageQaInline, LanguageQaStatus, LanguageQaVerse, LanguageQaView,
+  LearnedFix, LearnedFixesResponse, VerseEditLearned,
 } from "../types/languageQa";
 import type { CollectionQaSnapshot } from "../types/collectionQa";
 import type {
@@ -197,6 +198,9 @@ export type EngineMethod =
   | "languageQa.history"
   | "languageQa.verse"
   | "languageQa.setPack"
+  | "languageQa.learned.list"
+  | "languageQa.learned.forget"
+  | "languageQa.learned.restore"
   | "housestyle.list"
   | "housestyle.nameSuggestions"
   | "housestyle.record"
@@ -344,6 +348,21 @@ export const bridge = {
    * "off" or a registered pack name. The engine rebinds and starts a pass. */
   languageQaSetPack(projectPath: string, pack: string): Promise<LanguageQaStatus> {
     return call("languageQa.setPack", { projectPath, pack });
+  },
+
+  /** This book's learned fixes (a word the reviewer replaced, offered again
+   * where it recurs), enabled or not, most used first. */
+  languageQaLearnedList(projectPath: string): Promise<LearnedFixesResponse> {
+    return call("languageQa.learned.list", { projectPath });
+  },
+
+  /** Stop offering a learned fix. The fix is kept and can be restored. */
+  languageQaLearnedForget(projectPath: string, old: string, newWord: string): Promise<{ fix: LearnedFix }> {
+    return call("languageQa.learned.forget", { projectPath, old, new: newWord });
+  },
+
+  languageQaLearnedRestore(projectPath: string, old: string, newWord: string): Promise<{ fix: LearnedFix }> {
+    return call("languageQa.learned.restore", { projectPath, old, new: newWord });
   },
 
   /** Every inline-rule finding for `chapter` (the whole book when omitted),
@@ -543,6 +562,11 @@ export const bridge = {
     issueResolutionsNeedingRecheck: number;
     /** What the reader shows for the saved text (#91); absent from an older engine. */
     display?: import("../types/finding").VerseDisplay;
+    /** Marker problems in the saved text; never blocking (the save happened). */
+    warnings?: string[];
+    /** Set when the edit replaced exactly one word (a learned fix), or typed a
+     * learned replacement back (`action: "retracted"`). */
+    learned?: VerseEditLearned;
   }> {
     return call("verse.edit", { chapter, verse, newText });
   },

@@ -31,6 +31,7 @@
   // App-level (a reviewer's tolerance), applied by the engine per request.
   let inlinePrecision = 0;
   let inlineConfidence: InlineConfidence = "low";
+  let learnedFixes = true;
   let inlineSaving = false;
   let inlineMessage = "";
 
@@ -101,6 +102,7 @@
       reviewerNameUpdatedAt = s.reviewerNameUpdatedAt || "";
       inlinePrecision = s.languageQaInlinePrecision ?? 0;
       inlineConfidence = s.languageQaInlineConfidence ?? "low";
+      learnedFixes = s.languageQaLearnedFixes ?? true;
       reviewerMode.set(s.reviewerMode);
       navigationStatus.set(await bridge.navigationStatus());
     } catch (e) {
@@ -176,9 +178,11 @@
     try {
       const result = await bridge.setSettings({
         languageQaInlinePrecision: inlinePrecision, languageQaInlineConfidence: inlineConfidence,
+        languageQaLearnedFixes: learnedFixes,
       });
       inlinePrecision = result.languageQaInlinePrecision ?? inlinePrecision;
       inlineConfidence = result.languageQaInlineConfidence ?? inlineConfidence;
+      learnedFixes = result.languageQaLearnedFixes ?? learnedFixes;
       inlineMessage = "Applied.";
       nudgeLanguageQa();
     } catch (e) {
@@ -617,6 +621,11 @@
           </select>
           <div class="hint">A rule must pass both the precision and the confidence threshold to be drawn.</div>
         </div>
+        <h3 class="sub">Learned fixes</h3>
+        <label class="mode-option" class:selected={learnedFixes}>
+          <input type="checkbox" bind:checked={learnedFixes} />
+          <span><b>Offer my earlier replacements</b><small>When you replace one word in a verse, the same word elsewhere in the book gets a blue dotted underline offering your change. Manage them in Language QA › Dictionary.</small></span>
+        </label>
         <div class="save-row">
           <button class="btn primary" on:click={saveInlineThreshold} disabled={inlineSaving}>{inlineSaving ? "Saving…" : "Apply"}</button>
           {#if inlineMessage}<span class="save-msg" role="status">{inlineMessage}</span>{/if}

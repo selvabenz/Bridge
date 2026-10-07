@@ -20,6 +20,7 @@ from .housestyle import bundled_seed, house_style, name_findings, preferences_fr
 from .language_packs import PackError, default_pack, load_project_overrides, loaded_pack
 from .language_packs import indic_qa_adapter
 from .language_qa_drawn import InlinePolicy, drawn_rule_names, gated_rules, is_drawn, with_drawn
+from .language_qa_learned import learned_findings
 from .language_packs.indic import ConfusionSet
 from .language_packs.lexicon import lexicon_findings, lexicon_fingerprint
 from .language_packs.loader import apply_overrides
@@ -392,11 +393,21 @@ class LanguageQaManager:
         # decides (language_qa_drawn). Applied per request: never in a pass.
         self._policy = InlinePolicy()
         self._gated: dict[str, dict[str, Any]] = {}
+        # The reviewer's learned fixes (workbench v6), read on every pass so a
+        # new one shows on the next pass without a rescan; off in Settings.
+        self._learned_loader: Callable[[], list[dict[str, Any]]] | None = None
+        self._learned_on = True
 
-    def configure(self, *, inline_precision: Any = 0, inline_confidence: Any = "low") -> None:
-        """Settings > Language QA. Takes effect on the next request; no rescan."""
+    def configure(self, *, inline_precision: Any = 0, inline_confidence: Any = "low",
+                  learned_fixes: bool = True) -> None:
+        """Settings > Language QA. The inline threshold takes effect on the next
+        request (no rescan); turning learned fixes on or off runs a pass."""
         with self._lock:
             self._policy = InlinePolicy.of(inline_precision, inline_confidence)
+            changed = self._learned_on != bool(learned_fixes)
+            self._learned_on = bool(learned_fixes)
+            if changed and self._context is not None:
+                self._schedule()
 
     def _drawn_rules(self) -> list[str]:
         return drawn_rule_names(self._inline_rules(), self._gated, self._policy)
@@ -441,6 +452,7 @@ class LanguageQaManager:
             self._terminology_loader = getattr(project, "terminology_rules", None)
             self._decisions_loader = getattr(project, "project_qa_decisions", None)
             self._housestyle_loader = getattr(project, "housestyle_entries", None)
+            self._learned_loader = getattr(project, "learned_fixes", None)
             self._paused = bool(blocked_reason)
             self._blocked_reason = blocked_reason
             if autostart:
@@ -469,6 +481,7 @@ class LanguageQaManager:
             self._terminology_loader = None
             self._decisions_loader = None
             self._housestyle_loader = None
+            self._learned_loader = None
             self._summary = {"state": "idle", "findings": [], "limitations": []}
 
     def invalidate(self, chapter: str) -> None:
@@ -763,6 +776,7 @@ class LanguageQaManager:
         with self._lock:
             terminology_loader = self._terminology_loader
             decisions_loader = self._decisions_loader
+            learned_loader = self._learned_loader if self._learned_on else None
             store = self._store
         try:
             raw_terms = terminology_loader() if terminology_loader else []
@@ -775,6 +789,20 @@ class LanguageQaManager:
         except Exception as exc:
             raw_decisions = []
             limitations.append(f"Decisions unavailable: {exc}")
+        # The reviewer's learned fixes: old -> [new, ...], most used first, and
+        # each (old, new) fix for its count and last place. Read every pass, never
+        # part of the chapter cache key: like the profile checker, the learned
+        # step runs over the book text after the chapter loop.
+        try:
+            learned_rows = [f for f in (learned_loader() if learned_loader else [])
+                            if f.get("enabled") and int(f.get("count") or 0) > 0]
+        except Exception as exc:
+            learned_rows = []
+            limitations.append(f"Learned fixes unavailable: {exc}")
+        learned: dict[str, list[str]] = {}
+        for fix in learned_rows:
+            learned.setdefault(str(fix["old"]), []).append(str(fix["new"]))
+        learned_fixes = {(str(f["old"]), str(f["new"])): f for f in learned_rows}
         # Every QA decision by finding id. decision_effect() decides what each
         # one does to the finding it names; ids are content hashes, so a Greek
         # Room decision can never name a Language QA finding. Decisions are
@@ -886,7 +914,7 @@ class LanguageQaManager:
             chapter_limitations: list[str] = []
             try:
                 data, signature, _ = self._read(path)
-                if book_checker:
+                if book_checker or learned:
                     book_text[chapter] = data
                 if layer:
                     headings = _read_headings(path.with_name(f"{chapter}.headings.json"), chapter_limitations)
@@ -1015,6 +1043,9 @@ class LanguageQaManager:
                     flagged.setdefault(f"{finding['chapter']}:{finding['verse']}", []).append(
                         (int(finding["start"]), int(finding["end"]), str(finding.get("category") or "")))
                 audit += [f for f in checked_book[0] if not _already_flagged(f, flagged)]
+            audit += learned_findings(book, book_text, learned, fixes=learned_fixes, max_verse_chars=MAX_VERSE_CHARS,
+                                      finding_id=stable_finding_id, rule_fields=rule_fields, suggestion=suggestion,
+                                      text_hash=text_hash, rule_version=RULE_VERSION)
             for finding in audit:
                 decided = {}
                 shown, hidden = settle([finding], decided)

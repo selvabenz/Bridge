@@ -2,7 +2,7 @@
   import { onDestroy } from "svelte";
   import { bridge } from "../api/bridgeClient";
   import { languageQaChannel, nudgeLanguageQa } from "../languageQaInline";
-  import type { LanguageQaStatus, LanguageQaView } from "../types/languageQa";
+  import type { LanguageQaStatus, LanguageQaView, LearnedFix } from "../types/languageQa";
   import LanguageQaHistoryList from "./LanguageQaHistoryList.svelte";
 
   export let projectPath: string;
@@ -12,6 +12,15 @@
   // Which list is paged: every open finding; those shown again because the
   // rule changed since they were ignored; or those marked as false positives.
   let view: LanguageQaView = "findings";
+  // The panel's own tabs. "findings" holds the three engine lists above; the
+  // others are the reviewer's own data (learned fixes in Dictionary).
+  type PanelTab = "findings" | "dictionary";
+  let panelTab: PanelTab = "findings";
+  let learned: LearnedFix[] = [];
+  let learnedOn = true;
+  let learnedLoaded = false;
+  let learnedBusy = false;
+  let learnedError = "";
   // Finding ids whose decision history is expanded.
   let historyOpen = new Set<string>();
   let offset = 0;
@@ -99,6 +108,42 @@
     offset = 0;
   }
 
+  function showPanelTab(next: PanelTab): void {
+    panelTab = next;
+    if (next === "dictionary") void loadLearned();
+  }
+
+  /** Fetched when the Dictionary tab opens, never polled. */
+  async function loadLearned(): Promise<void> {
+    learnedError = "";
+    try {
+      const result = await bridge.languageQaLearnedList(projectPath);
+      learned = result.fixes;
+      learnedOn = result.enabled;
+    } catch (cause) {
+      learnedError = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      learnedLoaded = true;
+    }
+  }
+
+  async function setLearned(fix: LearnedFix, enabled: boolean): Promise<void> {
+    if (learnedBusy) return;
+    learnedBusy = true;
+    learnedError = "";
+    try {
+      const { fix: updated } = enabled
+        ? await bridge.languageQaLearnedRestore(projectPath, fix.old, fix.new)
+        : await bridge.languageQaLearnedForget(projectPath, fix.old, fix.new);
+      learned = learned.map((f) => (f.old === fix.old && f.new === fix.new ? updated : f));
+      nudgeLanguageQa();
+    } catch (cause) {
+      learnedError = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      learnedBusy = false;
+    }
+  }
+
   function toggleHistory(id: string): void {
     const next = new Set(historyOpen);
     if (!next.delete(id)) next.add(id);
@@ -170,6 +215,11 @@
             <ul>{#each status.limitations as limitation}<li>{limitation}</li>{/each}</ul>
           </details>
         {/if}
+        <div class="panel-tabs" role="tablist" aria-label="Language QA panel">
+          <button role="tab" aria-selected={panelTab === "findings"} on:click={() => showPanelTab("findings")}>Issues</button>
+          <button role="tab" aria-selected={panelTab === "dictionary"} on:click={() => showPanelTab("dictionary")}>Dictionary</button>
+        </div>
+        {#if panelTab === "findings"}
         <div class="views" role="tablist" aria-label="Language QA lists">
           <button role="tab" aria-selected={view === "findings"} on:click={() => showView("findings")}>Findings</button>
           <button role="tab" aria-selected={view === "recheck"} on:click={() => showView("recheck")}>
@@ -219,6 +269,42 @@
             <button on:click={() => turnPage(50)} disabled={busy || offset + 50 >= status.totalFindings}>Next</button>
           </div>
         {/if}
+        {:else if panelTab === "dictionary"}
+          <section aria-label="Learned fixes" class="dictionary">
+            <h3>Learned fixes</h3>
+            <p class="muted">
+              A word you replaced is offered again where it recurs in this book (blue dotted).
+              {#if !learnedOn}Learned fixes are off in Settings › Language QA.{/if}
+            </p>
+            {#if learnedError}<p role="alert">{learnedError}</p>{/if}
+            {#if !learnedLoaded}
+              <p class="muted">Loading…</p>
+            {:else if !learned.length}
+              <p class="muted">Nothing learned yet. Replace one word in a verse and it appears here.</p>
+            {:else}
+              <table>
+                <thead><tr><th>Replaced</th><th>With</th><th>Times</th><th>Last at</th><th></th></tr></thead>
+                <tbody>
+                  {#each learned as fix (`${fix.old} → ${fix.new}`)}
+                    <tr class:forgotten={!fix.enabled || fix.count === 0}>
+                      <td class="word">{fix.old}</td>
+                      <td class="word">{fix.new}</td>
+                      <td>{fix.count}</td>
+                      <td>{fix.lastRef}</td>
+                      <td>
+                        {#if fix.enabled}
+                          <button disabled={learnedBusy} on:click={() => setLearned(fix, false)}>Forget</button>
+                        {:else}
+                          <button disabled={learnedBusy} on:click={() => setLearned(fix, true)}>Restore</button>
+                        {/if}
+                      </td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            {/if}
+          </section>
+        {/if}
         <p class="muted">{status.coverage?.summary ?? ""} {status.storage}</p>
       {/if}
     </section>
@@ -246,6 +332,15 @@
   .where { margin-left: 8px; font-style: italic; }
   .reference { font-size: 12px; opacity: .85; border-left: 2px solid var(--border); padding-left: 6px; }
   .views { display: flex; gap: 6px; margin: 8px 0; }
+  .panel-tabs { display: flex; gap: 6px; margin: 10px 0 2px; padding-bottom: 6px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .panel-tabs button[aria-selected="true"] { border-color: var(--accent); background: var(--accent-bg); font-weight: 600; }
+  .dictionary h3 { font-size: 13px; margin: 10px 0 4px; }
+  .dictionary table { width: 100%; border-collapse: collapse; }
+  .dictionary th { text-align: left; font-size: 11px; color: var(--text-3); padding: 4px; border-bottom: 1px solid var(--border); }
+  .dictionary td { padding: 4px; border-bottom: 1px solid var(--border); }
+  .dictionary td.word { font-family: var(--font-target); font-size: 15px; }
+  .dictionary tr.forgotten td { opacity: .55; }
+  .dictionary tr.forgotten td.word { text-decoration: line-through; }
   .views button[aria-selected="true"] { border-color: var(--accent); background: var(--accent-bg); }
   .history-toggle { font-size: 11px; padding: 2px 6px; }
   .notice { font-weight: 600; }
