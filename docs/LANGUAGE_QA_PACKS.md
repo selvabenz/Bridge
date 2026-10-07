@@ -205,6 +205,19 @@ runs for every project, Tamil included.
   the panel's Dictionary tab. Forget is not a decision: the fix simply stops
   being offered.
 
+### Scoped corrections (every pack, DECISIONS 2026-10-07)
+
+`languageQa.scopeFind` lists every place of the same finding in the verse,
+chapter or book (`language_qa_scope.match_key`). It is read-only and comes
+from the last pass. `languageQa.scopeApply` with `action: "accept"` writes
+one `apply_scripture_edit` per verse, splicing right to left. It skips a
+verse whose text hash moved since the pass, decides each finding `accepted`,
+learns a one-word replacement, and writes a `language_qa_batches` row.
+`action: "ignore"` decides each finding `ignored`; at book scope a word is
+also recorded as house style. `languageQa.batchUndo` restores every verse
+not edited since and keeps both batches. The sidecar allows these calls
+600 s.
+
 ### Phase 1 data rules (DECISIONS 2026-10-07)
 
 - No rule has high severity together with high confidence, so none blocks

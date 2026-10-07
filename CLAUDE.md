@@ -647,7 +647,11 @@ raise it as a question in the issue rather than deciding it in a commit:
   question, not a precedent already set
 - A second Scripture writer, or an alternative path for applying corrections to
   the text — Stage 9B.3b's authorized write behind an explicit human confirmation
-  is deliberately the only one
+  is deliberately the only one. (A scoped Language QA correction, 2026-10-07,
+  adds no writer: it calls the same `apply_scripture_edit` as `verse.edit` and the
+  single-verse Use, once per verse, within one book, after the reviewer confirms
+  the listed verses. Whether a bulk Use is an "alternative path" in this sense is
+  raised for the maintainer in BUILD_LOG's handoff; do not widen it further.)
 - Bundling or switching the multilingual embedding model
   (`SemanticEmbeddingProvider.available` is `False` in the shipped app today, so
   production location runs use lexical/structural evidence only — that is a known

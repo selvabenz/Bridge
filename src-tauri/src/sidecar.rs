@@ -155,6 +155,13 @@ fn request_timeout_seconds(method: &str) -> u64 {
         // while to serialize and ship over stdio; the export writes it
         // back out. report.status/report.cancel stay interactive.
         "report.get" | "report.export" => 180,
+        // A scoped Language QA correction (indic-qa editor features): one
+        // journalled apply_scripture_edit per verse, each with its backup and
+        // alignment reconcile. A book-wide accept or its undo can touch
+        // hundreds of verses of Genesis; a client-side timeout would leave the
+        // UI unsure what was written while the engine finishes. scopeFind
+        // only reads the last pass, so it stays at the default.
+        "languageQa.scopeApply" | "languageQa.batchUndo" => 600,
         // The book QA report. Measured on Genesis of a real Hindi IRV import
         // (50 chapters, 1533 verses): build_book_report() takes ~113 s, almost
         // all of it project_scan and exception_first_queue doing per-verse
@@ -582,6 +589,16 @@ mod tests {
         assert_eq!(request_timeout_seconds("triage.cancel"), 30);
         assert_eq!(request_timeout_seconds("triage.override"), 30);
         assert_eq!(request_timeout_seconds("triage.results"), 180);
+    }
+
+    #[test]
+    fn a_scoped_language_qa_correction_may_write_a_whole_book_but_finding_it_stays_interactive() {
+        // One journalled edit per verse: a book-wide accept or its undo must
+        // not time out client-side while the engine is still writing.
+        assert_eq!(request_timeout_seconds("languageQa.scopeApply"), 600);
+        assert_eq!(request_timeout_seconds("languageQa.batchUndo"), 600);
+        assert_eq!(request_timeout_seconds("languageQa.scopeFind"), 30);
+        assert_eq!(request_timeout_seconds("languageQa.batches"), 30);
     }
 
     #[test]

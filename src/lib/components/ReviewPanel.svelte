@@ -4,7 +4,8 @@
   import { decideLanguageQaFindingOptimistically, decideLocalFinding } from "../findingActions";
   import { languageQaChannel } from "../languageQaInline";
   import { forgetLearnedFix, isLearnedFinding, learnedPairOf } from "../learnedFixes";
-  import type { LanguageQaFinding, LanguageQaSuggestion } from "../types/languageQa";
+  import { openScopeDialog } from "../scopedApply";
+  import type { LanguageQaFinding, LanguageQaScope, LanguageQaSuggestion } from "../types/languageQa";
   import AlignmentModal from "./AlignmentModal.svelte";
   import TranslationHelpsReview from "./TranslationHelpsReview.svelte";
   import { aiJobAppliesToReference, isAIReviewJobActive } from "../utils/aiJobScope";
@@ -121,8 +122,19 @@
     }
   }
 
+  // Where a Use applies: this verse (written at once, as before), or every
+  // place of the same finding in the chapter or book (asked first).
+  let lqaScope: LanguageQaScope = "verse";
+  const LQA_SCOPES: { scope: LanguageQaScope; label: string }[] = [
+    { scope: "verse", label: "This verse" }, { scope: "chapter", label: "Chapter" }, { scope: "book", label: "Book" },
+  ];
+
   function useLqa(finding: LanguageQaFinding, chosen: LanguageQaSuggestion): void {
     if (lqaBusy) return;
+    if (lqaScope !== "verse") {
+      void openScopeDialog(finding, chosen.text, lqaScope);
+      return;
+    }
     lqaBusy = true;
     lqaNotice = "";
     lqaFindings = lqaFindings.filter((f) => f.id !== finding.id);
@@ -756,6 +768,15 @@
                       on:click={() => forgetLqa(f)}>Forget this fix</button>
                   {/if}
                 </div>
+                {#if lqaSuggestions(f).length && !f.context}
+                  <div class="scope-row" role="radiogroup" aria-label="Apply a suggestion to">
+                    <span class="scope-label">Apply to</span>
+                    {#each LQA_SCOPES as option (option.scope)}
+                      <button type="button" role="radio" aria-checked={lqaScope === option.scope}
+                        class:on={lqaScope === option.scope} on:click={() => (lqaScope = option.scope)}>{option.label}</button>
+                    {/each}
+                  </div>
+                {/if}
               </div>
             {:else}
               <p class="none">
@@ -976,6 +997,13 @@
   .decision-row.two-up { grid-template-columns: 1fr 1fr; }
   .decision-row.one-up { grid-template-columns: 1fr; }
   .decision-row.lqa-actions { display: flex; flex-wrap: wrap; }
+  .scope-row { display: flex; align-items: center; gap: 0; margin-top: 8px; }
+  .scope-label { font-size: var(--fs-2xs); font-weight: 700; color: var(--text-2); margin-right: 8px; white-space: nowrap; }
+  .scope-row button { flex: 1; padding: 5px 0; font-size: var(--fs-2xs); font-weight: 600; color: var(--text-2);
+    background: var(--surface); border: 1px solid var(--border-strong); border-left-width: 0; cursor: pointer; }
+  .scope-row button:first-of-type { border-left-width: 1px; border-radius: 6px 0 0 6px; }
+  .scope-row button:last-of-type { border-radius: 0 6px 6px 0; }
+  .scope-row button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
   .decision-row.lqa-actions button { flex: 1 1 auto; }
   .lqa-notice { margin: 0 0 6px; font-size: var(--fs-xs); color: var(--text-3); }
   .lqa-notice.failed { color: var(--danger); }

@@ -1,6 +1,7 @@
 import type {
   LanguageQaDecisionIssue, LanguageQaHistory, LanguageQaInline, LanguageQaStatus, LanguageQaVerse, LanguageQaView,
   LearnedFix, LearnedFixesResponse, VerseEditLearned,
+  BatchUndoResult, LanguageQaScope, ScopeAcceptResult, ScopeFindResult, ScopeIgnoreResult,
 } from "../types/languageQa";
 import type { CollectionQaSnapshot } from "../types/collectionQa";
 import type {
@@ -201,6 +202,10 @@ export type EngineMethod =
   | "languageQa.learned.list"
   | "languageQa.learned.forget"
   | "languageQa.learned.restore"
+  | "languageQa.scopeFind"
+  | "languageQa.scopeApply"
+  | "languageQa.batchUndo"
+  | "languageQa.batches"
   | "housestyle.list"
   | "housestyle.nameSuggestions"
   | "housestyle.record"
@@ -363,6 +368,42 @@ export const bridge = {
 
   languageQaLearnedRestore(projectPath: string, old: string, newWord: string): Promise<{ fix: LearnedFix }> {
     return call("languageQa.learned.restore", { projectPath, old, new: newWord });
+  },
+
+  /** Where the same finding is in the verse, chapter or book: read-only, for
+   * the confirmation shown before a scoped correction. */
+  languageQaScopeFind(
+    projectPath: string, chapter: string, verse: string, findingId: string, scope: LanguageQaScope,
+    suggestion?: string,
+  ): Promise<ScopeFindResult> {
+    const params: Record<string, unknown> = { projectPath, chapter, verse, findingId, scope };
+    if (suggestion !== undefined) params.suggestion = suggestion;
+    return call("languageQa.scopeFind", params);
+  },
+
+  /** Accept the suggestion everywhere in the scope: one journalled edit per
+   * verse, grouped in one batch for Undo. Verses changed since the check are
+   * skipped and reported. */
+  languageQaScopeAccept(
+    projectPath: string, chapter: string, verse: string, findingId: string, scope: LanguageQaScope,
+    suggestion?: string,
+  ): Promise<ScopeAcceptResult> {
+    const params: Record<string, unknown> = { projectPath, action: "accept", chapter, verse, findingId, scope };
+    if (suggestion !== undefined) params.suggestion = suggestion;
+    return call("languageQa.scopeApply", params);
+  },
+
+  /** Ignore the same finding everywhere in the scope (a book-wide word is
+   * also recorded as house style). Never writes Scripture. */
+  languageQaScopeIgnore(
+    projectPath: string, chapter: string, verse: string, findingId: string, scope: LanguageQaScope,
+  ): Promise<ScopeIgnoreResult> {
+    return call("languageQa.scopeApply", { projectPath, action: "ignore", chapter, verse, findingId, scope });
+  },
+
+  /** Undo a scoped correction: verses changed since are left and reported. */
+  languageQaBatchUndo(projectPath: string, batchId: string): Promise<BatchUndoResult> {
+    return call("languageQa.batchUndo", { projectPath, batchId });
   },
 
   /** Every inline-rule finding for `chapter` (the whole book when omitted),

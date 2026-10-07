@@ -15255,3 +15255,100 @@ Language QA.
   - `npm run build`: ok.
 
 **Not verified.** The desktop app (QA matrix A103).
+
+## 2026-10-07 — Scoped corrections: verse, chapter or book, confirmed, with batch undo (branch `indic-qa-editor`, commit 4)
+
+DECISIONS 2026-10-07, "A scoped Language QA correction is one journalled edit
+per verse". This is indic-qa's "Here / Chapter / Book". The cross-book
+"Bible" scope is out, by Benz's choice.
+
+**Engine.**
+- `language_qa_scope.py` is pure:
+  - `match_key`: a word-like finding matches on rule, sub-rule and NFC text;
+    a warning on rule and sub-rule alone.
+  - `occurrences` returns them in reading order. It refuses a heading or
+    footnote origin, and a chosen suggestion applies to words while a warning
+    keeps its own fix.
+  - `splice` works right to left and refuses overlaps, or text that is not
+    what the pass saw.
+- `LanguageQaManager.scope_findings` returns the origin and every shown
+  finding of the last pass. It raises if the origin is no longer there.
+- `BridgeEngine` adds `language_qa_scope_find`, `language_qa_scope_apply`
+  (accept or ignore) and `language_qa_batch_undo`, and lists batches. Accept
+  works one verse at a time:
+  - it checks the verse hash, then splices;
+  - it writes once with `apply_scripture_edit`, carrying a `context_id`
+    with the `batchId`;
+  - it decides each finding `accepted`, with the same issue fields as the
+    frontend's `languageQaDecisionIssue`;
+  - it learns the fix when both sides are one word;
+  - it writes one batch row, and invalidates once per touched chapter.
+- Undo restores only verses whose text is still the batch's new text. It
+  writes an `undo` batch, moves the original to `undone`, and retracts the
+  learned uses. Accepted decisions stay: they never hide anything, so a
+  restored finding reappears on the next pass.
+- `src-tauri/src/sidecar.rs`: `languageQa.scopeApply` and `.batchUndo` get
+  600 s. `scopeFind` and `batches` keep 30 s. A new `#[test]` pins it.
+
+**Frontend.**
+- `src/lib/scopedApply.ts` holds the dialog state, the last batch and the
+  notice:
+  - `openScopeDialog` asks the engine first;
+  - `confirmScopeDialog` writes, and on an engine error keeps the dialog and
+    says to reopen the chapter;
+  - `undoLastBatch` undoes;
+  - all of it resets on a book switch.
+- `ScopeConfirmDialog.svelte`:
+  - lists each place with `<del>`/`<ins>` from the loaded text, capped at 200;
+  - the primary button says "Change N verses", and Cancel has focus first;
+  - Escape cancels, and focus returns to where it was.
+- `ScopeNotice.svelte` keeps "Undo all" until it is dismissed.
+- `verseEditor.applyEngineChanges` shows engine-written text through the same
+  `showVerseText` a saved edit uses.
+- Review panel: an "Apply to: This verse | Chapter | Book" radiogroup. "This
+  verse" keeps the existing single-verse path.
+- Verse menu: one new "Use in more places ▸" item, listing "“X” in this
+  chapter…" and "… in this book…" for each suggestion. The planned design
+  turned each Use into a submenu; this instead leaves the one-click Use and
+  its tests untouched. The submenu shows no counts, so a right-click costs no
+  book-wide call; the dialog shows the exact count.
+
+**Open question for the maintainer.** CLAUDE.md's stop-and-ask list names
+"an alternative path for applying corrections to the text". A scoped
+correction adds no writer and no journal format. But a bulk Use behind one
+confirmation is new, so CLAUDE.md now says so beside that line, and the
+handoff will ask.
+
+**Verified.**
+- Engine:
+  - `test_language_qa_scope.py`, 9 dispatcher tests:
+    - find within scope;
+    - accept writes one journalled edit per verse, each verseEdits record
+      carrying the batch id, without touching the double space beside it;
+    - a verse changed behind the pass is skipped;
+    - undo restores both verses and keeps both batches, and a second undo is
+      refused;
+    - undo leaves a verse edited after the batch;
+    - ignore across a chapter and across a book (house style);
+    - a finding with no replacement cannot be accepted;
+    - bad parameters are refused.
+  - `test_language_qa_scope_pure.py`: 6 tests.
+  - `test_language_qa.py` serially: 297 passed.
+  - Scope, learned, jobs, indic, bridge service, packs, house style,
+    persistence and project I/O: 585 passed.
+- Shell: `cargo check`, and `cargo test` 11 passed.
+- Frontend:
+  - `npm run check`: 0 errors, 0 warnings.
+  - `npm run test`: 553 passed.
+  - `npm run build`: ok.
+- Latency gate:
+  - Hindi: pass.
+  - Tamil: 5 of 7 runs pass. The two failures were `verse.decide` p95
+    56.7 ms and a 230 ms outlier. The previous commit passed 3 of 3, and the
+    pre-branch code failed this gate 1 run in 3 earlier today. Nothing in this
+    commit runs on the decide path, so this is read as machine noise. It is
+    recorded, not hidden.
+
+**Not verified.** The desktop app, and how long a book-wide accept takes on a
+long book. Each verse pays a full journal transaction with its backup;
+expect seconds for Genesis.

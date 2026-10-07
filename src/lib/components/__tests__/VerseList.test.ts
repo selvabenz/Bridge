@@ -2,8 +2,9 @@ import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { get } from "svelte/store";
 
-const { decideVerse, editVerse, runVerseChecks, languageQaHistory, housestyleRecord, housestyleSetState, languageQaLearnedForget } = vi.hoisted(() => ({
+const { decideVerse, editVerse, runVerseChecks, languageQaHistory, housestyleRecord, housestyleSetState, languageQaLearnedForget, languageQaScopeFind } = vi.hoisted(() => ({
   languageQaLearnedForget: vi.fn(),
+  languageQaScopeFind: vi.fn(),
   housestyleRecord: vi.fn(),
   housestyleSetState: vi.fn(),
   decideVerse: vi.fn(),
@@ -13,9 +14,10 @@ const { decideVerse, editVerse, runVerseChecks, languageQaHistory, housestyleRec
 }));
 
 vi.mock("../../api/bridgeClient", () => ({
-  bridge: { decideVerse, editVerse, runVerseChecks, languageQaHistory, housestyleRecord, housestyleSetState, languageQaLearnedForget },
+  bridge: { decideVerse, editVerse, runVerseChecks, languageQaHistory, housestyleRecord, housestyleSetState, languageQaLearnedForget, languageQaScopeFind },
 }));
 import { lqaFinding } from "./languageQaFixture";
+import { scopeDialog } from "../../scopedApply";
 import { displayFor } from "./verseDisplayFixtures";
 import type { LanguageQaSuggestion } from "../../types/languageQa";
 
@@ -309,7 +311,26 @@ describe("VerseList footnote handling", () => {
       const items = await openMenu();
       expect(items[0]).toEqual(['Use "அந்தக் காகம்"', "test rationale"]);
       expect(items.map(([label]) => label)).toEqual(
-        ['Use "அந்தக் காகம்"', "Edit…", "Ignore this occurrence", "Ignore more widely▸", "Mark as false positive"]);
+        ['Use "அந்தக் காகம்"', "Use in more places▸", "Edit…", "Ignore this occurrence", "Ignore more widely▸",
+          "Mark as false positive"]);
+    });
+
+    it("offers the same change in the chapter or the book, and asks first", async () => {
+      languageQaScopeFind.mockReset().mockResolvedValue({
+        chapter: "1", verse: "6", findingId: "lqa-1", scope: "book", count: 1, verses: 1,
+        key: { ruleId: "ta-irv/tamil.vallinam-missing", detailRule: "", originalText: "அந்த காகம்", kind: "word" },
+        occurrences: [{ chapter: "1", verse: "6", findingId: "lqa-1", start: 0, end: 10, old: "அந்த காகம்", new: "அந்தக் காகம்" }],
+      });
+      project.set({ path: "/p", bookId: "php" } as never);
+      await openMenu();
+      await fireEvent.click(screen.getByRole("menuitem", { name: "Use in more places" }));
+      expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(
+        expect.arrayContaining(["“அந்தக் காகம்” in this chapter…", "“அந்தக் காகம்” in this book…"]));
+      await fireEvent.click(screen.getByRole("menuitem", { name: "“அந்தக் காகம்” in this book…" }));
+      await waitFor(() => expect(languageQaScopeFind).toHaveBeenCalledWith("/p", "1", "6", "lqa-1", "book", "அந்தக் காகம்"));
+      expect(get(scopeDialog)?.scope).toBe("book");
+      expect(editVerse).not.toHaveBeenCalled();
+      scopeDialog.set(null);
     });
 
     it("offers up to five ranked Use items, and Use applies the one chosen and records its rank", async () => {

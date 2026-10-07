@@ -6,6 +6,9 @@
   import VerseList from "./lib/components/VerseList.svelte";
   import ReviewPanel from "./lib/components/ReviewPanel.svelte";
   import LanguageQaPanel from "./lib/components/LanguageQaPanel.svelte";
+  import ScopeConfirmDialog from "./lib/components/ScopeConfirmDialog.svelte";
+  import ScopeNotice from "./lib/components/ScopeNotice.svelte";
+  import { resetScopedApply, scopeDialog } from "./lib/scopedApply";
   import AlignmentReview from "./lib/components/AlignmentReview.svelte";
   import CrossVerseAlignmentModal from "./lib/components/CrossVerseAlignmentModal.svelte";
   import {
@@ -267,6 +270,8 @@
       stopLanguageQaInline?.();
       stopLanguageQaInline = null;
       languageQaInlinePath = path;
+      // A scoped correction's batch belongs to the book it was made in.
+      resetScopedApply();
       if (path) stopLanguageQaInline = startLanguageQaInline(path);
     }
   }
@@ -1141,6 +1146,8 @@
     {#key $project.path}
       <LanguageQaPanel projectPath={$project.path} onNavigate={navigateToReportRow} />
     {/key}
+    <ScopeNotice />
+    {#if $scopeDialog}<ScopeConfirmDialog />{/if}
   {/if}
 
   {#if $project && $crossVerseOpen && $crossVerseAnchor}

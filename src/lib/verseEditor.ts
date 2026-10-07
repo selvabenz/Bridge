@@ -53,6 +53,22 @@ export function refreshVerseTextFromApplication(
   return key;
 }
 
+/**
+ * Text the engine wrote on the reviewer's behalf (a scoped Language QA
+ * correction, or its undo): each loaded verse shows its new text through the
+ * same path a saved edit uses (its Language QA, AI and native marks dropped,
+ * alignment marked invalid). A verse of a chapter not loaded yet simply loads
+ * fresh later. One nudge, so Language QA runs once for all of them.
+ */
+export function applyEngineChanges(changed: { chapter: string; verse: string; newText: string; display?: VerseDisplay }[]): void {
+  const loaded = get(verseTexts);
+  for (const change of changed) {
+    const key = verseKey(change.chapter, change.verse);
+    if (key in loaded) showVerseText(key, change.newText, change.display);
+  }
+  if (changed.length) nudgeLanguageQa();
+}
+
 export const editingChapter = writable("");
 export const editingVerse = writable("");
 export const editText = writable("");

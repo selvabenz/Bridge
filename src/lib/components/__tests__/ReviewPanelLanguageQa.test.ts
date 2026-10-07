@@ -27,6 +27,7 @@ import ReviewPanel from "../ReviewPanel.svelte";
 import { currentChapter, project, selectedVerse, verseTexts, verseKey } from "../../stores";
 import { languageQaChannel } from "../../languageQaInline";
 import { lqaFinding } from "./languageQaFixture";
+import { scopeDialog } from "../../scopedApply";
 import type { LanguageQaStatus } from "../../types/languageQa";
 
 function channel(generation: number, state: LanguageQaStatus["state"] = "completed"): void {
@@ -91,6 +92,24 @@ describe("ReviewPanel Language QA tab", () => {
     // The Proxy creates the stub on the panel's first call, so read it afterwards.
     await waitFor(() => expect(known.languageQaLearnedForget).toHaveBeenCalledWith("/p", "தேவன்", "கர்த்தர்"));
     expect(decideVerse).not.toHaveBeenCalled();
+  });
+
+  it("Apply to: Chapter asks for every place first instead of writing this verse", async () => {
+    languageQaVerse.mockResolvedValue({
+      projectPath: "/p", generation: 3, state: "completed", chapter: "1", verse: "6",
+      findings: [lqaFinding({ id: "lqa-s" })], hidden: [],
+    });
+    render(ReviewPanel);
+    await fireEvent.click(screen.getByRole("tab", { name: /Language QA/ }));
+    await fireEvent.click(await screen.findByRole("radio", { name: "Chapter" }));
+    expect(screen.getByRole("radio", { name: "Chapter" })).toHaveAttribute("aria-checked", "true");
+    await fireEvent.click(screen.getByRole("button", { name: /^Use / }));
+    await waitFor(() => expect(known.languageQaScopeFind).toHaveBeenCalledWith(
+      "/p", "1", "6", "lqa-s", "chapter", "அந்தக் காகம்"));
+    expect(decideVerse).not.toHaveBeenCalled();
+    // Nothing is removed or written until the reviewer confirms.
+    expect(document.querySelector('[data-lqa-id="lqa-s"]')).not.toBeNull();
+    scopeDialog.set(null);
   });
 
   it("refetches when a new completed pass lands, not on every status tick", async () => {

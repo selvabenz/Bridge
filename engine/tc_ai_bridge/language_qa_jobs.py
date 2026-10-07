@@ -1151,6 +1151,20 @@ class LanguageQaManager:
                     "findings": with_drawn(slot["findings"], self._gated, self._policy),
                     "hidden": slot.get("hidden", [])}
 
+    def scope_findings(self, chapter: str, verse: str, finding_id: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """(origin finding, every shown finding of the book) from the last
+        completed pass, for a scoped correction (language_qa_scope). Raises
+        ValueError when the finding is not in it: the text or the pass moved on,
+        and the reviewer should act on what is on screen now."""
+        with self._lock:
+            slot = self._by_verse.get(f"{chapter}:{verse}") or {}
+            origin = next((f for f in slot.get("findings", []) if f.get("id") == finding_id), None)
+            shown = [f for entry in self._by_verse.values() for f in entry.get("findings", [])]
+        if origin is None:
+            raise ValueError("That finding is not in the last Language QA pass. Wait for the check to finish, "
+                             "then try again.")
+        return copy.deepcopy(origin), copy.deepcopy(shown)
+
     def verse_results(self, chapter: str, verse: str) -> dict[str, Any]:
         """The last pass's findings for one verse: `findings` (open, after
         decisions) and `decided` (finding id -> the decision that hides it)."""

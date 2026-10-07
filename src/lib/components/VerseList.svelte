@@ -14,6 +14,7 @@
   import LanguageQaHistoryPopup from "./LanguageQaHistoryPopup.svelte";
   import { IGNORE_SCOPES, houseStyleNotice, recordScopedIgnore, undoLearned } from "../houseStyleUi";
   import { forgetLearnedFix, isLearnedFinding, learnedPairOf } from "../learnedFixes";
+  import { openScopeDialog } from "../scopedApply";
   import type { HouseStyleScope } from "../types/houseStyle";
   import type { QaFinding } from "../types/finding";
   import type { LanguageQaFinding, LanguageQaSuggestion } from "../types/languageQa";
@@ -112,6 +113,18 @@
         disabled: langQaContextBusy,
         title: s.rationale || "Replace the flagged text with this form, re-check the verse, and record it as accepted.",
       })),
+      // The same change wherever the same finding is: asked first, one Undo.
+      ...(suggestions.length && !finding.context ? [{
+        id: "use-scope",
+        label: "Use in more places",
+        disabled: langQaContextBusy,
+        title: "Make the same change wherever this finding is in the chapter or the book. You see every place first.",
+        submenu: suggestions.flatMap((s) => (["chapter", "book"] as const).map((scope) => ({
+          id: `use-scope:${s.rank}:${scope}`,
+          label: `“${s.text}” in this ${scope}…`,
+          disabled: langQaContextBusy,
+        }))),
+      }] : []),
       {
         id: "edit",
         label: "Edit…",
@@ -378,6 +391,10 @@
       }).finally(() => { langQaContextBusy = false; });
     } else if (id === "edit") {
       void editWithSelection(finding, verse);
+    } else if (id.startsWith("use-scope:")) {
+      const [, rank, scope] = id.split(":");
+      const chosen = languageQaSuggestions(finding).find((s) => String(s.rank) === rank);
+      if (chosen && (scope === "chapter" || scope === "book")) void openScopeDialog(finding, chosen.text, scope);
     } else if (id === "learned-forget") {
       // Not a decision: the fix stops being offered everywhere, marks go at once.
       const pair = learnedPairOf(finding);

@@ -24,6 +24,8 @@ import shutil
 import sys
 import threading
 import time
+import unicodedata
+import uuid
 from collections import Counter
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -77,6 +79,9 @@ from tc_ai_bridge.local_checks import run_local_qa
 from tc_ai_bridge.language_qa import FINDING_SOURCE as LANGUAGE_QA_SOURCE, UNSPECIFIED_DECISION_SOURCE
 from tc_ai_bridge.language_qa_jobs import LanguageQaManager, project_pack_name
 from tc_ai_bridge.language_qa_learned import learned_pair
+from tc_ai_bridge import language_qa_scope
+from tc_ai_bridge.language_qa import text_hash as language_qa_text_hash
+from tc_ai_bridge.language_qa import word_occurrences as language_qa_word_occurrences
 from tc_ai_bridge.language_packs.registry import available as available_language_packs
 from tc_ai_bridge.workbench_repository import WorkbenchConflict, WorkbenchValidationError
 from tc_ai_bridge.alignment_engine import (
@@ -380,6 +385,10 @@ class Methods:
     LANGUAGE_QA_LEARNED_LIST = "languageQa.learned.list"
     LANGUAGE_QA_LEARNED_FORGET = "languageQa.learned.forget"
     LANGUAGE_QA_LEARNED_RESTORE = "languageQa.learned.restore"
+    LANGUAGE_QA_SCOPE_FIND = "languageQa.scopeFind"
+    LANGUAGE_QA_SCOPE_APPLY = "languageQa.scopeApply"
+    LANGUAGE_QA_BATCH_UNDO = "languageQa.batchUndo"
+    LANGUAGE_QA_BATCHES = "languageQa.batches"
     CHECKS_STATUS = "checks.status"
     CHECKS_CANCEL = "checks.cancel"
     CHECKS_RETRY = "checks.retry"
@@ -4316,6 +4325,193 @@ class BridgeEngine:
         self._language_qa.invalidate_all()
         return {"fix": fix}
 
+    # -- scoped corrections (indic-qa's "Here / Chapter / Book") -------------
+    #
+    # Scripture is still written only by apply_scripture_edit, once per verse,
+    # each an ordinary journalled edit with its own verseEdits record. A batch
+    # row (workbench v6) only groups them, so they can be listed and undone
+    # together. Never across books: a collection's siblings are other projects.
+
+    def _scoped(self, params: dict[str, Any]) -> tuple[dict[str, Any], list[Any], str, str | None]:
+        chapter, verse, finding_id = params.get("chapter"), params.get("verse"), params.get("findingId")
+        if not all(isinstance(v, str) and v for v in (chapter, verse, finding_id)):
+            raise ProjectError("chapter, verse and findingId must be non-empty strings")
+        scope = params.get("scope")
+        if scope not in language_qa_scope.SCOPES:
+            raise ProjectError(f"scope must be one of {list(language_qa_scope.SCOPES)}")
+        suggestion = params.get("suggestion")
+        if suggestion is not None and (not isinstance(suggestion, str) or not suggestion):
+            raise ProjectError("suggestion must be a non-empty string when given")
+        try:
+            origin, shown = self._language_qa.scope_findings(chapter, verse, finding_id)
+            found = language_qa_scope.occurrences(shown, origin, scope, suggestion)
+        except ValueError as exc:
+            raise ProjectError(str(exc)) from exc
+        wanted = params.get("occurrences")
+        if wanted is not None:
+            if not isinstance(wanted, list) or not all(isinstance(i, str) for i in wanted):
+                raise ProjectError("occurrences must be a list of finding ids when given")
+            found = [o for o in found if o.finding_id in set(wanted)]
+        return origin, found, scope, suggestion
+
+    def language_qa_scope_find(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Where the same finding is, in the verse, chapter or book: what the
+        confirmation lists before anything is written."""
+        self._require_project()
+        origin, found, scope, _suggestion = self._scoped(params)
+        return {"chapter": origin["chapter"], "verse": origin["verse"], "findingId": origin["id"], "scope": scope,
+                "key": {"ruleId": origin.get("ruleId"), "detailRule": origin.get("detailRule") or "",
+                        "originalText": origin.get("originalText"),
+                        "kind": "warning" if language_qa_scope.is_warning(origin) else "word"},
+                "count": len(found), "verses": len(language_qa_scope.by_verse(found)),
+                "occurrences": [o.to_json() for o in found]}
+
+    def _language_qa_issue(self, finding: dict[str, Any], chosen: str | None) -> dict[str, Any]:
+        """The decision issue the frontend's languageQaDecisionIssue builds."""
+        rank = next((s.get("rank") for s in finding.get("suggestions") or [] if s.get("text") == chosen), None)
+        return {"source": LANGUAGE_QA_SOURCE, "rule": finding.get("rule"), "ruleId": finding.get("ruleId"),
+                "ruleVersion": finding.get("ruleVersion"), "packVersion": finding.get("packVersion"),
+                "ruleRevision": finding.get("ruleRevision"), "layer": finding.get("layer"),
+                "category": finding.get("category"), "originalText": finding.get("originalText"),
+                "suggestedReplacement": chosen, "chosenSuggestion": chosen, "chosenRank": rank,
+                "message": finding.get("message"), "start": finding.get("start"), "end": finding.get("end")}
+
+    def language_qa_scope_apply(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Accept (write) or ignore the same finding across the scope.
+
+        accept: per verse, the verse must still be the text the pass saw (its
+        hash), else it is skipped and reported; the occurrences are spliced
+        right to left and written with one apply_scripture_edit; each finding
+        is decided `accepted`. A word replaced by a single word is learned.
+        One batch row lists every verse for Undo.
+        ignore: each finding is decided `ignored`; at book scope a word is
+        recorded as house style (word-in-book), which also covers later text."""
+        self._require_project()
+        action = params.get("action")
+        if action not in {"accept", "ignore"}:
+            raise ProjectError("action must be accept or ignore")
+        origin, found, scope, suggestion = self._scoped(params)
+        if action == "ignore":
+            return self._scope_ignore(origin, found, scope)
+        writable = [o for o in found if o.new is not None]
+        if not writable:
+            raise ProjectError("Nothing to change: these findings carry no replacement.")
+        batch_id = uuid.uuid4().hex[:16]
+        username = self.settings.reviewer_name or "Bridge Reviewer"
+        items, changed, skipped, decided_ids = [], [], [], []
+        for (chapter, verse), group in language_qa_scope.by_verse(writable).items():
+            current = self.project.target_verse_text(chapter, verse) or ""
+            if any(o.text_hash != language_qa_text_hash(current) for o in group):
+                skipped.append({"chapter": chapter, "verse": verse,
+                                "reason": "The verse changed after the check; nothing was written. Run the check again."})
+                continue
+            try:
+                new_text = language_qa_scope.splice(current, group)
+            except ValueError as exc:
+                skipped.append({"chapter": chapter, "verse": verse, "reason": str(exc)})
+                continue
+            context = {"reference": {"bookId": self.project.book_id, "chapter": chapter, "verse": verse},
+                       "tool": "translationCoreAI", "groupId": "language-qa-scope", "batchId": batch_id}
+            result = self.project.apply_scripture_edit(chapter, verse, new_text, username=username,
+                                                       tags=["languageQa", "scope"], context_id=context)
+            for occurrence in group:
+                self.decide_verse(chapter, verse, occurrence.finding_id, "accepted",
+                                  issue={**self._language_qa_issue(occurrence.finding, occurrence.new),
+                                         "batchId": batch_id})
+                decided_ids.append(occurrence.finding_id)
+            items.append({"chapter": chapter, "verse": verse, "findingIds": [o.finding_id for o in group],
+                          "oldText": current, "newText": new_text,
+                          "journalTransactionId": result.get("journalTransactionId")})
+            changed.append({"chapter": chapter, "verse": verse, "oldText": current, "newText": new_text,
+                            "display": verse_display(new_text), "findingIds": [o.finding_id for o in group]})
+        learned = None
+        if items and suggestion and not language_qa_scope.is_warning(origin) and self.settings.language_qa_learned_fixes:
+            single = lambda text: len(language_qa_word_occurrences(text)) == 1  # noqa: E731
+            if single(origin["originalText"]) and single(suggestion):
+                old = unicodedata.normalize("NFC", origin["originalText"])
+                fix = self.project.record_learned_fix(
+                    old, suggestion, ref=f"{self.project.book_id.upper()} {origin['chapter']}:{origin['verse']}",
+                    reviewer=username, source="scope", n=len(decided_ids))
+                learned = {"old": old, "new": suggestion, "count": fix["count"], "n": len(decided_ids)}
+        if items:
+            self.project.record_language_qa_batch({
+                "batchId": batch_id, "kind": "accept", "state": "applied", "action": "accept", "scope": scope,
+                "chapter": origin["chapter"], "verse": origin["verse"], "ruleId": origin.get("ruleId"),
+                "detailRule": origin.get("detailRule") or "", "originalText": origin.get("originalText"),
+                "suggestion": suggestion, "count": len(decided_ids), "items": items, "learned": learned,
+                "username": username, "createdAt": datetime.now(timezone.utc).isoformat(timespec="milliseconds")})
+            for chapter in sorted({item["chapter"] for item in items}):
+                self._language_qa.invalidate(chapter)
+            self._consistency_findings_by_book.pop(str(self.project.path), None)
+        return {"batchId": batch_id if items else None, "action": "accept", "scope": scope,
+                "count": len(decided_ids), "changed": changed, "skipped": skipped,
+                **({"learned": learned} if learned else {})}
+
+    def _scope_ignore(self, origin: dict[str, Any], found: list[Any], scope: str) -> dict[str, Any]:
+        decided = []
+        for occurrence in found:
+            self.decide_verse(occurrence.chapter, occurrence.verse, occurrence.finding_id, "ignored",
+                              issue={**self._language_qa_issue(occurrence.finding, None), "scope": scope})
+            decided.append(occurrence.finding_id)
+        entry = None
+        if scope == "book" and not language_qa_scope.is_warning(origin):
+            # The book-wide ignore is house style, so later text is covered too.
+            entry = self.housestyle_record({
+                "scope": "word-in-book", "ruleId": origin.get("ruleId"), "word": origin.get("originalText"),
+                "provenance": "explicit",
+                "evidence": [{"chapter": origin["chapter"], "verse": origin["verse"], "decisionId": origin["id"]}],
+            }).get("entry")
+        return {"action": "ignore", "scope": scope, "count": len(decided), "decided": decided,
+                **({"houseStyle": entry} if entry else {})}
+
+    def language_qa_batch_undo(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Undo a scoped correction: each verse goes back to its text before the
+        batch, through apply_scripture_edit, if nobody changed it since (else it
+        is reported and left alone). A new `undo` batch is written and the
+        original moves to `undone`; neither is deleted. The accepted decisions
+        stay; a finding whose text is back simply reappears on the next pass."""
+        self._require_project()
+        batch_id = params.get("batchId")
+        if not isinstance(batch_id, str) or not batch_id:
+            raise ProjectError("batchId must be a non-empty string")
+        batch = self.project.language_qa_batch(batch_id)
+        if batch is None or batch.get("kind") != "accept":
+            raise ProjectError(f"No correction batch {batch_id} in this book.")
+        if batch.get("state") != "applied":
+            raise ProjectError("That batch was already undone.")
+        undo_id = uuid.uuid4().hex[:16]
+        username = self.settings.reviewer_name or "Bridge Reviewer"
+        reverted, conflicts, items = [], [], []
+        for item in reversed(batch.get("items") or []):
+            chapter, verse = str(item["chapter"]), str(item["verse"])
+            current = self.project.target_verse_text(chapter, verse) or ""
+            if current != item["newText"]:
+                conflicts.append({"chapter": chapter, "verse": verse,
+                                  "reason": "Changed after the batch; left as it is."})
+                continue
+            context = {"reference": {"bookId": self.project.book_id, "chapter": chapter, "verse": verse},
+                       "tool": "translationCoreAI", "groupId": "language-qa-scope-undo",
+                       "batchId": undo_id, "undoes": batch_id}
+            result = self.project.apply_scripture_edit(chapter, verse, item["oldText"], username=username,
+                                                       tags=["languageQa", "scope", "undo"], context_id=context)
+            items.append({"chapter": chapter, "verse": verse, "oldText": current, "newText": item["oldText"],
+                          "journalTransactionId": result.get("journalTransactionId")})
+            reverted.append({"chapter": chapter, "verse": verse, "newText": item["oldText"],
+                             "display": verse_display(item["oldText"])})
+        learned = batch.get("learned")
+        if learned and reverted:
+            self.project.retract_learned_fix(learned["old"], learned["new"], n=int(learned.get("n") or 1))
+        now = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        self.project.record_language_qa_batch({
+            "batchId": undo_id, "kind": "undo", "state": "applied", "action": "undo", "undoes": batch_id,
+            "chapter": batch.get("chapter"), "count": len(reverted), "items": items, "conflicts": conflicts,
+            "username": username, "createdAt": now})
+        self.project.set_language_qa_batch_state(batch_id, "undone", undoneBy=undo_id)
+        for chapter in sorted({r["chapter"] for r in reverted}):
+            self._language_qa.invalidate(chapter)
+        self._consistency_findings_by_book.pop(str(self.project.path), None)
+        return {"batchId": batch_id, "undoBatchId": undo_id, "reverted": reverted, "conflicts": conflicts}
+
     # -- export -------------------------------------------------------------
     #
     # Raw imports preserve their original USFM alongside the normalized tC
@@ -4675,7 +4871,8 @@ class BridgeEngine:
             if m in {Methods.LANGUAGE_QA_STATUS, Methods.LANGUAGE_QA_PAUSE, Methods.LANGUAGE_QA_INLINE,
                      Methods.LANGUAGE_QA_HISTORY, Methods.LANGUAGE_QA_VERSE, Methods.LANGUAGE_QA_SET_PACK,
                      Methods.LANGUAGE_QA_LEARNED_LIST, Methods.LANGUAGE_QA_LEARNED_FORGET,
-                     Methods.LANGUAGE_QA_LEARNED_RESTORE}:
+                     Methods.LANGUAGE_QA_LEARNED_RESTORE, Methods.LANGUAGE_QA_SCOPE_FIND,
+                     Methods.LANGUAGE_QA_SCOPE_APPLY, Methods.LANGUAGE_QA_BATCH_UNDO, Methods.LANGUAGE_QA_BATCHES}:
                 self._require_project()
                 # Compared canonically, not as strings. `project.open` resolves
                 # the path it is given, so a caller echoing back the path *it*
@@ -4690,6 +4887,17 @@ class BridgeEngine:
                 if m in {Methods.LANGUAGE_QA_LEARNED_LIST, Methods.LANGUAGE_QA_LEARNED_FORGET,
                          Methods.LANGUAGE_QA_LEARNED_RESTORE}:
                     result = self.language_qa_learned(m.rsplit(".", 1)[1], p)
+                elif m == Methods.LANGUAGE_QA_SCOPE_FIND:
+                    result = self.language_qa_scope_find(p)
+                elif m == Methods.LANGUAGE_QA_SCOPE_APPLY:
+                    result = self.language_qa_scope_apply(p)
+                elif m == Methods.LANGUAGE_QA_BATCH_UNDO:
+                    result = self.language_qa_batch_undo(p)
+                elif m == Methods.LANGUAGE_QA_BATCHES:
+                    limit = p.get("limit", 50)
+                    if not isinstance(limit, int) or limit < 1:
+                        raise ProjectError("limit must be a positive integer when given")
+                    result = {"batches": self.project.language_qa_batches()[:min(limit, 200)]}
                 elif m == Methods.LANGUAGE_QA_SET_PACK:
                     # The project's Language QA setting (Settings > Language QA):
                     # "auto", "off", or a registered pack. Rebinding starts a pass

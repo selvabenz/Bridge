@@ -452,6 +452,30 @@ project data, like the termbase.
 **Revisit when:** reviewers ask for a fix learned in one book to apply in its
 siblings (the read side could merge the siblings' tables once per pass).
 
+## 2026-10-07 — A scoped Language QA correction is one journalled edit per verse, within one book, confirmed first
+**Decision:** "Use in this chapter / this book" changes the same finding
+(same rule and text, or same rule for a warning) everywhere the last pass
+reported it in that scope. Before anything is written, the reviewer sees
+every place with its before and after. Each verse is then written by
+`apply_scripture_edit`, the same call `verse.edit` makes, with its own
+journal transaction, backup and verseEdits record. A
+`language_qa_batches` row groups them for one Undo. A verse whose text
+changed since the pass (its hash) is skipped and reported. Undo leaves alone
+any verse edited after the batch. Ignoring across a scope writes no
+Scripture: decisions, plus a house-style entry at book scope.
+**Because:** the maintainer of the indic-qa work chose verse, chapter and book
+scope (2026-10-07). The cross-book "whole Bible" scope indic-qa has was left
+out deliberately.
+**Rules out:**
+- a scoped write across a collection's books;
+- a free-text search-and-replace over Scripture: only findings of the last
+  pass are touched;
+- a new writer or journal format;
+- correcting a heading or footnote finding from the verse panel.
+**Revisit when:** the maintainer rules on whether a bulk Use is an
+"alternative path for applying corrections" (CLAUDE.md stop-and-ask), or
+asks for the cross-book scope.
+
 <!-- New entries go above this line. -->
 
 ## 2026-10-07 — indic-qa's checker core is vendored in-process for Punjabi, Malayalam, Hindi and Odia

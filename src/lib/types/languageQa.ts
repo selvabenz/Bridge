@@ -123,6 +123,67 @@ export interface LearnedFixesResponse {
   enabled: boolean;
 }
 
+export type LanguageQaScope = "verse" | "chapter" | "book";
+
+export interface ScopeOccurrence {
+  chapter: string;
+  verse: string;
+  findingId: string;
+  /** Raw code points into the verse text. */
+  start: number;
+  end: number;
+  old: string;
+  /** null: nothing to write here (no replacement). */
+  new: string | null;
+}
+
+/** languageQa.scopeFind: where the same finding is, before anything is written. */
+export interface ScopeFindResult {
+  chapter: string;
+  verse: string;
+  findingId: string;
+  scope: LanguageQaScope;
+  key: { ruleId: string; detailRule: string; originalText: string; kind: "word" | "warning" };
+  count: number;
+  verses: number;
+  occurrences: ScopeOccurrence[];
+}
+
+export interface ScopeChange {
+  chapter: string;
+  verse: string;
+  newText: string;
+  oldText?: string;
+  display?: import("./finding").VerseDisplay;
+}
+
+/** languageQa.scopeApply with action "accept". */
+export interface ScopeAcceptResult {
+  batchId: string | null;
+  action: "accept";
+  scope: LanguageQaScope;
+  count: number;
+  changed: ScopeChange[];
+  skipped: { chapter: string; verse: string; reason: string }[];
+  learned?: { old: string; new: string; count: number; n: number };
+}
+
+/** languageQa.scopeApply with action "ignore". */
+export interface ScopeIgnoreResult {
+  action: "ignore";
+  scope: LanguageQaScope;
+  count: number;
+  decided: string[];
+  houseStyle?: unknown;
+}
+
+export interface BatchUndoResult {
+  batchId: string;
+  undoBatchId: string;
+  reverted: ScopeChange[];
+  conflicts: { chapter: string; verse: string; reason: string }[];
+}
+
 /** What verse.edit says it learned from a single-word edit. */
 export interface VerseEditLearned {
   old: string;
