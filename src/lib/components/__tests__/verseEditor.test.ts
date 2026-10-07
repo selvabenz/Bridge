@@ -12,10 +12,12 @@ vi.mock("../../api/bridgeClient", () => ({
 }));
 
 import {
-  applyLanguageQaSuggestedFix, applySuggestedFindingFix, cancelVerseEdit, editText, saveVerseEdit, startVerseEdit,
+  applyLanguageQaSuggestedFix, applySuggestedFindingFix, cancelVerseEdit, editText, editWarnings, saveVerseEdit,
+  startVerseEdit,
 } from "../../verseEditor";
 import {
   checkingProgress,
+  historyCountByVerse,
   findingsByVerse,
   languageQaFindingsByVerse,
   verseKey,
@@ -238,5 +240,35 @@ describe("the display payload after a save (#91 Phase 2b)", () => {
     const result = await applySuggestedFindingFix(finding());
     expect(result.ok).toBe(true);
     expect(get(verseDisplay)[key]).toBeUndefined();
+  });
+});
+
+describe("saveVerseEdit and the change history", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    cancelVerseEdit();
+    checkingProgress.set({ running: false, percent: 0, label: "", jobId: "", state: "idle", error: "", scope: "chapter" });
+    verseTexts.set({ [verseKey("1", "6")]: "alpha beta" });
+    historyCountByVerse.set({ [verseKey("1", "6")]: 1 });
+    runVerseChecks.mockResolvedValue([]);
+  });
+
+  it("counts a saved edit and keeps the engine's marker warnings for that verse", async () => {
+    editVerse.mockResolvedValue({ issueResolutionsNeedingRecheck: 0, warnings: ["unclosed \\nd"] });
+    startVerseEdit("1", "6");
+    editText.set("alpha \\nd beta");
+    expect(await saveVerseEdit()).toBe(true);
+    expect(get(historyCountByVerse)[verseKey("1", "6")]).toBe(2);
+    expect(get(editWarnings)).toEqual({ key: verseKey("1", "6"), warnings: ["unclosed \\nd"] });
+    startVerseEdit("1", "6");
+    expect(get(editWarnings)).toBeNull();
+  });
+
+  it("does not count a refused save", async () => {
+    editVerse.mockRejectedValue(new Error("refused"));
+    startVerseEdit("1", "6");
+    editText.set("gamma");
+    expect(await saveVerseEdit()).toBe(false);
+    expect(get(historyCountByVerse)[verseKey("1", "6")]).toBe(1);
   });
 });

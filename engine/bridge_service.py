@@ -411,6 +411,7 @@ class Methods:
     VERSE_RUN_CHECKS = "verse.runChecks"
     VERSE_DECIDE = "verse.decide"
     VERSE_EDIT = "verse.edit"
+    VERSE_HISTORY = "verse.history"
 
     CHECK_LIST_FOR_VERSE = "check.listForVerse"
     CHECK_VALIDATE_SELECTION = "check.validateSelection"
@@ -1485,6 +1486,55 @@ class BridgeEngine:
         return {
             "chapter": chapter, "verses": out,
             "headings": self.project.chapter_headings(chapter),
+            # verse -> recorded edits, for the change-history mark. A directory
+            # listing per edited verse; no record is read here.
+            "editCounts": self.project.verse_edit_counts(chapter),
+        }
+
+    VERSE_HISTORY_LIMIT = 500
+
+    def verse_history(self, params: dict[str, Any]) -> dict[str, Any]:
+        """verse.history: the native checkData/verseEdits records that every
+        Scripture edit writes (apply_scripture_edit), newest first. One verse
+        (chapter + verse), a chapter (chapter only) or the open book (neither).
+        Reading only: undoing an entry is an ordinary verse.edit."""
+        self._require_project()
+        project = self.project
+        chapter, verse = params.get("chapter"), params.get("verse")
+        for name, value in (("chapter", chapter), ("verse", verse)):
+            if value is not None and (not isinstance(value, str) or not value):
+                raise ProjectError(f"{name} must be a non-empty string when given")
+        if verse is not None and chapter is None:
+            raise ProjectError("verse needs its chapter")
+        limit = params.get("limit", self.VERSE_HISTORY_LIMIT)
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 5000:
+            raise ProjectError("limit must be an integer from 1 to 5000")
+        chapters = [chapter] if chapter is not None else [str(c) for c in project.chapters()]
+        entries: list[dict[str, Any]] = []
+        for ch in chapters:
+            verses = [verse] if verse is not None else list(project.verse_edit_counts(ch))
+            for v in verses:
+                for record in project.verse_edit_history(ch, v):
+                    entries.append(self._verse_history_entry(ch, v, record))
+        entries.sort(key=lambda e: e["timestamp"], reverse=True)
+        return {"entries": entries[:limit], "total": len(entries), "truncated": len(entries) > limit}
+
+    @staticmethod
+    def _verse_history_entry(chapter: str, verse: str, record: dict[str, Any]) -> dict[str, Any]:
+        before = record.get("verseBefore") if isinstance(record.get("verseBefore"), str) else ""
+        after = record.get("verseAfter") if isinstance(record.get("verseAfter"), str) else ""
+        context = record.get("contextId") if isinstance(record.get("contextId"), dict) else {}
+        return {
+            "chapter": chapter, "verse": verse,
+            "timestamp": str(record.get("modifiedTimestamp") or ""),
+            "username": str(record.get("username") or ""),
+            "verseBefore": before, "verseAfter": after,
+            # Visible text of both, so the history diff never parses USFM.
+            "plainBefore": verse_display(before)["plain"], "plainAfter": verse_display(after)["plain"],
+            "tags": [str(t) for t in record.get("tags") or [] if isinstance(t, str)],
+            "groupId": str(context.get("groupId") or ""),
+            "batchId": context.get("batchId") if isinstance(context.get("batchId"), str) else None,
+            "undoes": context.get("undoes") if isinstance(context.get("undoes"), str) else None,
         }
 
     def list_checks_for_verse(self, chapter: str, verse: str) -> dict[str, Any]:
@@ -5421,6 +5471,8 @@ class BridgeEngine:
             if m == Methods.VERSE_EDIT:
                 result = self.edit_verse(p["chapter"], p["verse"], p["newText"])
                 return EngineResponse.ok(request.id, result=result)
+            if m == Methods.VERSE_HISTORY:
+                return EngineResponse.ok(request.id, result=self.verse_history(p))
             if m == Methods.CHECK_LIST_FOR_VERSE:
                 return EngineResponse.ok(request.id, result=self.list_checks_for_verse(
                     p["chapter"], p["verse"],

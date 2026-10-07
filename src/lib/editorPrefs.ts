@@ -32,3 +32,7 @@ const isBoolean = (value: unknown): value is boolean => typeof value === "boolea
 
 /** The reference Bible beside the text. Off by default: it narrows the text column. */
 export const referencePanelOpen = persisted("bridge.editor.referencePanel.v1", false, isBoolean);
+
+/** The verse text exactly as stored, USFM markers and all, instead of the
+ * reader's clean text. Marks stay on the same characters. */
+export const rawView = persisted("bridge.editor.rawView.v1", false, isBoolean);

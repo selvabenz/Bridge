@@ -2,7 +2,8 @@ import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { get } from "svelte/store";
 
-const { decideVerse, editVerse, runVerseChecks, languageQaHistory, housestyleRecord, housestyleSetState, languageQaLearnedForget, languageQaScopeFind } = vi.hoisted(() => ({
+const { decideVerse, editVerse, runVerseChecks, languageQaHistory, housestyleRecord, housestyleSetState, languageQaLearnedForget, languageQaScopeFind, verseHistory } = vi.hoisted(() => ({
+  verseHistory: vi.fn(),
   languageQaLearnedForget: vi.fn(),
   languageQaScopeFind: vi.fn(),
   housestyleRecord: vi.fn(),
@@ -14,7 +15,7 @@ const { decideVerse, editVerse, runVerseChecks, languageQaHistory, housestyleRec
 }));
 
 vi.mock("../../api/bridgeClient", () => ({
-  bridge: { decideVerse, editVerse, runVerseChecks, languageQaHistory, housestyleRecord, housestyleSetState, languageQaLearnedForget, languageQaScopeFind },
+  bridge: { decideVerse, editVerse, runVerseChecks, languageQaHistory, housestyleRecord, housestyleSetState, languageQaLearnedForget, languageQaScopeFind, verseHistory },
 }));
 import { lqaFinding } from "./languageQaFixture";
 import { scopeDialog } from "../../scopedApply";
@@ -38,7 +39,9 @@ import {
   verseKey,
   languageQaFindingsByVerse,
   project,
+  historyCountByVerse,
 } from "../../stores";
+import { rawView } from "../../editorPrefs";
 import { alignmentOpen, alignmentKey } from "../../alignmentUi";
 import { cancelVerseEdit, editingChapter, editingVerse, editSaving, recheckingKey } from "../../verseEditor";
 import { aiReviewRequest, aiJobActive } from "../../aiReviewUi";
@@ -151,7 +154,7 @@ describe("VerseList footnote handling", () => {
 
   it("places the marker where the footnote was, not at the end of the verse", () => {
     render(VerseList, { props: { onSelect: vi.fn() } });
-    const vtext = document.querySelector(".vtext") as HTMLElement;
+    const vtext = document.querySelector(".vtext .vbody") as HTMLElement;
     const nodes = Array.from(vtext.childNodes);
     const markerIndex = nodes.findIndex(
       (node) => node instanceof HTMLElement && node.classList.contains("note-btn"),
@@ -904,5 +907,51 @@ describe("VerseList house style (layered-rules 6.3/6.4)", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     expect(housestyleSetState).toHaveBeenCalledWith("k-learned", "undone");
     expect(screen.queryByText(/Learned:/)).toBeNull();
+  });
+});
+
+describe("VerseList change history and Raw view", () => {
+  beforeEach(() => {
+    seed(PHP_1_6);
+    historyCountByVerse.set({});
+  });
+  afterEach(() => {
+    rawView.set(false);
+    project.set(null);
+  });
+
+  it("shows ↺ with the edit count only on an edited verse, and opens its history", async () => {
+    verseHistory.mockResolvedValue({ total: 0, truncated: false, entries: [] });
+    render(VerseList, { props: { onSelect: vi.fn() } });
+    expect(screen.queryByRole("button", { name: /Change history of verse/ })).toBeNull();
+    historyCountByVerse.set({ [verseKey("1", "6")]: 2 });
+    const button = await screen.findByRole("button", { name: "Change history of verse 6: 2 edits" });
+    expect(button).toHaveTextContent("↺2");
+    await fireEvent.click(button);
+    expect(await screen.findByRole("dialog", { name: /Change history of/ })).toBeTruthy();
+    expect(verseHistory).toHaveBeenCalledWith({ chapter: "1", verse: "6" });
+  });
+
+  it("offers Change history in the verse menu", async () => {
+    verseHistory.mockResolvedValue({ total: 0, truncated: false, entries: [] });
+    project.set({ path: "/p", bookId: "php" } as never);
+    render(VerseList, { props: { onSelect: vi.fn() } });
+    await fireEvent.contextMenu(document.querySelector('[data-verse-key="1:6"]') as HTMLElement);
+    await fireEvent.click(screen.getByRole("menuitem", { name: "Change history…" }));
+    expect(await screen.findByRole("dialog", { name: /Change history of/ })).toBeTruthy();
+  });
+
+  it("Raw view shows the stored string, markers and footnote included, and keeps marks on the same words", async () => {
+    const raw = Array.from(PHP_1_6);
+    const start = raw.join("").indexOf("कि जिसने");
+    const at = Array.from(PHP_1_6.slice(0, start)).length;
+    seed(PHP_1_6, [finding({ start_offset: at, end_offset: at + 2, original_text: "कि" })]);
+    rawView.set(true);
+    render(VerseList, { props: { onSelect: vi.fn() } });
+    const text = document.querySelector(".vtext") as HTMLElement;
+    expect(text.classList.contains("raw")).toBe(true);
+    expect(text.textContent).toContain("\\f + \\fr 1.6");
+    expect(screen.queryByLabelText(FOOTNOTE_MARKER)).toBeNull();
+    expect(text.querySelector("mark")?.textContent).toBe("कि");
   });
 });

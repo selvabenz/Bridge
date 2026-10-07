@@ -7,6 +7,8 @@
   import { addProjectWords } from "../projectWords";
   import { deleteFlag, setFlagStatus } from "../flags";
   import LanguageQaHistoryList from "./LanguageQaHistoryList.svelte";
+  import type { VerseHistoryEntry } from "../types/finding";
+  import { graphemeDiff } from "../utils/unicodeDiff";
 
   export let projectPath: string;
   export let onNavigate: (book: string, chapter: string, verse: string) => void;
@@ -17,7 +19,7 @@
   let view: LanguageQaView = "findings";
   // The panel's own tabs. "findings" holds the three engine lists above; the
   // others are the reviewer's own data (learned fixes in Dictionary).
-  type PanelTab = "findings" | "bookWords" | "flags" | "dictionary";
+  type PanelTab = "findings" | "bookWords" | "flags" | "edits" | "dictionary";
   let panelTab: PanelTab = "findings";
   let learned: LearnedFix[] = [];
   let learnedOn = true;
@@ -40,6 +42,12 @@
   let flagsError = "";
   let showResolved = false;
   $: listedFlags = showResolved ? flags : flags.filter((f) => f.status === "open");
+  // Edits: the book's recorded Scripture edits, newest first, by day.
+  let edits: VerseHistoryEntry[] = [];
+  let editsTotal = 0;
+  let editsLoaded = false;
+  let editsError = "";
+  $: editDays = groupByDay(edits);
   // Finding ids whose decision history is expanded.
   let historyOpen = new Set<string>();
   let offset = 0;
@@ -135,6 +143,31 @@
     }
     if (next === "bookWords") void loadBookWords();
     if (next === "flags") void loadFlags();
+    if (next === "edits") void loadEdits();
+  }
+
+  async function loadEdits(): Promise<void> {
+    editsError = "";
+    try {
+      const result = await bridge.verseHistory();
+      edits = result.entries;
+      editsTotal = result.total;
+    } catch (cause) {
+      editsError = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      editsLoaded = true;
+    }
+  }
+
+  /** Entries are newest first already; each day keeps that order. */
+  function groupByDay(entries: VerseHistoryEntry[]): { day: string; entries: VerseHistoryEntry[] }[] {
+    const days: { day: string; entries: VerseHistoryEntry[] }[] = [];
+    for (const entry of entries) {
+      const day = new Date(entry.timestamp).toLocaleDateString();
+      if (days.length && days[days.length - 1].day === day) days[days.length - 1].entries.push(entry);
+      else days.push({ day, entries: [entry] });
+    }
+    return days;
   }
 
   async function loadBookWords(): Promise<void> {
@@ -321,6 +354,7 @@
           <button role="tab" aria-selected={panelTab === "findings"} on:click={() => showPanelTab("findings")}>Issues</button>
           <button role="tab" aria-selected={panelTab === "bookWords"} on:click={() => showPanelTab("bookWords")}>Book words</button>
           <button role="tab" aria-selected={panelTab === "flags"} on:click={() => showPanelTab("flags")}>Flags</button>
+          <button role="tab" aria-selected={panelTab === "edits"} on:click={() => showPanelTab("edits")}>Edits</button>
           <button role="tab" aria-selected={panelTab === "dictionary"} on:click={() => showPanelTab("dictionary")}>Dictionary</button>
         </div>
         {#if panelTab === "findings"}
@@ -453,6 +487,34 @@
               </ol>
             {/if}
           </section>
+        {:else if panelTab === "edits"}
+          <section aria-label="Edits" class="edits">
+            <p class="muted">Every recorded change to this book's text, newest first. Open a verse's ↺ to restore an earlier wording.</p>
+            {#if editsError}<p role="alert">{editsError}</p>{/if}
+            {#if !editsLoaded}
+              <p class="muted">Loading…</p>
+            {:else if !edits.length}
+              <p class="muted">No edits recorded in this book.</p>
+            {:else}
+              {#if editsTotal > edits.length}<p class="muted">The newest {edits.length} of {editsTotal}.</p>{/if}
+              {#each editDays as day (day.day)}
+                <h3>{day.day}</h3>
+                <ol>
+                  {#each day.entries as entry, index (entry.timestamp + entry.chapter + entry.verse + index)}
+                    <li>
+                      <button on:click={() => onNavigate(status?.book ?? "", entry.chapter, entry.verse)}>
+                        {(status?.book ?? "").toUpperCase()} {entry.chapter}:{entry.verse}
+                      </button>
+                      <span class="category">{entry.username || "unknown"}</span>
+                      <span class="severity">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                      {#if entry.batchId}<span class="severity">{entry.undoes ? "undo of a change set" : "change set"}</span>{/if}
+                      <p class="evidence">{#each graphemeDiff(entry.plainBefore, entry.plainAfter) as part}{#if part.kind === "removed"}<del>{part.text}</del>{:else if part.kind === "inserted"}<ins>{part.text}</ins>{:else}{part.text}{/if}{/each}</p>
+                    </li>
+                  {/each}
+                </ol>
+              {/each}
+            {/if}
+          </section>
         {:else if panelTab === "dictionary"}
           <section aria-label="Project words" class="dictionary">
             <h3>Project words</h3>
@@ -547,6 +609,9 @@
   .dictionary .words li { display: flex; gap: 8px; align-items: center; padding: 3px 0; border: 0; }
   .dictionary .words .word { font-family: var(--font-target); font-size: 15px; }
   .flags li.resolved { opacity: .7; }
+  .edits h3 { font-size: 13px; margin: 10px 0 2px; }
+  .edits del { background: var(--danger-bg); color: var(--danger); }
+  .edits ins { background: var(--success-bg); color: var(--success); text-decoration: none; }
   .dictionary table { width: 100%; border-collapse: collapse; }
   .dictionary th { text-align: left; font-size: 11px; color: var(--text-3); padding: 4px; border-bottom: 1px solid var(--border); }
   .dictionary td { padding: 4px; border-bottom: 1px solid var(--border); }

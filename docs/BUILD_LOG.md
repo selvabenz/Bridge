@@ -15545,3 +15545,52 @@ reviewer chooses".
 - The desktop app.
 - A real USFM reference folder of a whole Bible. Only the test fixtures and
   the bundled Tamil TSV have been read.
+
+## 2026-10-07 — Verse change history and Raw view (branch `indic-qa-editor`, commit 8)
+
+indic-qa's per-verse history (↺), its history list and its raw USFM view.
+No new store: every Scripture edit already writes a native
+`checkData/verseEdits` record (`apply_scripture_edit`), and that is what is
+read.
+
+**Engine.**
+- `verse.history {chapter?, verse?, limit?}` covers one verse, a chapter or
+  the open book, newest first, with a cap of 500 by default and 5,000 at most.
+  Each entry carries both raw texts, their visible text (`plainBefore`,
+  `plainAfter`, through `lift_verse`, so the diff never parses USFM), tags,
+  `groupId`, and the scope `batchId` / `undoes` from the record's
+  `contextId`.
+- `chapter.verseData` gains `editCounts`, which costs one directory listing
+  per edited verse and reads no records.
+
+**Frontend.**
+- `historyCountByVerse` store: cleared by `resetBookState`, filled from
+  `editCounts`, and bumped by every confirmed save, `applyEngineChanges`
+  and a correction application.
+- ↺N after an edited verse's text, and "Change history…" in the verse menu.
+  Both open `VerseHistoryPopover`, which has a grapheme diff and "Restore the
+  text before this change". The restore is confirmed by a second click and
+  done by `revertVerseTo`, an ordinary edit, so it is journalled and listed.
+- The verse pieces now sit in `.vbody` inside `.vtext`. Svelte trims the
+  whitespace inside `{#each}` only when the each block is its parent's sole
+  content, and adding the ↺ after it put a space before every ⚑. A
+  footnote test was pointed at `.vbody`.
+- The Language QA panel has an **Edits** tab: the book's edits by day, a
+  diff, change sets marked, and the reference navigating to the verse.
+- The toolbar has a **Raw** toggle (`editorPrefs.rawView`, localStorage).
+  When it is on, the display is `identityDisplay(raw)`, so every raw offset
+  is its own display offset and the marks stay on the same characters.
+  Notes are not lifted, so they show as markers.
+- After a save, the engine's marker `warnings` show under the verse.
+  They never block the save, and the next edit clears them.
+
+**Verified.**
+- Engine: `tests/service/test_verse_history.py`, 3 tests. Service, stdio,
+  import and display-payload tests: 111 passed. Latency gate (Tamil): pass.
+- Frontend:
+  - `npm run check`: 0 errors, 0 warnings.
+  - `npm run test`: 586 passed.
+  - `npm run build`: ok.
+
+**Not verified.** The desktop app, including how the ↺ and Raw text look at
+1366×768.

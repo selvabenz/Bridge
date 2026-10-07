@@ -320,6 +320,7 @@ export type EngineMethod =
   | "triage.status"
   | "verse.decide"
   | "verse.edit"
+  | "verse.history"
   | "verse.get"
   | "verse.runChecks";
 
@@ -631,8 +632,16 @@ export const bridge = {
     chapter: string;
     verses: Record<string, VerseData>;
     headings: Record<string, VerseHeading[]>;
+    /** verse -> recorded edits (verse.history); absent from an older engine. */
+    editCounts?: Record<string, number>;
   }> {
     return call("chapter.verseData", { chapter });
+  },
+
+  /** Recorded edits, newest first: of one verse, a chapter, or the open book. */
+  verseHistory(params: { chapter?: string; verse?: string; limit?: number } = {}): Promise<
+    import("../types/finding").VerseHistory> {
+    return call("verse.history", params);
   },
 
   getVerse(chapter: string, verse: string): Promise<VerseData> {

@@ -707,6 +707,31 @@ export interface VerseData {
   alignmentStatus: AlignmentWorkStatus;
 }
 
+/** One recorded Scripture edit (verse.history): the native checkData/verseEdits
+ *  record every edit writes, with the visible text of both sides for a diff. */
+export interface VerseHistoryEntry {
+  chapter: string;
+  verse: string;
+  timestamp: string;
+  username: string;
+  verseBefore: string;
+  verseAfter: string;
+  plainBefore: string;
+  plainAfter: string;
+  tags: string[];
+  groupId: string;
+  /** Set when the edit was one verse of a scoped Language QA change set. */
+  batchId: string | null;
+  /** Set on the edits that undid a change set. */
+  undoes: string | null;
+}
+
+export interface VerseHistory {
+  entries: VerseHistoryEntry[];
+  total: number;
+  truncated: boolean;
+}
+
 /** A section heading (`\s`, `\ms`, `\r`, ...) lifted out of the verse text it
  *  used to trail (#180). It is the team's text and belongs on screen, but it is
  *  not a translation of any source word, so it is never an alignable target. */

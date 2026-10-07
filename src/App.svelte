@@ -11,7 +11,7 @@
   import { resetScopedApply, scopeDialog } from "./lib/scopedApply";
   import { startFlagLoader } from "./lib/flags";
   import ReferencePanel from "./lib/components/ReferencePanel.svelte";
-  import { referencePanelOpen } from "./lib/editorPrefs";
+  import { rawView, referencePanelOpen } from "./lib/editorPrefs";
   import AlignmentReview from "./lib/components/AlignmentReview.svelte";
   import CrossVerseAlignmentModal from "./lib/components/CrossVerseAlignmentModal.svelte";
   import {
@@ -30,7 +30,7 @@
   import { isTriageUnavailable } from "./lib/types/report";
   import type { TriageOverrideVerdict } from "./lib/types/finding";
   import {
-    project, currentChapter, chapterVerseNums, verseTexts, verseDisplay, headingsByVerse, findingsByVerse,
+    project, currentChapter, chapterVerseNums, verseTexts, verseDisplay, headingsByVerse, findingsByVerse, historyCountByVerse,
     checkStatusByVerse, alignmentStatusByVerse, loadedChapters, selectedVerse, selectedVerseSet, checkingProgress, approvedCount, verseNums,
     verseKey, settingsOpen, exportOpen, bookApprovedSummary, resetBookState, reviewerMode,
     aiCheckReviewsByVerse, diagnosticsOpen, engineLog, appendEngineLog, navigationStatus,
@@ -701,7 +701,7 @@
       knownVerses.length > 0 &&
       knownVerses.every((verse) => Object.prototype.hasOwnProperty.call($verseTexts, verseKey(chapter, verse)))
     ) return;
-    const { verses, headings } = await bridge.chapterVerseData(chapter);
+    const { verses, headings, editCounts } = await bridge.chapterVerseData(chapter);
     const verseIds = Object.keys(verses);
     chapterVerseNums.update((m) => ({ ...m, [chapter]: verseIds }));
 
@@ -724,6 +724,9 @@
     verseDisplay.update((d) => ({ ...d, ...displays }));
     headingsByVerse.update((h) => ({ ...h, ...headingRows }));
     alignmentStatusByVerse.update((existing) => ({ ...existing, ...alignmentStatuses }));
+    const counts: Record<string, number> = {};
+    for (const [v, n] of Object.entries(editCounts ?? {})) counts[verseKey(chapter, v)] = n;
+    historyCountByVerse.update((existing) => ({ ...existing, ...counts }));
   }
 
   async function hydrateChapterAIReviews(
@@ -1129,6 +1132,9 @@
           <button class="whole-book-btn" class:on={$referencePanelOpen} aria-pressed={$referencePanelOpen}
             title="Show a reference Bible (an Old Version) beside the text"
             on:click={() => referencePanelOpen.update((open) => !open)}>Ref.</button>
+          <button class="whole-book-btn" class:on={$rawView} aria-pressed={$rawView}
+            title="Show each verse exactly as stored, USFM markers included"
+            on:click={() => rawView.update((on) => !on)}>Raw</button>
           <span class="grow" />
           <span title="Word-alignment status for this chapter">
             Alignment: {alignmentChapterSummary.complete} complete · {alignmentChapterSummary.partial} partial

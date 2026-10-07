@@ -15,6 +15,7 @@ const flagsListCall = vi.fn();
 const flagUpdateCall = vi.fn();
 const bookWordsCall = vi.fn();
 const wordsAddCall = vi.fn();
+const verseHistoryCall = vi.fn();
 vi.mock("../../api/bridgeClient", () => ({ bridge: {
   languageQaStatus: (...args: unknown[]) => statusCall(...args),
   languageQaPause: (...args: unknown[]) => pauseCall(...args),
@@ -26,6 +27,7 @@ vi.mock("../../api/bridgeClient", () => ({ bridge: {
   languageQaFlagUpdate: (...args: unknown[]) => flagUpdateCall(...args),
   languageQaBookWords: (...args: unknown[]) => bookWordsCall(...args),
   languageQaWordsAdd: (...args: unknown[]) => wordsAddCall(...args),
+  verseHistory: (...args: unknown[]) => verseHistoryCall(...args),
 } }));
 import LanguageQaPanel from "../LanguageQaPanel.svelte";
 import { languageQaChannel } from "../../languageQaInline";
@@ -307,6 +309,25 @@ describe("Language QA", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
     await waitFor(() => expect(flagUpdateCall).toHaveBeenCalledWith("C:/project", "f1", { status: "resolved" }));
     await waitFor(() => expect(screen.queryByText("Is this the sense?")).toBeNull());
+  });
+
+  it("lists the book's edits by day in the Edits tab, with what changed, and navigates to one", async () => {
+    const edit = (verse: string, timestamp: string, batchId: string | null = null) => ({
+      chapter: "2", verse, timestamp, username: "Benz", verseBefore: "a", verseAfter: "b",
+      plainBefore: "पुराना", plainAfter: "नया", tags: [], groupId: "", batchId, undoes: null });
+    verseHistoryCall.mockReset().mockResolvedValue({ total: 2, truncated: false, entries: [
+      edit("5", "2026-10-07T10:00:00.000Z", "b1"), edit("4", "2026-10-01T10:00:00.000Z")] });
+    const onNavigate = vi.fn();
+    render(LanguageQaPanel, { projectPath: "C:/project", onNavigate });
+    await fireEvent.click(await screen.findByRole("button", { name: /Language QA · completed/ }));
+    await fireEvent.click(screen.getByRole("tab", { name: "Edits" }));
+    const section = await screen.findByRole("region", { name: "Edits" });
+    await waitFor(() => expect(section.querySelectorAll("h3")).toHaveLength(2));
+    expect(verseHistoryCall).toHaveBeenCalledWith();
+    expect(section).toHaveTextContent("change set");
+    expect(section.querySelector("ins")?.textContent).toBeTruthy();
+    await fireEvent.click(screen.getByRole("button", { name: "PHP 2:4" }));
+    expect(onNavigate).toHaveBeenCalledWith("php", "2", "4");
   });
 
   it("Book words ticks the words the IRV uses often and adds them to the project word list", async () => {

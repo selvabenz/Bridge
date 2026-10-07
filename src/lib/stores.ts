@@ -40,6 +40,9 @@ export const languageQaFindingsByVerse = writable<Record<string, LanguageQaFindi
 // Reviewer flags (workbench v6) of the chapters loaded, keyed by the verseKey
 // of each flag's first verse; deleted ones are not held.
 export const flagsByVerse = writable<Record<string, LanguageQaFlag[]>>({});
+// Recorded edits per verse (chapter.verseData's editCounts), for the ↺ mark;
+// bumped by every save the editor makes.
+export const historyCountByVerse = writable<Record<string, number>>({});
 export type ReviewerMode = "basic" | "advanced";
 export const reviewerMode = writable<ReviewerMode>("basic");
 
@@ -87,6 +90,7 @@ export function resetBookState(): void {
   aiCheckReviewsByVerse.set({});
   languageQaFindingsByVerse.set({});
   flagsByVerse.set({});
+  historyCountByVerse.set({});
   loadedChapters.set({});
   selectedVerse.set(null);
   selectedVerseSet.set([]);

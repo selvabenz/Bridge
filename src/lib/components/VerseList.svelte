@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { verseNums, verseTexts, verseDisplay, headingsByVerse, findingsByVerse, checkStatusByVerse, alignmentStatusByVerse, selectedVerse, selectedVerseSet, currentChapter, verseKey, nativeChecksByVerse, aiCheckReviewsByVerse, checkingProgress, languageQaFindingsByVerse, project, flagsByVerse } from "../stores";
+  import { verseNums, verseTexts, verseDisplay, headingsByVerse, findingsByVerse, checkStatusByVerse, alignmentStatusByVerse, selectedVerse, selectedVerseSet, currentChapter, verseKey, nativeChecksByVerse, aiCheckReviewsByVerse, checkingProgress, languageQaFindingsByVerse, project, flagsByVerse, historyCountByVerse } from "../stores";
   import { rangeBetween } from "../crossVerseRange";
   import { unionInChapterOrder } from "../crossVerseSuggest";
   import { buildSegments } from "../utils/highlight";
@@ -10,6 +10,8 @@
   import { addFlag } from "../flags";
   import FlagDialog from "./FlagDialog.svelte";
   import FlagPopover from "./FlagPopover.svelte";
+  import VerseHistoryPopover from "./VerseHistoryPopover.svelte";
+  import { rawView } from "../editorPrefs";
   import type { FlagInput, LanguageQaFlag } from "../types/languageQa";
   import type { VerseDisplay } from "../types/finding";
   import VerseNotesPopup from "./VerseNotesPopup.svelte";
@@ -27,7 +29,7 @@
   import type { LanguageQaFinding, LanguageQaSuggestion } from "../types/languageQa";
   import {
     applySuggestedFindingFix, applyLanguageQaSuggestedFix, editingChapter, editingVerse, editText, editSaving,
-    editError, saveVerseEdit, cancelVerseEdit, startVerseEdit, recheckingKey,
+    editError, editWarnings, saveVerseEdit, cancelVerseEdit, startVerseEdit, recheckingKey,
   } from "../verseEditor";
   import { openAlignment } from "../alignmentUi";
   import { requestAIReview, aiJobActive, type AIReviewScope } from "../aiReviewUi";
@@ -64,6 +66,14 @@
   let flagDraft: { chapter: string; verse: string; start: number; end: number; text: string;
     suggested?: string; findingId?: string } | null = null;
   let flagPopover: { flag: LanguageQaFlag; x: number; y: number } | null = null;
+  // The verse whose change history a ↺ (or the verse menu) opened.
+  let changeHistory: { chapter: string; verse: string; x: number; y: number } | null = null;
+
+  /** What a verse shows: the reader's clean text, or (Raw view) the stored
+   * string itself, where every raw offset is its own display offset. */
+  function shownDisplay(key: string, raw: boolean, displays: Record<string, VerseDisplay>, texts: Record<string, string>): VerseDisplay {
+    return raw ? identityDisplay(texts[key] ?? "") : displays[key] ?? identityDisplay(texts[key] ?? "");
+  }
   // The verse whose Language QA decision history is open (verse menu).
   let historyFor: { projectPath: string; chapter: string; verse: string } | null = null;
   // Which underlined finding Left/Right last landed on, scoped to one verse
@@ -270,6 +280,12 @@
           : editBlocked ? "Wait for background checking to finish before editing" : "Edit this verse",
       },
       {
+        id: "change-history",
+        label: "Change history…",
+        disabled: !$project,
+        title: "Every recorded edit of this verse, with what changed",
+      },
+      {
         id: "lqa-history",
         label: "Language QA history…",
         disabled: !$project,
@@ -311,7 +327,7 @@
     let start = 0;
     let end = chars.length;
     if (selection) {
-      const display = $verseDisplay[key] ?? identityDisplay(raw);
+      const display = shownDisplay(key, $rawView, $verseDisplay, $verseTexts);
       start = rawOffsetFromPlain(display, selection.start, "start");
       end = rawOffsetFromPlain(display, selection.end, "end");
       if (display.removed.some(([from, to]) => from >= start && to <= end && from < to)) {
@@ -362,6 +378,12 @@
     }
     if (id === "edit-verse") {
       startVerseEdit($currentChapter, verse);
+      return;
+    }
+    if (id === "change-history") {
+      const row = document.querySelector<HTMLElement>(`[data-verse-key="${CSS.escape(verseKey($currentChapter, verse))}"]`);
+      const rect = row?.getBoundingClientRect();
+      changeHistory = { chapter: $currentChapter, verse, x: rect?.left ?? 80, y: (rect?.bottom ?? 80) + 4 };
       return;
     }
     if (id === "lqa-history") {
@@ -873,7 +895,7 @@
     {@const langFindings = $languageQaFindingsByVerse[key] ?? []}
     {@const openCount = findings.filter((f) => f.status === "open").length + langFindings.length}
     {@const highlightFindings = findings.filter((f) => f.status !== "ignored" && f.status !== "accepted")}
-    {@const display = $verseDisplay[key] ?? identityDisplay($verseTexts[key] ?? "")}
+    {@const display = shownDisplay(key, $rawView, $verseDisplay, $verseTexts)}
     {@const remapped = remapFindings(highlightFindings, display)}
     {@const langDisplay = displayLanguageQaFindings(langFindings, display)}
     {@const segments = buildSegments(display.plain, remapped, $nativeChecksByVerse[key] ?? [], $aiCheckReviewsByVerse[key] ?? [], langDisplay)}
@@ -924,7 +946,8 @@
           {#if $editError}<p class="edit-error">{$editError}</p>{/if}
         </div>
       {:else}
-        <div class="vtext">
+        <div class="vtext" class:raw={$rawView}>
+          <span class="vbody">
           {#each withNoteMarkers(segments, notesForLayout(display), flagMarkers($flagsByVerse[key] ?? [], display)) as piece}
             {#if piece.kind === "flag"}<button
                 type="button"
@@ -950,6 +973,20 @@
                 on:contextmenu={(event) => onMarkContextMenu(event, piece.seg.findingIds, findings, langFindings, v)}
               >{piece.seg.text}</mark>{#if piece.seg.numbers.length}<sup class="finding-num">{piece.seg.numbers.join(",")}</sup>{/if}{:else}{piece.seg.text}{/if}
           {/each}
+          </span>{#if $historyCountByVerse[key]}<button
+              type="button"
+              class="history-btn"
+              on:dblclick|stopPropagation
+              on:click|stopPropagation={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect();
+                changeHistory = { chapter: $currentChapter, verse: v, x: rect.left, y: rect.bottom + 4 };
+              }}
+              title={`Edited ${$historyCountByVerse[key]}×: show the change history`}
+              aria-label={`Change history of verse ${v}: ${$historyCountByVerse[key]} edit${$historyCountByVerse[key] === 1 ? "" : "s"}`}
+            >↺{$historyCountByVerse[key]}</button>{/if}
+          {#if $editWarnings?.key === key}
+            <p class="edit-warning" role="status">Saved, but check the markers: {$editWarnings.warnings.join("; ")}</p>
+          {/if}
         </div>
         <div class="row-actions">
           <button
@@ -1059,6 +1096,11 @@
   <FlagPopover flag={flagPopover.flag} projectPath={$project.path} x={flagPopover.x} y={flagPopover.y}
     onClose={() => (flagPopover = null)} />
 {/if}
+{#if changeHistory}
+  <VerseHistoryPopover chapter={changeHistory.chapter} verse={changeHistory.verse}
+    reference={`${($project?.bookId ?? "").toUpperCase()} ${changeHistory.chapter}:${changeHistory.verse}`}
+    x={changeHistory.x} y={changeHistory.y} onClose={() => (changeHistory = null)} />
+{/if}
 {#if historyFor}
   <LanguageQaHistoryPopup
     projectPath={historyFor.projectPath}
@@ -1126,6 +1168,11 @@
   }
   .flag-btn:hover, .flag-btn:focus-visible { background: var(--flag-bg); border-radius: 3px; outline: none; }
   .flag-btn.resolved { color: var(--text-3); }
+  .history-btn { margin-left: 6px; padding: 0 3px; border: 0; background: none; cursor: pointer; font: inherit;
+    font-family: var(--font-ui); font-size: var(--fs-2xs); color: var(--text-3); vertical-align: super; }
+  .history-btn:hover, .history-btn:focus-visible { color: var(--accent); background: var(--surface-2); border-radius: 3px; outline: none; }
+  .vtext.raw { white-space: pre-wrap; font-size: var(--fs-md); }
+  .edit-warning { margin: 4px 0 0; font-family: var(--font-ui); font-size: var(--fs-2xs); color: var(--warning); }
   .note-btn.xref { color: var(--accent); }
   /* Edit pencil stacked above the alignment arrow (issue #73), so a reviewer
      working from the alignment control has an edit entry point without
