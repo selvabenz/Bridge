@@ -1,0 +1,15 @@
+{
+ "commit": "248eb8195462db1b5af7851c19fe664be0658d15",
+ "files": {
+  "build_info.json": "51ae2382b60685462a4aafe71eeccbd9f80db0e63e3188a9c1774c0ce2303b70",
+  "corrections.tsv": "636059efae9606c95cdbdaf2a69f6015790eaf61da609b3474addfca119f0a73",
+  "extra_words.txt": "48a08b6da0e12132762aaa0dcfcdf9ca8218548eb29f39b419efcb44674169b2",
+  "final_consonant_words.tsv": "9dffa15ab14ec9ea0a1a25e8b3555e9097550aca09946b2b88b959e62c47c350",
+  "sandhi_pairs.tsv": "635df318b00cb31648effada859b56462798e37568303ad24fe33aa4ce5ebee7",
+  "sandhi_rules.tsv": "15dc744edbc6d9d5eb84d06d548928480dc3b50e0d4da7a2d14d8b9c89f0743b",
+  "verses.tsv": "5ae284192c35bb6d437b7e18700b3444896a9bda71062969a3ada7496216a3de",
+  "wordlist.txt": "29213cb8f4a120b55d25cdc1a7d27161163c9670adee4ad5f8ca1b42d4af6ba8",
+  "wordlist_bare.txt": "bc7f0122cc668cdc86f22ce4eb6160b18bd23ce9ebd4c8500f24a8adabc8037b",
+  "words.tsv": "8ae4fb6847d83bab7e6aecad89d05c9eb1030e92ba451444707be197eda46761"
+ }
+}

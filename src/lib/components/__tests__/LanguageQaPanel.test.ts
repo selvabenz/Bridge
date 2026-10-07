@@ -88,6 +88,27 @@ describe("Language QA", () => {
     expect(statusCall).toHaveBeenLastCalledWith("C:/project", 0, 50, "findings");
   });
 
+  it("says when a finding is in a heading or a footnote, and shows the OV verse", async () => {
+    const reference = { label: "OV 1957", ref: "MAT 18:15", text: "உன் சகோதரன் உனக்கு விரோதமாய்க் குற்றஞ்செய்தால்" };
+    const findings = [
+      lqaFinding({ id: "h1", chapter: "18", verse: "15", originalText: "விரோதமாக", message: "Heading lead.",
+        context: "heading", contextText: "உனக்கு விரோதமாக குற்றம் செய்யும் சகோதரன்", suggestions: [],
+        suggestedReplacement: null, reference }),
+      lqaFinding({ id: "n1", chapter: "4", verse: "8", originalText: "கூட்டிசென்றான்", message: "Footnote lead.",
+        context: "footnote" }),
+    ];
+    publish({ totalFindings: 2, findings });
+    statusCall.mockResolvedValue(snapshot({ totalFindings: 2, findings }));
+    render(LanguageQaPanel, { projectPath: "C:/project", onNavigate: vi.fn() });
+    await fireEvent.click(await screen.findByRole("button", { name: /Language QA · completed/ }));
+    await screen.findByText("Heading lead.");
+    expect(screen.getByText("in heading")).toBeTruthy();
+    expect(screen.getByText("in footnote")).toBeTruthy();
+    expect(screen.getByText(/Heading: உனக்கு விரோதமாக/)).toBeTruthy();
+    expect(screen.getByText(/OV 1957 MAT 18:15:/)).toBeTruthy();
+    expect(screen.getByText(reference.text)).toBeTruthy();
+  });
+
   it("shows incomplete coverage instead of claiming a clean publication", async () => {
     const incomplete = { totalFindings: 0, findings: [], incomplete: true,
       limitations: ["Chapter 1: 4: Unbalanced \\f: 1 open, 0 close; verse not checked."] };

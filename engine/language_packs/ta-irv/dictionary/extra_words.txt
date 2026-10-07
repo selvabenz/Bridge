@@ -1,0 +1,43 @@
+# extra_words.txt - supplement lexicon merged into wordlist.txt and wordlist_bare.txt on
+# every rebuild (python scripts/build_dictionary.py).  One word per line, UTF-8; blank lines
+# and lines starting with # are ignored; entries are NFC-normalised and must be Tamil words.
+#
+# Use it for forms that are correct in the text under review but absent from the BSI 1957
+# Old Version.  The main case for the Tamil IRV is the divine name: the OV writes கர்த்தர்
+# where the IRV writes யெகோவா, so every inflection of யெகோவா used in the IRV should be
+# listed here (take them from the IRV's own frequency list once it is checked).  Examples,
+# commented out until verified against the IRV text:
+# யெகோவா
+# யெகோவாவை
+# யெகோவாவின்
+# யெகோவாவுக்கு
+# யெகோவாவுடைய
+# யெகோவாவாகிய
+# added by qa_app (one word per line)
+ஒழுங்கற்றதாகவும்
+அசைவாடிக்
+உண்டாகட்டும்
+வெளிச்சத்திற்குப்
+பிரிக்கட்டும்
+படைப்பின்
+ஆனது
+காணப்படுவதாக
+
+# Reviewed correct by Yesu Selva Benz (ta-irv workbook, Oct 2026): flagged as rare words, judged correct
+சேத்து
+நினைத்தாள்
+இறந்தாள்
+அனைத்துக்
+சமாரிய
+விசுவாசித்தல்
+கொண்டிருந்தால்
+சாத்தியம்
+முடியாதா
+வேளையாக
+வாளையும்
+கவலையும்
+வாளும்
+விதமாக
+கொண்டிருந்தார்
+வெளிச்சத்திற்கும்
+சுடர்களாக

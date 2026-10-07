@@ -196,8 +196,13 @@
               <span class="severity">{finding.severity}</span>
               {#if finding.category}<span class="category">{finding.category}</span>{/if}
               {#if finding.previouslyIgnored}<span class="recheck">Re-check</span>{/if}
+              {#if finding.context}<span class="where">in {finding.context}</span>{/if}
               <p class="evidence">{finding.originalText}</p>
+              {#if finding.context === "heading" && finding.contextText}<p class="muted">Heading: {finding.contextText}</p>{/if}
               <p>{finding.message}</p>
+              {#if finding.reference}
+                <p class="reference"><b>{finding.reference.label} {finding.reference.ref}:</b> {finding.reference.text}</p>
+              {/if}
               <button class="history-toggle" aria-expanded={historyOpen.has(finding.id)} on:click={() => toggleHistory(finding.id)}>
                 History
               </button>
@@ -238,6 +243,8 @@
   .evidence { font-size: 16px; white-space: pre-wrap; }
   .severity, .category { margin-left: 8px; }
   .recheck { margin-left: 8px; font-weight: 600; color: var(--warning); }
+  .where { margin-left: 8px; font-style: italic; }
+  .reference { font-size: 12px; opacity: .85; border-left: 2px solid var(--border); padding-left: 6px; }
   .views { display: flex; gap: 6px; margin: 8px 0; }
   .views button[aria-selected="true"] { border-color: var(--accent); background: var(--accent-bg); }
   .history-toggle { font-size: 11px; padding: 2px 6px; }

@@ -6,6 +6,11 @@
  "description": "Tamil IRV rule pack: sandhi (வல்லினம்) shape rules and known IRV defect shapes. Built by scripts/build_ta_irv_pack.py from the IRV corpus and the 2026-09-28 human review; see docs/LANGUAGE_QA_RULE_PACK.md.",
  "lexicon": "lexicon.json.gz",
  "confusion": "confusion.json",
+ "indicQa": {
+  "profile": "ta",
+  "dictionary": "dictionary",
+  "rules": "indic_qa_rules.json"
+ },
  "rules": [
   "rules/sandhi.vallinam.demonstrative.json",
   "rules/sandhi.vallinam.manner-adverb.json",

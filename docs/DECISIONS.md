@@ -365,6 +365,45 @@ The finding is medium confidence, with the message "தான்: பிரத�
 **Rules out:** joining a fragment by rule; adding a split without a human verdict.
 **Revisit when:** a review round finds splits of a different shape (more than two tokens, or not single-grapheme).
 
+## 2026-10-07 — indic-qa's Tamil checker runs as a layer of ta-irv, over the OV dictionary
+**Decision:** This replaces one line of the first 2026-10-07 indic-qa entry
+below ("Rules out: running indic-qa's Tamil profile"). The maintainer asked for
+everything indic-qa's `webapp` Tamil QA has and Bridge did not.
+- **ta-irv stays.** Its JSON rules, its pack version (1.1.0, so no reviewer's
+  ignore expires) and its rule ids are unchanged.
+- **The layer.** `pack.json` gains an `indicQa` block. The vendored Tamil
+  profile runs once per book over the BSI 1957 OV dictionary, in
+  `ta-irv/dictionary/` through `scripts/sync_indic_qa.py`, at the same pinned
+  commit. Its findings are 17 `indicqa.*` rules: catalogue in
+  `indic_qa_tamil.py`, Bridge view in `ta-irv/indic_qa_rules.json`.
+- **No duplicates.** A layer finding is dropped when the pack or the common
+  rules flagged the same verse span in the same category, counting raw findings
+  before decisions. In verse text the layer does not run the checks Bridge has
+  (double space, zero width, repeated punctuation, space before punctuation, the
+  யெகோவா/-வதற்கு defects). Digits, repeated words and a space before a note's
+  end stay off, as the 2026-09-28 review decided.
+- **Headings and footnotes.** The layer also checks section headings and
+  footnote prose. A footnote finding has raw verse offsets, and its fix goes
+  through the one verse writer. A heading finding offers no fix: its offsets
+  index the heading, which no Bridge writer edits.
+- **Unknown words.** One rarely used in the IRV (≤ 2×) whose best OV
+  suggestion is a typing slip or a reviewed correction is
+  `indicqa.lex.near-miss`. One that splits into two known words is
+  `indicqa.lex.compound`. Any other unknown word is `indicqa.lex.unknown`, which
+  is off.
+- **Policy.** Phase-1 rules apply: everything is panel-only, and nothing is
+  high severity with high confidence.
+**Because:** measured on the IRV, 2,200–2,700 OV-unknown tokens per book are
+mostly valid modern Tamil (honorific -ார், IRV-only words). The book cap is
+3,000, so reporting them would crowd out everything else. The rare,
+slip-shaped ones are about 10 per book and mostly real (யெகோவவை, கீல்→கீழ்).
+A frequent form is house practice, as the OV dictionary's own REPORT.md says.
+**Rules out:** a second Tamil pack; running the layer's checks over verse text
+that Bridge already checks; applying a fix to a heading; turning
+`indicqa.lex.unknown` on without counts; changing ta-irv's version for the layer.
+**Revisit when:** reviewer labels exist for an `indicqa.*` rule (inline gate), or
+a heading writer exists.
+
 <!-- New entries go above this line. -->
 
 ## 2026-10-07 — indic-qa's checker core is vendored in-process for Punjabi, Malayalam, Hindi and Odia

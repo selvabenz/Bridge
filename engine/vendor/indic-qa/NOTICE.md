@@ -2,8 +2,10 @@
 
 This directory holds files copied byte-for-byte from the `selvabenz/indic-qa`
 repository. Bridge uses them to run Language QA for **Punjabi, Malayalam, Hindi
-and Odia**. The maintainer took the scope and shape decisions on 2026-10-07; see
-`docs/DECISIONS.md` and `docs/BUILD_LOG.md` for that date.
+and Odia**, and, as a second layer of the `ta-irv` pack, for **Tamil**. The
+maintainer took the scope and shape decisions on 2026-10-07; see
+`docs/DECISIONS.md` and `docs/BUILD_LOG.md` for that date. The Tamil layer is
+the later decision that day.
 
 Do not edit these files. Adaptations belong in Bridge's adapter,
 `engine/tc_ai_bridge/language_packs/indic_qa_adapter.py`. Every change here comes
@@ -30,7 +32,7 @@ from `scripts/sync_indic_qa.py`.
 | `qa_app/usfm_doc.py` | The `Line`, `Seg` and `Book` data model the checker walks. Bridge builds these objects itself from chapter JSON. **It never calls this module's parser** (CLAUDE.md gotcha 14). |
 | `qa_app/langs/{hi,ml,pa,odia}.py` and their `*_tables.py` | The four language profiles: rules, tables, hooks. Odia's module is `odia.py` because `or` is a Python keyword; `langs.MODULE` maps the code. |
 | `qa_app/langs/__init__.py` | The `Language` dataclass and the profile registry. |
-| `qa_app/langs/ta.py`, `qa_app/tamil_grammar.py` | Imported unconditionally by `checker.py`. **Tamil is never run in Bridge**; Tamil Language QA is Bridge's own `ta-irv` pack. |
+| `qa_app/langs/ta.py`, `qa_app/tamil_grammar.py` | Imported unconditionally by `checker.py`. They also run the Tamil layer of Bridge's own `ta-irv` pack (pack.json `indicQa`). Bridge's catalogue for that layer is `tc_ai_bridge/language_packs/indic_qa_tamil.py`, because the Tamil profile has no `RULES`. |
 | `qa_app/paths.py` | Imported by the profiles for default folders. Bridge always passes the dictionary folder explicitly, so the defaults are never used. |
 | `scripts/build_dictionary.py` | `usfm_doc.py` puts `<this directory>/scripts` first on `sys.path` and imports `build_dictionary` at import time, for the tokenizer, Tamil constants and `deletions`. Keeping it at that relative path satisfies the import with no edit. Its build code never runs in Bridge. |
 | `LICENSE` | Upstream's licence: MIT, (c) 2019 The Free Bible Foundation. |
@@ -38,7 +40,8 @@ from `scripts/sync_indic_qa.py`.
 The dictionaries are not here. They are pack data in
 `engine/language_packs/<code>-irv/dictionary/`, shipped outside the onefile exe
 through Tauri `bundle.resources` (`docs/LANGUAGE_QA_PACKS.md`). Each pack's
-`dictionary/MANIFEST.json` holds their hashes.
+`dictionary/MANIFEST.json` holds their hashes. Tamil's comes from upstream's
+`dictionary/`, not `dictionary_ta/`.
 
 ## Deliberately not vendored
 
@@ -46,9 +49,11 @@ through Tauri `bundle.resources` (`docs/LANGUAGE_QA_PACKS.md`). Each pack's
   `exports.py`, `static/` and the launchers. Bridge has its own UI, its own
   decisions and house style, and one Scripture writer. indic-qa's editor writes
   corrections straight into `.SFM` files, and none of that path is brought over.
-- **`related.py` and every `verses.tsv`** (10–13 MB per language). Only the
-  OV↔IRV related-word lookup reads them, and Bridge does not offer that lookup.
-- **The Tamil `dictionary/`, `usfm/`, `docs/` and `tests/`.** Also every other
+- **`related.py` and every non-Tamil `verses.tsv`** (10–13 MB per language).
+  Only the OV↔IRV related-word lookup reads them, and Bridge does not offer that
+  lookup. Tamil's `verses.tsv` *is* taken. Bridge's own `ov_reference.py` reads
+  it to show the OV verse beside a Tamil layer finding.
+- **`usfm/`, `docs/` and `tests/`.** Also every other
   `scripts/*.py` (dictionary builds, workbooks, measurements), and the build
   reports nothing reads at runtime: `REPORT.md`, `malformed_words.tsv`,
   `suspect_words.tsv`, `archaic_map.tsv`, `sandhi.tsv`, `honorific.tsv` and
@@ -86,3 +91,11 @@ Add each real problem found while integrating to this list, with the date.
 
 - 2026-10-07: copying from a Windows working tree with `core.autocrlf=true`
   rewrote every file to CRLF. The sync now reads committed blobs.
+- 2026-10-07: the Tamil profile keeps its IRV ஒற்று habits (`book_pairs`,
+  `book_form_use`) outside `Checker.data`. A snapshot of `book_count` and `data`
+  alone silently drops the IRV veto and the dangling check's name test. The
+  snapshot now carries both for a sandhi profile, and restore rebuilds the
+  IRV-wide sums the way `_index_pairs` does.
+- 2026-10-07: `tamil_grammar.load_rules` *writes* a default `sandhi_rules.tsv`
+  when the file is missing. Bridge ships the file, so the dictionary folder is
+  never written (contract 2). Keep `sandhi_rules.tsv` on the sync allow-list.

@@ -14849,3 +14849,110 @@ items, and no item's status disagrees with its issue.
 5. **The upstream PR question** for the indic-qa commits, from the entry above.
    Adding `engine/vendor/indic-qa/` is a third vendored tree, which CLAUDE.md
    puts on the stop-and-ask list. The maintainer needs to see it before a PR.
+
+## 2026-10-07 — ta-irv gains indic-qa's Tamil checker as a layer (everything `webapp` Tamil QA had and Bridge did not)
+
+**Asked.** Compare Bridge's Tamil Language QA with indic-qa's `webapp` branch,
+then add all ten gaps without duplicating or breaking anything. DECISIONS has
+the new entry. It replaces the earlier "never run indic-qa's Tamil profile".
+
+**Upstream.** Between the vendored pin `248eb81` and `webapp` HEAD `ab53636`,
+Tamil changed in one dictionary word (நன்றாக) and in where the editor's
+"learned" plumbing lives. The `sandhi_rules.tsv` with the reviewer's rules
+(no_theva, no_clitic, east…) is identical. So the pin stays, and only the
+Tamil `dictionary/` was added through `sync_indic_qa.py`. Every existing
+vendored file came out byte-identical.
+
+**Shape.** ta-irv keeps its 19 JSON rules and its version (1.1.0), so no
+reviewer ignore expires. `pack.json` `indicQa` adds 17 book-stage `indicqa.*`
+rules:
+- `indic_qa_tamil.py` is the catalogue and the item mapping. The Tamil profile
+  has no `RULES`.
+- `indic_qa_rules.json` is Bridge's view of each rule.
+- `irv_state.json.gz` (1.3 MB, deterministic: rebuilt twice, same sha256) is
+  the whole-IRV index.
+
+The ten points, as built:
+
+1. **OV lexicon** (94,378 forms): `indicqa.lex.near-miss`.
+2. **Typing-slip ranking** and the reviewer's `corrections.tsv`: suggestions on
+   every word finding.
+3. **Two known words**: `indicqa.lex.compound`, with the split as the first
+   suggestion.
+4. **The 71-row sandhi grammar** with OV statistics and the IRV veto:
+   `indicqa.sandhi.missing` and `indicqa.sandhi.conflict`.
+5. **"Remove this ஒற்று"**: `indicqa.sandhi.extra`. GEN 1:27 அவனைத் தேவசாயலாகவே
+   is the reviewer's no_theva rule.
+6. **OV pair and suffix statistics**: inside 4 and 5, and named in each
+   message.
+7. **Dangling and wrong-letter ஒற்று**: `indicqa.sandhi.dangling` and
+   `indicqa.sandhi.wrong-class`.
+8. **Warnings**: `indicqa.punct.no-space-after`,
+   `indicqa.shape.initial-pulli`, `indicqa.shape.unusual-initial` and
+   `indicqa.shape.malformed` (visual ௌ, ஶ).
+9. **The OV verse beside each finding** (`reference`, from `ov_reference.py` and
+   `dictionary/verses.tsv`), and OV/IRV counts in each message. Both panels
+   show it.
+10. **Headings and footnote prose are checked.**
+    - Headings come from `<chapter>.headings.json`; `\r`, `\mr` and `\sr` are
+      skipped.
+    - Footnote parts become separate streams, located inside the note's raw
+      range.
+    - A footnote finding has raw verse offsets. A heading finding has
+      `context: "heading"`, `contextText`, and no suggestion: no writer edits
+      headings, and the verse writer must not get one.
+
+**Not duplicating.**
+- The checks Bridge already runs over verse text are switched off for verse
+  text and kept for headings and footnotes: double space, zero width, repeated
+  punctuation, space before punctuation, and the யெகோவா/-வதற்கு defects.
+- Digits, repeated words and a space before a note's end are off, per the
+  2026-09-28 review.
+- The pass drops a layer finding that overlaps a raw pack or common finding of
+  the same category (`_already_flagged`). Raw means before decisions, so
+  ignoring the original keeps its twin hidden.
+
+On IRV Genesis this removed about 90 sandhi leads that ta-irv already raised.
+A scripted check found 0 overlaps left and all ids unique.
+
+**Measured, IRV GEN through the real `LanguageQaManager`.**
+- The pass reports 314 findings. 195 are layer findings: 7 in footnotes,
+  119 compound, 36 missing, 14 extra, 18 conflict, 5 near-miss.
+- MAT: 6 heading findings.
+
+The unknown-word volumes set the defaults:
+- 2,237 / 2,694 / 1,295 OV-unknown tokens in GEN / PSA / JHN. Samples are
+  mostly valid modern Tamil: honorific -ார், IRV-only words.
+- So `indicqa.lex.unknown` is off.
+- Only words used at most twice in the IRV are reported, as near misses when
+  their best suggestion is a slip, or as compounds.
+
+**Speed.** A Tamil pass first loads the layer, which took 1.6 s. Its checker is
+rebuilt on every book switch, for determinism. The restored index state is now
+kept pickled in memory, and the read-only Tamil lexicon is shared between
+rebuilds, so a reload takes 0.15 s. Each checker still gets its own copy, and a
+test pins that.
+
+**Tests changed, and why.**
+- `test_tamil_is_not_offered` pinned the old decision. It is now
+  `test_tamil_runs_only_as_the_ta_irv_layer`.
+- `test_pack[ta-irv]` and the ten-examples test exempt `match_type="indic-qa"`
+  rules, as profile packs already were.
+- `_rules` still accepts a profile module, so the adapter tests are unchanged.
+- The manifest test covers Tamil.
+- New: `tests/language_packs/test_indic_qa_tamil_layer.py` (30 tests) and a
+  panel test for context and reference.
+- `smoke_sidecars.py` gains a Tamil-layer check.
+
+**Verified.**
+- Engine suite: 4,843 passed, 1 skipped, 3 xfailed.
+- `npm run check`: 0 errors and 0 warnings.
+- `npm run test`: 534 passed, plus the new panel test.
+- `npm run build`: passes.
+- `sync_indic_qa.py --check`: ok.
+- Frozen pair rebuilt; `smoke_sidecars.py` passes, including the new Tamil-layer check
+  (3.4 s).
+
+**Not verified.** The desktop app. The OV wordlist licence question in NOTICE
+is less open for Tamil: the 1957 OV is public domain in India, and the
+digitisation is MIT.

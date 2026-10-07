@@ -1,8 +1,9 @@
-"""Vendor indic-qa's checker core and its non-Tamil dictionaries into Bridge.
+"""Vendor indic-qa's checker core and its dictionaries into Bridge.
 
 indic-qa (github.com/selvabenz/indic-qa) is a standalone IRV spell-check
-editor. Bridge uses only its pure-stdlib checker core, in-process, for
-Punjabi, Malayalam, Hindi and Odia (engine/vendor/indic-qa/NOTICE.md). This
+editor. Bridge uses only its pure-stdlib checker core, in-process: as the
+whole of Language QA for Punjabi, Malayalam, Hindi and Odia, and as a layer
+of the ta-irv pack for Tamil (engine/vendor/indic-qa/NOTICE.md). This
 script is the only way files enter or change under:
 
     engine/vendor/indic-qa/                 the checker code, byte-identical
@@ -37,8 +38,8 @@ PACKS = REPO / "engine" / "language_packs"
 UPSTREAM = "https://github.com/selvabenz/indic-qa"
 
 # The checker core. ta.py and tamil_grammar.py are imported unconditionally by
-# checker.py, and usfm_doc.py imports scripts/build_dictionary.py at import
-# time; Tamil itself is never run in Bridge.
+# checker.py (and run the ta-irv pack's indic-qa layer), and usfm_doc.py
+# imports scripts/build_dictionary.py at import time.
 CODE = (
     "LICENSE",
     "qa_app/__init__.py", "qa_app/checker.py", "qa_app/kinds.py", "qa_app/usfm_doc.py",
@@ -61,9 +62,22 @@ DICTIONARIES = {
     "ml": COMMON_DICT + ("names.tsv", "suffixes.tsv", "stems.tsv"),
     "or": COMMON_DICT + ("names.tsv",),
     "pa": COMMON_DICT + ("gender.tsv", "oblique.tsv"),
+    # Tamil: what Lexicon.load reads when the profile has sandhi (the two
+    # wordlists, the OV sandhi pairs, the names with a real final consonant),
+    # the reviewer's corrections and sandhi rule table, and verses.tsv, which
+    # Bridge reads itself to show the OV verse beside a finding (ov_reference.py).
+    "ta": ("wordlist.txt", "wordlist_bare.txt", "words.tsv", "sandhi_pairs.tsv", "final_consonant_words.tsv",
+           "extra_words.txt", "corrections.tsv", "sandhi_rules.tsv", "verses.tsv", "build_info.json"),
 }
-PROFILE_MODULES = {"hi": ("hi.py", "hi_tables.py"), "ml": ("ml.py", "ml_tables.py"),
-                   "or": ("odia.py", "odia_tables.py"), "pa": ("pa.py", "pa_tables.py")}
+# Where each language's dictionary is upstream: Tamil's is the original
+# `dictionary/`, the others' `dictionary_<code>/`.
+SOURCE_DIRS = {"ta": "dictionary"}
+PROFILE_MODULES = {"hi": ("langs/hi.py", "langs/hi_tables.py"), "ml": ("langs/ml.py", "langs/ml_tables.py"),
+                   "or": ("langs/odia.py", "langs/odia_tables.py"), "pa": ("langs/pa.py", "langs/pa_tables.py"),
+                   "ta": ("langs/ta.py", "qa_app/tamil_grammar.py", "qa_app/checker.py")}
+# Where each language's Bridge-side rule entries are, whose `revision` a
+# profile change should prompt a review of.
+RULE_FILES = {"ta": "indic_qa_rules.json"}
 
 
 def sha256(path: Path) -> str:
@@ -79,7 +93,8 @@ def planned(source: Path | None) -> dict[str, tuple[Path | None, Path]]:
     for code, files in DICTIONARIES.items():
         for name in files:
             dest = PACKS / f"{code}-irv" / "dictionary" / name
-            out[dest.relative_to(REPO).as_posix()] = (source / f"dictionary_{code}" / name if source else None, dest)
+            folder = SOURCE_DIRS.get(code, f"dictionary_{code}")
+            out[dest.relative_to(REPO).as_posix()] = (source / folder / name if source else None, dest)
     return out
 
 
@@ -147,9 +162,10 @@ def sync(source: Path, commit: str) -> int:
         for key in changed:
             print("  " + key)
         for code, modules in PROFILE_MODULES.items():
-            if any(k.endswith(f"/langs/{m}") for k in changed for m in modules):
+            if any(k.endswith(f"/{m}") for k in changed for m in modules):
                 print(f"  -> {code}: a profile module changed; review engine/language_packs/{code}-irv/"
-                      f"rule_versions.json and bump the `revision` of every rule whose matching changed")
+                      f"{RULE_FILES.get(code, 'rule_versions.json')} and bump the `revision` of every rule "
+                      f"whose matching changed")
     return 0
 
 

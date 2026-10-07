@@ -49,7 +49,7 @@ def test_each_dictionary_loads_and_a_checker_builds(code):
 
 
 def test_each_dictionary_manifest_matches_its_files():
-    for code in indic_qa_vendor.PROFILES:
+    for code in indic_qa_vendor.PROFILES + indic_qa_vendor.LAYER_PROFILES:
         folder = packs_dir() / f"{code}-irv" / "dictionary"
         manifest = json.loads((folder / "MANIFEST.json").read_text(encoding="utf-8"))
         assert manifest["commit"] == VENDORED["commit"]
@@ -57,6 +57,10 @@ def test_each_dictionary_manifest_matches_its_files():
             assert hashlib.sha256((folder / name).read_bytes()).hexdigest() == digest, (code, name)
 
 
-def test_tamil_is_not_offered():
+def test_tamil_runs_only_as_the_ta_irv_layer():
+    """2026-10-07 (second decision): indic-qa's Tamil profile runs as a layer of
+    ta-irv (pack.json indicQa), never as a pack of its own."""
+    assert "ta" not in indic_qa_vendor.PROFILES and "ta" in indic_qa_vendor.LAYER_PROFILES
+    assert indic_qa_vendor.profile("ta").PROFILE.code == "ta"
     with pytest.raises(KeyError):
-        indic_qa_vendor.profile("ta")
+        indic_qa_vendor.profile("xx")

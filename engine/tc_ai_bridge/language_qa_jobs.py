@@ -56,6 +56,36 @@ HOUSE_STYLE_LISTS: dict[str, frozenset] = {"housestyle.properNouns": frozenset()
 PLAIN_DISTANCE = ConfusionSet({"entries": []})
 
 
+def _read_headings(path: Path, limitations: list[str]) -> dict[str, list[dict[str, Any]]]:
+    """A chapter's section headings (`<chapter>.headings.json`, #180), as
+    tc_project.chapter_headings reads them; {} when there are none. An
+    unreadable file is a coverage note, never a failed pass."""
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        limitations.append(f"Headings not checked: {exc}")
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(verse): [h for h in items if isinstance(h, dict)]
+            for verse, items in data.items() if isinstance(items, list)}
+
+
+def _already_flagged(finding: dict[str, Any], flagged: dict[str, list[tuple[int, int, str]]]) -> bool:
+    """Whether a pack layer's finding repeats one the pack's own or the common
+    rules raised on this verse: the same category on an overlapping span. The
+    verse's raw findings count, before decisions, so ignoring the original
+    never lets its repeat through. A heading's offsets index the heading, not
+    the verse, so it is never compared."""
+    if finding.get("context") == "heading":
+        return False
+    start, end, category = int(finding["start"]), int(finding["end"]), str(finding.get("category") or "")
+    return any(c == category and s < end and start < e
+               for s, e, c in flagged.get(f"{finding['chapter']}:{finding['verse']}", ()))
+
+
 def project_rule_pack(project_path: str | Path, name: str | None) -> tuple[Any, list[str]]:
     """The named bundled pack narrowed by the project's overrides, and any
     notes about overrides that were refused or unreadable. (None, notes) when
@@ -763,9 +793,13 @@ class LanguageQaManager:
             detection = {**detection, "pack": "common", "message": pack_problems[0] if pack_problems else
                          detection["message"]}
         # A profile pack (indic-qa, pa/ml/hi/or) checks the whole book after the
-        # chapter loop; its rules never run in the per-verse scan.
+        # chapter loop; its rules never run in the per-verse scan. So does a
+        # pack's indic-qa layer (ta-irv's OV dictionary checks), after the
+        # pack's own per-verse rules.
         profile = rule_pack is not None and indic_qa_adapter.is_profile_pack(rule_pack.meta)
-        indic_qa_adapter.release(keep=rule_pack.name if profile else None)
+        book_checker = indic_qa_adapter.runs_checker(rule_pack)
+        layer = book_checker and not profile
+        indic_qa_adapter.release(keep=rule_pack.name if book_checker else None)
         coverage_categories = (sorted({meta.category for meta in COMMON_RULES.values() if meta.enabled}
                                       | {r.category for r in rule_pack.rules if r.enabled})
                                if profile else None)
@@ -792,6 +826,11 @@ class LanguageQaManager:
         book_counts: dict[str, int] = {}
         book_first_seen: dict[str, tuple[str, str, int, int, str, str]] = {}
         book_text: dict[str, dict[str, Any]] = {}  # chapter -> verses, for a profile pack's book step
+        # A layer also reads the section headings (#180), and its findings are
+        # dropped where the pack or the common rules already flagged the same
+        # place: chapter:verse -> [(start, end, category)] of every raw finding.
+        book_headings: dict[str, dict[str, list[dict[str, Any]]]] = {}
+        flagged: dict[str, list[tuple[int, int, str]]] = {}
         completed = 0
         for completed, path in enumerate(paths):
             if not proceed():
@@ -805,8 +844,12 @@ class LanguageQaManager:
             chapter_limitations: list[str] = []
             try:
                 data, signature, _ = self._read(path)
-                if profile:
+                if book_checker:
                     book_text[chapter] = data
+                if layer:
+                    headings = _read_headings(path.with_name(f"{chapter}.headings.json"), chapter_limitations)
+                    if headings:
+                        book_headings[chapter] = headings
                 cached = cache.get(chapter)
                 cached_verses = cached["verses"] if cached and cached.get("key") == key else {}
                 verses: dict[str, Any] = {}
@@ -846,6 +889,10 @@ class LanguageQaManager:
                     chapter_skipped += 1
                     continue
                 checked += 1
+                if layer:
+                    flagged[f"{chapter}:{verse}"] = [
+                        (int(f.get("start", 0)), int(f.get("end", 0)), str(f.get("category") or ""))
+                        for f in entry.get("findings", [])]
                 text = data.get(verse)
                 for word, (count, start, end) in entry.get("words", {}).items():
                     book_counts[word] = book_counts.get(word, 0) + count
@@ -887,8 +934,9 @@ class LanguageQaManager:
         wordlist = rule_pack.book_rule("wordlist-variant") if rule_pack is not None and lexicon is None else None
         if truncated:
             limitations.append("Wordlist audit skipped: book scan was truncated.")
-            if profile:
-                limitations.append(f"{rule_pack.name} checks skipped: book scan was truncated.")
+            if book_checker:
+                limitations.append(f"{rule_pack.name} {'OV dictionary ' if layer else ''}checks skipped: "
+                                   f"book scan was truncated.")
         elif wordlist is not None and len(book_counts) > wordlist.params["maxTerms"]:
             limitations.append("Wordlist audit skipped: too many distinct words to compare.")
         else:
@@ -897,25 +945,34 @@ class LanguageQaManager:
                      if lexicon is not None else
                      wordlist_findings(book, book_counts, book_first_seen, pack=rule_pack, rule=wordlist)
                      if wordlist is not None else [])
-            if profile:
+            checked_book: tuple[list[dict[str, Any]], list[str]] | None = ([], [])
+            if book_checker:
                 try:
                     checked_book = indic_qa_adapter.profile_findings(
                         rule_pack, book, book_text, lift=lift_inline_usfm, max_verse_chars=MAX_VERSE_CHARS,
                         finding_id=stable_finding_id, rule_fields=rule_fields, text_hash=text_hash,
-                        crossing_note=CROSSING_LIMITATION, proceed=proceed)
+                        crossing_note=CROSSING_LIMITATION, proceed=proceed,
+                        headings=book_headings if layer else None)
                 except Exception as exc:  # the vendored checker must never fail the pass
-                    checked_book = [], [f"{rule_pack.name} checks failed; common checks only: "
+                    checked_book = [], [f"{rule_pack.name} {'OV dictionary ' if layer else ''}checks failed; "
+                                        f"{'the pack' if layer else 'common'} checks only: "
                                         f"{type(exc).__name__}: {exc}"]
                 if checked_book is None:
                     return None
-                audit += checked_book[0]
                 limitations.extend(checked_book[1])
+            if profile:
+                audit += checked_book[0]
             if rule_pack is not None:
                 audit += name_findings(book, book_counts, book_first_seen,
                                        style.lists.get("housestyle.properNouns", frozenset()),
                                        rule_fields=rule_fields, suggestion=suggestion, rule_version=RULE_VERSION,
                                        corpus_count=lexicon.count if lexicon is not None else None,
                                        distance=(rule_pack.confusion() or PLAIN_DISTANCE).distance)
+            if layer:
+                for finding in audit:
+                    flagged.setdefault(f"{finding['chapter']}:{finding['verse']}", []).append(
+                        (int(finding["start"]), int(finding["end"]), str(finding.get("category") or "")))
+                audit += [f for f in checked_book[0] if not _already_flagged(f, flagged)]
             for finding in audit:
                 decided = {}
                 shown, hidden = settle([finding], decided)

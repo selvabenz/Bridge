@@ -220,3 +220,62 @@ in `rule_versions.json` with a DECISIONS line, once it has ≥ 20 labels at
 4. Rebuild each `irv_state.json.gz`.
    `test_each_snapshot_is_for_the_vendored_dictionary` fails until you do.
 5. Run `measure_indic_qa.py`.
+
+## Pack layers: indic-qa's Tamil checker inside ta-irv (`indicQa`)
+
+ta-irv keeps its JSON rules. Since DECISIONS 2026-10-07 ("indic-qa's Tamil
+checker runs as a layer of ta-irv"), its `pack.json` also carries:
+
+```json
+"indicQa": {"profile": "ta", "dictionary": "dictionary", "rules": "indic_qa_rules.json"}
+```
+
+`load_pack` then appends the layer's 17 `indicqa.*` rules to the pack
+(`indic_qa_adapter.layer_rules`). They are `match_type="indic-qa"` and
+`stage="book"`, the same as a profile pack's. The catalogue is
+`tc_ai_bridge/language_packs/indic_qa_tamil.py`, because indic-qa's Tamil
+profile has no `RULES`. Bridge's view of each rule is
+`ta-irv/indic_qa_rules.json`, which has the same shape as `rule_versions.json`.
+If the dictionary or the vendored checker is missing, the pack loads without
+the layer and says so in its problems.
+
+| File in `engine/language_packs/ta-irv/` | What it is | Written by |
+|---|---|---|
+| `dictionary/` | The BSI 1957 OV dictionary: wordlists, `words.tsv`, `sandhi_pairs.tsv`, `final_consonant_words.tsv`, the reviewer's `corrections.tsv` and `sandhi_rules.tsv`, `verses.tsv`, and `MANIFEST.json` | `scripts/sync_indic_qa.py` |
+| `indic_qa_rules.json` | One entry per layer rule | `scripts/build_indic_qa_packs.py --ta-layer` adds new rules; reviewed values are edited by hand |
+| `irv_state.json.gz` | The whole-IRV index, including each book's ஒற்று pair and form counts and its headings and footnotes | `scripts/build_indic_qa_packs.py --irv-state ta <IRV folder>` |
+
+What the layer does differently from a profile pack:
+
+- **It also reads headings and footnote prose.**
+  - **Headings.** `<chapter>.headings.json` headings become lines before the
+    verse they introduce. `\r`, `\mr` and `\sr` are references and are not
+    checked.
+  - **Footnotes.** Each footnote part (`\ft`, `\fq`, `\fqa`, `\fk`, ...)
+    becomes its own stream on its verse's first line. Its raw offset is found
+    inside the note's range from `usfm_verse.lift_verse`.
+  - **What a finding carries.** A heading finding carries
+    `context: "heading"` and `contextText`, offers no suggestion, and its
+    offsets index the heading. A footnote finding carries
+    `context: "footnote"` and raw verse offsets.
+- **It never repeats Bridge.** The pass drops a layer finding when a raw
+  finding of the pack or the common rules on the same verse has the same
+  category and an overlapping span (`language_qa_jobs._already_flagged`). The
+  checks Bridge runs over verse text are reported by the layer only in
+  headings and footnotes.
+- **It shows the OV.** Each finding carries `reference`, the OV verse with
+  the same number (`ov_reference.py`, reading `dictionary/verses.tsv`). Its
+  message gives the OV and IRV counts behind it.
+- **Unknown words go through a rarity gate.** The rule depends on how often
+  the IRV uses the word:
+  - If the IRV uses it more than twice, it is house practice.
+  - A rare word whose best OV suggestion is a typing slip (ல/ள/ழ, ன/ண/ந,
+    ர/ற, vowel length, புள்ளி, transposition) or a reviewed correction is
+    `indicqa.lex.near-miss`.
+  - A rare word that splits into two known words is `indicqa.lex.compound`.
+  - Every other unknown word is `indicqa.lex.unknown`, which is off.
+
+Re-vendoring: steps 1–4 of "Updating" above, plus
+`build_indic_qa_packs.py --ta-layer` and `--irv-state ta`. If a change to
+`langs/ta.py`, `tamil_grammar.py` or `checker.py` alters matching, bump the
+affected `revision`s in `indic_qa_rules.json`.

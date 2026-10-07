@@ -36,7 +36,17 @@ def test_pack(name):
         assert (packs_dir() / name / "dictionary" / "MANIFEST.json").is_file()
         assert (packs_dir() / name / "irv_state.json.gz").is_file()
         return
+    if meta.get("indicQa"):
+        # A pack's indic-qa layer (ta-irv): catalogue rules checked in
+        # test_indic_qa_tamil_layer.py, with the layer's data files.
+        layer = meta["indicQa"]
+        assert (packs_dir() / name / layer["dictionary"] / "MANIFEST.json").is_file()
+        assert (packs_dir() / name / layer["rules"]).is_file()
+        assert (packs_dir() / name / "irv_state.json.gz").is_file()
+        assert any(r.match_type == "indic-qa" for r in pack.rules), pack.problems
     for rule in pack.rules:
+        if rule.match_type == "indic-qa":
+            continue
         assert rule.match_type in KINDS, rule.id
         assert rule.source.get("provenance"), rule.id
         if not rule.enabled:

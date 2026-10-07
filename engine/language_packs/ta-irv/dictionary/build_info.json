@@ -1,0 +1,365 @@
+{
+  "script": "scripts/build_dictionary.py",
+  "script_version": "1.0.0",
+  "corpus": "Tamil BSI Old Version 1957 (Sathiyavedam), TFBF digitisation, USFM",
+  "parameters": {
+    "freq_min": 20,
+    "rare_max": 1,
+    "max_suspects": 5000,
+    "expect": "bsi1957"
+  },
+  "inputs": [
+    {
+      "file": "01_GENFBta.usfm",
+      "bytes": 601201,
+      "sha256": "38814c7ce768081b4e3b1e24468d7fba4f70828e91fde0e97c202caa5e02970a"
+    },
+    {
+      "file": "02_EXOFBta.usfm",
+      "bytes": 496574,
+      "sha256": "18edf03bf65917640f23820a349719d2b2ad928f105cb840c50823335fc6bbc7"
+    },
+    {
+      "file": "03_LEVFBta.usfm",
+      "bytes": 352053,
+      "sha256": "70ffb251e4cb8d20695b2f6de2e6ee785a9ac3d73c1897ee8cadcf7bfce86a81"
+    },
+    {
+      "file": "04_NUMFBta.usfm",
+      "bytes": 504098,
+      "sha256": "e8fad68db95e636adb73d10e028ed88e6198087a11ce7b41b0532e3016031a70"
+    },
+    {
+      "file": "05_DEUFBta.usfm",
+      "bytes": 428657,
+      "sha256": "2371aa72299a50225a85a84a09be85875d4ad53402b354797fed9ae630234c03"
+    },
+    {
+      "file": "06_JOSFBta.usfm",
+      "bytes": 290046,
+      "sha256": "8a3c0ba44e50e891dbccd8619a2e239d57aa27a47fba441a935767761bf2b449"
+    },
+    {
+      "file": "07_JDGFBta.usfm",
+      "bytes": 297263,
+      "sha256": "edb2d00aa4d91fb5e6288a253d9969143d9c226f72e5b89beaeb7f2bae389c0f"
+    },
+    {
+      "file": "08_RUTFBta.usfm",
+      "bytes": 40260,
+      "sha256": "f21c3ac148ef661cb3ea6fa6635a45ad0e2f6e607f7589343bb23b00e4bb19b7"
+    },
+    {
+      "file": "09_1SAFBta.usfm",
+      "bytes": 402122,
+      "sha256": "231d3ed0374a50cd46142282140bf41e1433c56776330c9796f3c32a232a2122"
+    },
+    {
+      "file": "10_2SAFBta.usfm",
+      "bytes": 327713,
+      "sha256": "c4be7fab24cfa83e880d58ed17b4e263d6ce9f16b9522840547ac83cc25c068e"
+    },
+    {
+      "file": "11_1KIFBta.usfm",
+      "bytes": 386514,
+      "sha256": "210e20a4d10af63b21832961d49e3c8e6bda6078dc943e556ba1eab20d0c30f4"
+    },
+    {
+      "file": "12_2KIFBta.usfm",
+      "bytes": 361375,
+      "sha256": "eb9abf4075e5609f6f7cde7352eb69bcda485e14a8573b8076b57f946d49dae8"
+    },
+    {
+      "file": "13_1CHFBta.usfm",
+      "bytes": 332593,
+      "sha256": "a80b518dfeb23231fe4e4f8522532331501a68c99f543e9fe32a3d36176cd0cb"
+    },
+    {
+      "file": "14_2CHFBta.usfm",
+      "bytes": 417035,
+      "sha256": "60ec4c3ed9c1dd56f77a0d0840da681f5d90c2792656b83ef0130dfe33e4620f"
+    },
+    {
+      "file": "15_EZRFBta.usfm",
+      "bytes": 119691,
+      "sha256": "a2dd37a7ee9bbeb729d4ce4e9e84e522a025885ef47942d432abbe39a74cfc01"
+    },
+    {
+      "file": "16_NEHFBta.usfm",
+      "bytes": 174219,
+      "sha256": "fd4116c8ae247c9534323d35c493563bdad0300a49eb8c469a109ced133ca884"
+    },
+    {
+      "file": "17_ESTFBta.usfm",
+      "bytes": 90600,
+      "sha256": "717337eaa1177b2ff720e8842b3ac5924a5cf6b3d022f85ad2735f894de18b86"
+    },
+    {
+      "file": "18_JOBFBta.usfm",
+      "bytes": 299198,
+      "sha256": "c221fe28c00d9f33d2bf529f2aa1788e3bd3ea2a23136f82abe925c068f29730"
+    },
+    {
+      "file": "19_PSAFBta.usfm",
+      "bytes": 702670,
+      "sha256": "1b032281e5928382ceba8bc71eadb8163b4ef6b7326e652fd3b312ccfd3ccd77"
+    },
+    {
+      "file": "20_PROFBta.usfm",
+      "bytes": 231703,
+      "sha256": "9b262e4a5c9458292bcbc060ccd7502c4ec020814464ca68d9de422720e3e75d"
+    },
+    {
+      "file": "21_ECCFBta.usfm",
+      "bytes": 83595,
+      "sha256": "547d0ae4895e37892d4a2c99e333dbf9fe039566a868432034ba2f2ff742e48e"
+    },
+    {
+      "file": "22_SNGFBta.usfm",
+      "bytes": 43318,
+      "sha256": "83c3fa7a88468e05bb8604e9cebd2c0cc0ecab10eb3f01a7ac5e70e159f52ef5"
+    },
+    {
+      "file": "23_ISAFBta.usfm",
+      "bytes": 569017,
+      "sha256": "037f056b31d0a51e795b588b64e0336ba2fbbc571a89f40689b774a367d23c22"
+    },
+    {
+      "file": "24_JERFBta.usfm",
+      "bytes": 682168,
+      "sha256": "140ec63988862063669ae8b889cadf245f4ed1e9e59b6c4c1c1524ac8fe6e9fa"
+    },
+    {
+      "file": "25_LAMFBta.usfm",
+      "bytes": 55445,
+      "sha256": "9f23c0cc73ac47b300b2cef40ffb4745a3913bf151452af7b01c0d338f87c3d4"
+    },
+    {
+      "file": "26_EZKFBta.usfm",
+      "bytes": 609693,
+      "sha256": "e5c78a5f9b453e87749032c6fac40bc0fb84c1b4a396eb2ed323ba232658ac4a"
+    },
+    {
+      "file": "27_DANFBta.usfm",
+      "bytes": 185319,
+      "sha256": "83cdd70f44ede491051ecef17a24bf62ca05941e1a1c94727e857b32a9e26448"
+    },
+    {
+      "file": "28_HOSFBta.usfm",
+      "bytes": 87088,
+      "sha256": "b87ffc27022a0a03e3d34e721072c9e7660da142c0269c33ead35d0048844e1f"
+    },
+    {
+      "file": "29_JOLFBta.usfm",
+      "bytes": 31020,
+      "sha256": "a56a593f120704f50cbb11e827a228cde2d86815e1e810468d3e578857561430"
+    },
+    {
+      "file": "30_AMOFBta.usfm",
+      "bytes": 67726,
+      "sha256": "b2ffb0fc47b0597e93a748944a9c299989ec5a3c2c6f171391fd724b9793275e"
+    },
+    {
+      "file": "31_OBAFBta.usfm",
+      "bytes": 10647,
+      "sha256": "28733cffa07568f57832ea787f7dac10fc8ed2471f00b112dea9131f2d748df5"
+    },
+    {
+      "file": "32_JONFBta.usfm",
+      "bytes": 20797,
+      "sha256": "a2b40d95a1b3ceed83a24c8168f533e4e3a2998a91f088d92400d73a280687fc"
+    },
+    {
+      "file": "33_MICFBta.usfm",
+      "bytes": 48056,
+      "sha256": "2f25c83842874ebdde06466e5c7cd0f414de5a0a4e9d252d2873dd73a3004bdd"
+    },
+    {
+      "file": "34_NAMFBta.usfm",
+      "bytes": 20809,
+      "sha256": "5ae6434b4ea69cd54c52e147cbacf90e11886e7366bc5858f6591baf91f2493b"
+    },
+    {
+      "file": "35_HABFBta.usfm",
+      "bytes": 23916,
+      "sha256": "4c1170b363e890a7fcccb707dcd7ec0489f6f90672cf9780b9f3c99accd8d8c0"
+    },
+    {
+      "file": "36_ZEPFBta.usfm",
+      "bytes": 25435,
+      "sha256": "ef948bd12f01d0616c01c446f4bc595ac67e2b8c9b10bd9597d28bb8ffbc0f9d"
+    },
+    {
+      "file": "37_HAGFBta.usfm",
+      "bytes": 19619,
+      "sha256": "2602ac8f9001d016b28428f50ea4a78d051868971c207538a60d046f84c121a0"
+    },
+    {
+      "file": "38_ZECFBta.usfm",
+      "bytes": 96939,
+      "sha256": "2960144aea8e390d3cdf1ea20d4c3f0affed4c31839245ba2402af4167f12eef"
+    },
+    {
+      "file": "39_MALFBta.usfm",
+      "bytes": 29775,
+      "sha256": "606527445f228a4ce63a98f705d9c843d6bde5d3d7a1635f70b5dc9936d5c9fb"
+    },
+    {
+      "file": "41_MATFBta.usfm",
+      "bytes": 389640,
+      "sha256": "7e622e7ac0d9671a2e57f94eb1f00e717ea02a1959e5f2bf51a725a75df912cc"
+    },
+    {
+      "file": "42_MRKFBta.usfm",
+      "bytes": 248928,
+      "sha256": "00e0b756b3c993e87a6eb09d5b66de10d9c8e7151b44767ad34c89fb48ea17c1"
+    },
+    {
+      "file": "43_LUKFBta.usfm",
+      "bytes": 422648,
+      "sha256": "2ffacb2fd9073bd1bebe616f2c238d528f3331ab39a4381fbd6b0b2dfc0adcf7"
+    },
+    {
+      "file": "44_JHNFBta.usfm",
+      "bytes": 320680,
+      "sha256": "929c62a01551072645deb033595b179df575aa79168bc02fc34da5fcb856bbae"
+    },
+    {
+      "file": "45_ACTFBta.usfm",
+      "bytes": 413084,
+      "sha256": "c3b1a0fd0e420c5b26b46569eac3516673c69d92380d2195dde4365b8750c153"
+    },
+    {
+      "file": "46_ROMFBta.usfm",
+      "bytes": 170315,
+      "sha256": "79778d7b30c38dd0054580a35d42de9283adb53f8ca5d6598805d7cff509e305"
+    },
+    {
+      "file": "47_1COFBta.usfm",
+      "bytes": 164450,
+      "sha256": "8300f46eaebea6749e744b5c1228606e9f19ab0e09083391caa58b9ba2af72d3"
+    },
+    {
+      "file": "48_2COFBta.usfm",
+      "bytes": 109181,
+      "sha256": "afd6b4f636d3db30f7951b1c7e0fe038027835d59743d071aeb978bf535d9db4"
+    },
+    {
+      "file": "49_GALFBta.usfm",
+      "bytes": 56728,
+      "sha256": "a3579aa18df3e650da59ecc2a50b5fcd88a4124cf0135ab3364815938f2df6bf"
+    },
+    {
+      "file": "50_EPHFBta.usfm",
+      "bytes": 54895,
+      "sha256": "218ad1aa2dcf627ea022923a463ab8b393a0fc7b84e91eb9c78661148e9129d2"
+    },
+    {
+      "file": "51_PHPFBta.usfm",
+      "bytes": 39087,
+      "sha256": "6793cd9841c9b7a5d86a7ee222b20042b3bbe9ee2f1370c66d8929e4c9fa2eee"
+    },
+    {
+      "file": "52_COLFBta.usfm",
+      "bytes": 37251,
+      "sha256": "610867011f36ac0b745a25f68633acc9611f9bac198406c5c7422fd2b81d9341"
+    },
+    {
+      "file": "53_1THFBta.usfm",
+      "bytes": 35317,
+      "sha256": "f2ef4f4561bb0b829e3b732ec511c8ba92217951ec228b43541331c39d050d5c"
+    },
+    {
+      "file": "54_2THFBta.usfm",
+      "bytes": 19798,
+      "sha256": "8c38432f8510c75958d48094822afc55e8761fa70ea3a306e14c1b55d0c5e683"
+    },
+    {
+      "file": "55_1TIFBta.usfm",
+      "bytes": 44332,
+      "sha256": "cac555984685c061311bb4232e9441bd6492f704f26b7282519af5a65af519b2"
+    },
+    {
+      "file": "56_2TIFBta.usfm",
+      "bytes": 31609,
+      "sha256": "4a3b384abc7a16e0c2407a372506a7d034f2048e50608a9cc6f3f9d8507e03ca"
+    },
+    {
+      "file": "57_TITFBta.usfm",
+      "bytes": 19473,
+      "sha256": "d5b1030340fadf26df3b306517112d3119ea9cd63462d579b2951a2dd06bb5ad"
+    },
+    {
+      "file": "58_PHMFBta.usfm",
+      "bytes": 8836,
+      "sha256": "9bbe1a14e67f60c3b8fcdb31fefd83db6d191ff96b79b0fee25499c7f2503bfc"
+    },
+    {
+      "file": "59_HEBFBta.usfm",
+      "bytes": 123420,
+      "sha256": "a9f697de9c0cbebca2f84ee9da5fa8c7cfd2ce08d90b12a9f350a6d29b7e73a9"
+    },
+    {
+      "file": "60_JASFBta.usfm",
+      "bytes": 40918,
+      "sha256": "46e81d191e4e9478539fffe7697794497e89e6c3eb4aa63ff5b30aa167d7e6a0"
+    },
+    {
+      "file": "61_1PEFBta.usfm",
+      "bytes": 45799,
+      "sha256": "c3c3e51259efd35904e289d02eea04ab99ed818117a453510805be82195a5807"
+    },
+    {
+      "file": "62_2PEFBta.usfm",
+      "bytes": 26782,
+      "sha256": "19a1f417a295450d4d717c4025725ef13784581d4ca8f43450d7ee4f46d36a5c"
+    },
+    {
+      "file": "63_1JNFBta.usfm",
+      "bytes": 42124,
+      "sha256": "6ff1f579a830fa45192e1b986c30f65c971af34c3fd23f6d969227f84f007e04"
+    },
+    {
+      "file": "64_2JNFBta.usfm",
+      "bytes": 5228,
+      "sha256": "2dc7662ee29b00c3767ef8f0d9183d0dd47e12a8d672c134bad1b93a51712534"
+    },
+    {
+      "file": "65_3JNFBta.usfm",
+      "bytes": 5477,
+      "sha256": "46f60c9ab8e0ef0ebf01c3df2c43348da3974d20a81c9ee680f868ace4c379d6"
+    },
+    {
+      "file": "66_JUDFBta.usfm",
+      "bytes": 11892,
+      "sha256": "1f26f53ed9074a0a47203a0d89335335c9d88749661a183f912b26d4bff47b0c"
+    },
+    {
+      "file": "67_REVFBta.usfm",
+      "bytes": 195229,
+      "sha256": "665a2a84f103c54ee6ec9d7c2a415bf92832d604c882a7b6d639ab70ac55672f"
+    }
+  ],
+  "outputs_rows": {
+    "verses.tsv": 31233,
+    "words.tsv": 94378,
+    "wordlist.txt": 94378,
+    "wordlist_bare.txt": 87917,
+    "sandhi_pairs.tsv": 22335,
+    "sandhi_inconsistent.tsv": 449,
+    "sandhi_anomalies.tsv": 28,
+    "sandhi_suffix_summary.tsv": 128,
+    "final_consonant_words.tsv": 325,
+    "suspect_words.tsv": 1521,
+    "malformed_words.tsv": 18,
+    "concordance.json": 94378
+  },
+  "summary": {
+    "books": 66,
+    "chapters": 1189,
+    "verses": 31102,
+    "tokens": 418560,
+    "unique_forms": 94360,
+    "hapax": 61035
+  }
+}

@@ -643,7 +643,9 @@ def main() -> int:
             "description": "Tamil IRV rule pack: sandhi (வல்லினம்) shape rules and known IRV defect shapes. "
                            "Built by scripts/build_ta_irv_pack.py from the IRV corpus and the 2026-09-28 "
                            "human review; see docs/LANGUAGE_QA_RULE_PACK.md.",
-            **{k: previous[k] for k in ("lexicon", "confusion") if k in previous},
+            # indicQa: the OV dictionary layer (indic_qa_tamil.py), whose files
+            # come from scripts/sync_indic_qa.py and build_indic_qa_packs.py.
+            **{k: previous[k] for k in ("lexicon", "confusion", "indicQa") if k in previous},
             "rules": [f"rules/{rule['id']}.json" for rule in rules]}
     pack = loader._build(meta, rules)  # no examples yet: they are chosen with this pack
     examples = choose_examples(pack, verses, reviewed_places(args.reviews))

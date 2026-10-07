@@ -591,7 +591,7 @@ def apply_overrides(pack: RulePack, overrides: dict[str, Any] | None) -> RulePac
     listed in `problems` for the panel's coverage notes."""
     if not overrides:
         return pack
-    problems: list[str] = []
+    problems: list[str] = list(pack.problems)  # the bundled pack's own (an unavailable layer)
     rules = [copy.copy(rule) for rule in pack.rules]
     for rule in rules:
         rule.abstain = list(rule.abstain)
@@ -599,7 +599,7 @@ def apply_overrides(pack: RulePack, overrides: dict[str, Any] | None) -> RulePac
     entries = overrides.get("rules") if isinstance(overrides, dict) else None
     if not isinstance(entries, dict):
         return RulePack(pack.name, pack.version, pack.language, rules, pack.description,
-                        ["override ignored: expected {\"rules\": {<rule id>: {...}}}"],
+                        problems + ["override ignored: expected {\"rules\": {<rule id>: {...}}}"],
                         directory=pack.directory, meta=pack.meta)
     for rule_id, change in entries.items():
         rule = by_id.get(rule_id)
@@ -644,6 +644,18 @@ def load_pack(name: str = "", *, directory: Path | None = None) -> RulePack:
         return indic_qa_adapter.build_pack({k: v for k, v in meta.items() if k != "rules"}, directory)
     pack = _build(meta, raws, directory=directory)
     run_examples(pack)
+    if meta.get("indicQa"):
+        # A second, book-stage layer: indic-qa's checker over the pack's
+        # dictionary (indic_qa_tamil.py). Its rules join the pack, so
+        # overrides, ignores and stamps treat them like the pack's own.
+        from . import indic_qa_adapter
+        extra, problems = indic_qa_adapter.layer_rules(meta, directory)
+        ids = {r.id for r in pack.rules}
+        clash = sorted(r.id for r in extra if r.id in ids)
+        if clash:
+            raise PackError(f"{meta['pack']}: indicQa rule ids {clash} clash with the pack's own")
+        pack = RulePack(pack.name, pack.version, pack.language, pack.rules + extra, pack.description,
+                        pack.problems + problems, directory=directory, meta=pack.meta)
     return pack
 
 

@@ -189,8 +189,12 @@ belong in Bridge's own adapter/wrapper code.
 A second upstream repo is vendored the in-process way: **indic-qa's checker
 core** (`engine/vendor/indic-qa/`, from `selvabenz/indic-qa`, maintainer's
 decision 2026-10-07). It runs Language QA for Punjabi, Malayalam, Hindi and
-Odia. Tamil stays on Bridge's own `ta-irv` pack. Its dictionaries are pack data
-in `engine/language_packs/<code>-irv/dictionary/`, outside the onefile exe.
+Odia. Tamil stays on Bridge's own `ta-irv` pack, which also runs indic-qa's
+Tamil profile as a second, book-stage layer (`pack.json` `indicQa`,
+`indic_qa_tamil.py`; DECISIONS, the later 2026-10-07 entry). That layer drops
+any finding the pack already raised, and offers no fix inside a heading. Its
+dictionaries are pack data in `engine/language_packs/<code>-irv/dictionary/`,
+outside the onefile exe.
 Rules for this tree:
 
 - Files enter only through `scripts/sync_indic_qa.py`, which reads committed

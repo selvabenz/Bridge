@@ -522,6 +522,39 @@ def main() -> int:
                                  f"language={lqa.get('language')} rules={sorted(lqa_rules)} "
                                  f"limitations={lqa.get('limitations')}")
             print(f"Frozen indic-qa Hindi pack passed in {time.monotonic() - lqa_started:.2f}s.")
+
+            # ta-irv's indic-qa layer: the Tamil profile over the OV dictionary,
+            # beside the pack's own rules. GEN 1:27 as the IRV has it carries the
+            # ஒற்று the reviewer's house style removes before தேவ- (no_theva); the
+            # finding must arrive with the OV verse attached.
+            tamil = Path(temp) / "tamil"
+            tamil_text = "அவனைத் தேவசாயலாகவே சிருஷ்டித்தார்"
+            _write_json(tamil / "manifest.json", {
+                "project": {"id": "gen", "name": "Genesis"},
+                "target_language": {"id": "tam", "name": "Tamil"}, "tc_version": "8",
+            })
+            _write_json(tamil / "gen" / "1.json", {"27": tamil_text})
+            _write_json(tamil / ".apps" / "translationCore" / "alignmentData" / "gen" / "1.json",
+                        {"27": {"alignments": [], "wordBank": []}})
+            (tamil / "gen.usfm").write_text(f"\\id GEN\n\\c 1\n\\v 27 {tamil_text}\n", encoding="utf-8")
+            opened_tamil = request("open-tamil", "project.open", {"path": str(tamil)})
+            if not opened_tamil.get("success"):
+                raise SystemExit(f"Frozen open of the Tamil project failed: {opened_tamil}")
+            lqa_started = time.monotonic()
+            lqa = {}
+            while time.monotonic() - lqa_started < 90:
+                lqa = request(f"lqa-tamil-{int((time.monotonic() - lqa_started) * 10)}", "languageQa.status",
+                              {"projectPath": str(tamil), "limit": 100}).get("result") or {}
+                if lqa.get("state") in {"completed", "failed"}:
+                    break
+                time.sleep(0.2)
+            layer = [f for f in lqa.get("findings", []) if f.get("ruleId") == "ta-irv/indicqa.sandhi.extra"]
+            if (lqa.get("state") != "completed" or lqa.get("language", {}).get("pack") != "ta-irv"
+                    or not layer or (layer[0].get("reference") or {}).get("ref") != "GEN 1:27"):
+                raise SystemExit(f"Frozen ta-irv indic-qa layer did not report its finding: state={lqa.get('state')} "
+                                 f"rules={sorted({f.get('ruleId') for f in lqa.get('findings', [])})} "
+                                 f"limitations={lqa.get('limitations')}")
+            print(f"Frozen ta-irv indic-qa layer passed in {time.monotonic() - lqa_started:.2f}s.")
         finally:
             process.terminate()
             try:
@@ -536,7 +569,7 @@ def main() -> int:
         "alignment statistics/proposal packaging, "
         "AI explain packaging, desktop connectors, project registry/duplicate import, "
         "first-open live-review responsiveness, alignment/export/undo, "
-        "duplicate/missing-verse checks, and the indic-qa Hindi pack succeeded."
+        "duplicate/missing-verse checks, the indic-qa Hindi pack and ta-irv's indic-qa layer succeeded."
     )
     return 0
 

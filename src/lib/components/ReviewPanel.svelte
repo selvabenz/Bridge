@@ -721,8 +721,10 @@
                   <span class="engine-badge">{f.category}</span>
                   <span class="check-id">{f.ruleId}</span>
                   {#if f.previouslyIgnored}<span class="badge badge-decided" title="Ignored under an older rule version; check it again">re-check</span>{/if}
+                  {#if f.context}<span class="engine-badge" title={f.context === "heading" ? `Section heading: ${f.contextText ?? ""}` : "Footnote text"}>in {f.context}</span>{/if}
                 </div>
                 <p class="explain"><b>{f.originalText}</b> — {f.message}</p>
+                {#if f.reference}<p class="explain lqa-reference"><b>{f.reference.label} {f.reference.ref}:</b> {f.reference.text}</p>{/if}
                 <div class="decision-row lqa-actions">
                   {#each lqaSuggestions(f) as s (s.rank)}
                     <button class="edit-inline" disabled={lqaBusy || $checkingProgress.running || Boolean($editingChapter)}

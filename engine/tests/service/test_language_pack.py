@@ -58,6 +58,11 @@ def test_every_enabled_rule_has_ten_real_examples_each_way_with_their_origin():
         if not rule.enabled:
             assert "DISABLED" in rule.source["provenance"], rule.id
             continue
+        if rule.match_type == "indic-qa":
+            # The indic-qa layer's catalogue rules (indic_qa_tamil.py) run the
+            # vendored checker, not a JSON match, so carry no embedded examples;
+            # tests/language_packs/test_indic_qa_tamil_layer.py covers them.
+            continue
         if rule.legacy_version:
             # Moved from the engine's code (2026-09-30) with its matching
             # unchanged; its tests stayed where they were (test_language_qa.py,

@@ -52,6 +52,23 @@ export interface LanguageQaFinding {
   /** Set when the finding was ignored under an older rule or pack version and
    * is shown again for re-checking. */
   previouslyIgnored?: boolean;
+  /** Where the finding is when it is not in the verse text (ta-irv's OV
+   * dictionary layer): "footnote" -- start/end still index the stored verse,
+   * so a suggestion applies as usual; "heading" -- a section heading before
+   * this verse, start/end index `contextText`, and no suggestion is offered
+   * because a fix would be written into the verse. Absent: the verse text. */
+  context?: "footnote" | "heading";
+  /** The heading's visible text, for context "heading". */
+  contextText?: string;
+  /** The same verse in a reference text (ta-irv: the 1957 Old Version). */
+  reference?: LanguageQaReference;
+}
+
+export interface LanguageQaReference {
+  label: string;
+  /** e.g. "GEN 1:27": a verse bridge looks up its first number. */
+  ref: string;
+  text: string;
 }
 
 /** The `issue` a Language QA verse.decide carries: what the reviewer saw and

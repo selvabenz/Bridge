@@ -17,10 +17,11 @@ import threading
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
-# The non-Tamil profiles Bridge runs, by language code. Tamil is Bridge's own
-# ta-irv pack; indic-qa's Tamil profile is imported (checker.py needs it) but
-# never used.
+# The profiles Bridge runs as a whole pack ("engine": "indic-qa"), by language
+# code. Tamil is Bridge's own ta-irv pack; indic-qa's Tamil profile runs only
+# as that pack's second layer (pack.json `indicQa`, indic_qa_tamil.py).
 PROFILES = ("hi", "ml", "or", "pa")
+LAYER_PROFILES = ("ta",)
 
 _lock = threading.Lock()
 _modules: SimpleNamespace | None = None
@@ -54,7 +55,7 @@ def modules() -> SimpleNamespace:
 
 def profile(code: str) -> ModuleType:
     """The profile module for a language code (`or` lives in `odia.py`)."""
-    if code not in PROFILES:
-        raise KeyError(f"no indic-qa profile is run for {code!r}; known: {', '.join(PROFILES)}")
+    if code not in PROFILES + LAYER_PROFILES:
+        raise KeyError(f"no indic-qa profile is run for {code!r}; known: {', '.join(PROFILES + LAYER_PROFILES)}")
     langs = modules().langs
     return importlib.import_module(f"{langs.__name__}.{langs.MODULE.get(code, code)}")
