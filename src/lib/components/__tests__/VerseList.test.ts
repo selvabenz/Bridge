@@ -305,7 +305,7 @@ describe("VerseList footnote handling", () => {
     it("offers no Use item when the finding has no suggestion", async () => {
       expect((await openMenu({ suggestions: [] })).map(([label]) => label))
         .toEqual(["Edit…", "Ignore this occurrence", "Ignore more widely▸", "Mark as false positive",
-          "Add “அந்த காகம்” to the project word list", "Show IRV occurrences…", "Flag for review…"]);
+          "Add “அந்த காகம்” to the project word list", "Show IRV occurrences…", "Show OV occurrences…", "Flag for review…"]);
     });
 
     it("offers one Use item, with the rationale as its tooltip", async () => {
@@ -313,7 +313,7 @@ describe("VerseList footnote handling", () => {
       expect(items[0]).toEqual(['Use "அந்தக் காகம்"', "test rationale"]);
       expect(items.map(([label]) => label)).toEqual(
         ['Use "அந்தக் காகம்"', "Use in more places▸", "Edit…", "Ignore this occurrence", "Ignore more widely▸",
-          "Mark as false positive", "Add “அந்த காகம்” to the project word list", "Show IRV occurrences…",
+          "Mark as false positive", "Add “அந்த காகம்” to the project word list", "Show IRV occurrences…", "Show OV occurrences…",
           "Flag for review…"]);
     });
 

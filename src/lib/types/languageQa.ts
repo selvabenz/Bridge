@@ -265,6 +265,32 @@ export interface OccurrencesResult {
   hits: OccurrenceHit[];
 }
 
+/** languageQa.reference: one chapter of the reference Bible (an Old Version). */
+export interface ReferenceChapter {
+  /** false until the folder has been read (a background load), or when none is set. */
+  ready: boolean;
+  configured: boolean;
+  source: { path: string; label: string; kind?: "tsv" | "usfm" } | null;
+  verses: { verse: string; text: string }[];
+  error?: string;
+  /** The Language QA pack a folder would be set for (when none is configured). */
+  pack?: string | null;
+}
+
+/** languageQa.related: OV/IRV equivalents and same-stem forms of a word. */
+export interface RelatedWordsResult {
+  word: string;
+  ready: boolean;
+  off?: boolean;
+  configured?: boolean;
+  error?: string;
+  irv?: number;
+  ov?: number;
+  equivalents: { w: string; n: number; source: "OV" | "IRV"; ref: string; irv: number; ov: number }[];
+  family: { w: string; irv: number; ov: number }[];
+  versesAligned?: number;
+}
+
 /** What verse.edit says it learned from a single-word edit. */
 export interface VerseEditLearned {
   old: string;

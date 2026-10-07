@@ -83,6 +83,9 @@ from tc_ai_bridge import language_qa_scope
 from tc_ai_bridge.language_qa import text_hash as language_qa_text_hash
 from tc_ai_bridge.language_qa import word_occurrences as language_qa_word_occurrences
 from tc_ai_bridge.language_qa import lift_inline_usfm as language_qa_lift
+from tc_ai_bridge.language_packs.reference_text import ReferenceHolder, detect as detect_reference
+from tc_ai_bridge.language_packs.related_words import RelatedWords
+from tc_ai_bridge.language_packs.registry import packs_dir
 from tc_ai_bridge.language_packs.registry import available as available_language_packs
 from tc_ai_bridge.workbench_repository import WorkbenchConflict, WorkbenchValidationError
 from tc_ai_bridge.alignment_engine import (
@@ -398,6 +401,8 @@ class Methods:
     LANGUAGE_QA_WORDS_LIST = "languageQa.words.list"
     LANGUAGE_QA_BOOK_WORDS = "languageQa.bookWords"
     LANGUAGE_QA_OCCURRENCES = "languageQa.occurrences"
+    LANGUAGE_QA_REFERENCE = "languageQa.reference"
+    LANGUAGE_QA_RELATED = "languageQa.related"
     CHECKS_STATUS = "checks.status"
     CHECKS_CANCEL = "checks.cancel"
     CHECKS_RETRY = "checks.retry"
@@ -619,6 +624,11 @@ class BridgeEngine:
         # settings. See tests/test_bridge_service.py.
         self.settings = settings if settings is not None else AppSettings()
         self._configure_language_qa()
+        # Reference Bibles (one per folder) and related-word indexes, built on
+        # background threads on first use and kept for the session.
+        self._reference_holders: dict[tuple[str, str], Any] = {}
+        self._related: dict[tuple[str, tuple[str, ...]], dict[str, Any]] = {}
+        self._related_lock = threading.Lock()
         # Resolved lazily by current_actor_id(): working it out opens the
         # workspace database, and plenty of requests never write anything (#78).
         self._local_user: dict[str, str] | None = None
@@ -4411,8 +4421,117 @@ class BridgeEngine:
                 "hits": hits}
 
     def _reference_occurrences(self, word: str, limit: int) -> dict[str, Any]:
-        """The reference text's occurrences of a word (commit 7, reference_text)."""
-        raise ProjectError("No reference text is configured for this language yet.")
+        """The reference text's occurrences of a word (OV occurrences)."""
+        holder = self._reference_holder()
+        if holder is None:
+            raise ProjectError("No reference text is configured for this book's language (Settings > Language QA).")
+        text, error = holder.state()
+        if error:
+            raise ProjectError(f"The reference text could not be read: {error}")
+        if text is None:
+            return {"word": word, "source": "ov", "ready": False, "total": 0, "truncated": False, "hits": []}
+        hits, total = text.find(word, limit)
+        return {"word": unicodedata.normalize("NFC", word.strip()), "source": "ov", "ready": True, "total": total,
+                "truncated": total > len(hits), "hits": hits}
+
+    # -- reference text and related words (indic-qa's OV panel) --------------
+
+    def _reference_holder(self) -> Any:
+        """The reference Bible for the open book's Language QA pack: the folder
+        set in Settings, else the pack's own dictionary/verses.tsv when it ships
+        one (ta-irv: the 1957 OV). None when there is neither."""
+        pack = self._language_qa.pack_name()
+        if not pack:
+            return None
+        folder = self.settings.language_qa_reference_dirs.get(pack)
+        label = "Old Version"
+        if not folder:
+            bundled = packs_dir() / pack / "dictionary"
+            if not (bundled / "verses.tsv").is_file():
+                return None
+            folder, label = str(bundled), "Old Version (bundled)"
+        key = (pack, str(Path(folder).resolve()))
+        holder = self._reference_holders.get(key)
+        if holder is None:
+            holder = ReferenceHolder(folder, label, self.settings.path.parent / "reference-cache")
+            self._reference_holders[key] = holder
+        return holder
+
+    def language_qa_reference(self, params: dict[str, Any]) -> dict[str, Any]:
+        """The reference text of one chapter of the open book, for the panel
+        beside the text. Never waits: until the folder is read, `ready` is false."""
+        self._require_project()
+        chapter = params.get("chapter")
+        if not isinstance(chapter, str) or not chapter:
+            raise ProjectError("chapter must be a non-empty string")
+        holder = self._reference_holder()
+        if holder is None:
+            return {"ready": False, "configured": False, "source": None, "verses": [],
+                    "pack": self._language_qa.pack_name()}
+        text, error = holder.state()
+        source = {"path": str(holder.folder), "label": holder.label}
+        if error:
+            return {"ready": False, "configured": True, "source": source, "verses": [], "error": error}
+        if text is None:
+            return {"ready": False, "configured": True, "source": source, "verses": []}
+        return {"ready": True, "configured": True, "source": {**source, "kind": text.kind},
+                "verses": text.chapter(self.project.book_id, chapter)}
+
+    def language_qa_related(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Related words for one word (OV/IRV equivalents and same-stem forms),
+        from the reference text and the collection's opened books. Built once on a
+        background thread; until then `ready` is false."""
+        self._require_project()
+        word = params.get("word")
+        if not isinstance(word, str) or not word.strip():
+            raise ProjectError("word must be a non-empty string")
+        word = unicodedata.normalize("NFC", word.strip())
+        if not self.settings.language_qa_related_words:
+            return {"word": word, "ready": False, "off": True, "equivalents": [], "family": []}
+        holder = self._reference_holder()
+        if holder is None:
+            return {"word": word, "ready": False, "configured": False, "equivalents": [], "family": []}
+        text, error = holder.state()
+        if error or text is None:
+            return {"word": word, "ready": False, "error": error, "equivalents": [], "family": []}
+        projects = self._collection_book_projects()
+        key = (str(holder.folder), tuple(sorted(str(p.path) for p in projects)))
+        with self._related_lock:
+            entry = self._related.get(key)
+            if entry is None:
+                entry = {"index": None, "error": ""}
+                self._related[key] = entry
+                # The projects are opened here, on the request thread; the
+                # builder only reads their chapter files.
+                threading.Thread(target=self._build_related, args=(entry, text, projects), name="related-words",
+                                 daemon=True).start()
+        if entry["error"]:
+            return {"word": word, "ready": False, "error": entry["error"], "equivalents": [], "family": []}
+        if entry["index"] is None:
+            return {"word": word, "ready": False, "equivalents": [], "family": []}
+        return entry["index"].lookup(word)
+
+    def _build_related(self, entry: dict[str, Any], text: Any, projects: list[Any]) -> None:
+        try:
+            ov = [(f"{book} {chapter}:{verse}", [t for t, _, _ in language_qa_word_occurrences(t_)])
+                  for book, chapter, verse, t_ in text.references()]
+            irv = []
+            for project in projects:
+                book = str(project.book_id).upper()
+                for chapter in project.chapters():
+                    for verse, raw in (project.target_chapter(chapter) or {}).items():
+                        if not isinstance(raw, str) or verse == "front":
+                            continue
+                        lifted, _ = language_qa_lift(raw)
+                        if lifted is not None:
+                            irv.append((f"{book} {chapter}:{verse}",
+                                        [t for t, _, _ in language_qa_word_occurrences(lifted.visible)]))
+            index = RelatedWords.build(ov, irv)
+            with self._related_lock:
+                entry["index"] = index
+        except Exception as exc:  # a failed build is reported, never a failed request
+            with self._related_lock:
+                entry["error"] = f"{type(exc).__name__}: {exc}"
 
     # -- flags (indic-qa's reviewer flags) -----------------------------------
     #
@@ -4959,6 +5078,8 @@ class BridgeEngine:
             "languageQaInlinePrecision": self.settings.language_qa_inline_precision,
             "languageQaInlineConfidence": self.settings.language_qa_inline_confidence,
             "languageQaLearnedFixes": self.settings.language_qa_learned_fixes,
+            "languageQaReferenceDirs": self.settings.language_qa_reference_dirs,
+            "languageQaRelatedWords": self.settings.language_qa_related_words,
             "hasApiKey": bool(self.settings.get_api_key()),
             "aiUsage": self.settings.get_ai_usage_totals(),
         }
@@ -4994,12 +5115,34 @@ class BridgeEngine:
             self.settings.language_qa_inline_confidence = kwargs["languageQaInlineConfidence"]
         if "languageQaLearnedFixes" in kwargs:
             self.settings.language_qa_learned_fixes = bool(kwargs["languageQaLearnedFixes"])
+        if "languageQaRelatedWords" in kwargs:
+            self.settings.language_qa_related_words = bool(kwargs["languageQaRelatedWords"])
+        if "languageQaReferenceDirs" in kwargs:
+            self.settings.language_qa_reference_dirs = self._valid_reference_dirs(kwargs["languageQaReferenceDirs"])
         self._configure_language_qa()
         self._navigation.configure(
             paratext=self.settings.paratext_navigation,
             logos=self.settings.logos_navigation,
         )
         return self.get_settings()
+
+    @staticmethod
+    def _valid_reference_dirs(value: Any) -> dict[str, str]:
+        """{pack: folder}; an empty folder removes the pack's entry. A folder
+        must exist and hold verses.tsv or USFM books, so a typo is refused at
+        once rather than shown as a reference that never loads."""
+        if not isinstance(value, dict):
+            raise ProjectError("languageQaReferenceDirs must be an object of pack -> folder")
+        out: dict[str, str] = {}
+        for pack, folder in value.items():
+            if not isinstance(pack, str) or not isinstance(folder, str):
+                raise ProjectError("languageQaReferenceDirs must map a pack name to a folder path")
+            if not folder.strip():
+                continue
+            if detect_reference(folder.strip()) is None:
+                raise ProjectError(f"{folder}: no verses.tsv and no USFM books in that folder")
+            out[pack] = str(Path(folder.strip()))
+        return out
 
     def _configure_language_qa(self) -> None:
         """Hand the reviewer's Language QA preferences to the manager. The inline
@@ -5062,7 +5205,8 @@ class BridgeEngine:
                      Methods.LANGUAGE_QA_SCOPE_APPLY, Methods.LANGUAGE_QA_BATCH_UNDO, Methods.LANGUAGE_QA_BATCHES,
                      Methods.LANGUAGE_QA_FLAGS_LIST, Methods.LANGUAGE_QA_FLAGS_ADD, Methods.LANGUAGE_QA_FLAGS_UPDATE,
                      Methods.LANGUAGE_QA_FLAGS_DELETE, Methods.LANGUAGE_QA_WORDS_ADD, Methods.LANGUAGE_QA_WORDS_LIST,
-                     Methods.LANGUAGE_QA_BOOK_WORDS, Methods.LANGUAGE_QA_OCCURRENCES}:
+                     Methods.LANGUAGE_QA_BOOK_WORDS, Methods.LANGUAGE_QA_OCCURRENCES, Methods.LANGUAGE_QA_REFERENCE,
+                     Methods.LANGUAGE_QA_RELATED}:
                 self._require_project()
                 # Compared canonically, not as strings. `project.open` resolves
                 # the path it is given, so a caller echoing back the path *it*
@@ -5083,6 +5227,10 @@ class BridgeEngine:
                     result = self.language_qa_book_words(p)
                 elif m == Methods.LANGUAGE_QA_OCCURRENCES:
                     result = self.language_qa_occurrences(p)
+                elif m == Methods.LANGUAGE_QA_REFERENCE:
+                    result = self.language_qa_reference(p)
+                elif m == Methods.LANGUAGE_QA_RELATED:
+                    result = self.language_qa_related(p)
                 elif m in {Methods.LANGUAGE_QA_FLAGS_LIST, Methods.LANGUAGE_QA_FLAGS_ADD,
                            Methods.LANGUAGE_QA_FLAGS_UPDATE, Methods.LANGUAGE_QA_FLAGS_DELETE}:
                     result = self.language_qa_flags(m.rsplit(".", 1)[1], p)

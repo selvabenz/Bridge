@@ -296,6 +296,32 @@ class AppSettings:
         self.data['language_qa_learned_fixes'] = bool(value)
         self.save_sanitized()
 
+    @property
+    def language_qa_reference_dirs(self) -> dict[str, str]:
+        """Settings > Language QA: the reference Bible (an Old Version) per
+        Language QA pack, e.g. {"hi-irv": "D:/OV Hindi"}. A folder of USFM books
+        or an indic-qa dictionary folder with verses.tsv. Nothing OV-derived is
+        bundled for these languages, so the reviewer chooses it."""
+        value = self.data.get('language_qa_reference_dirs') or {}
+        if not isinstance(value, dict):
+            return {}
+        return {str(k): str(v) for k, v in value.items() if isinstance(k, str) and isinstance(v, str) and v}
+
+    @language_qa_reference_dirs.setter
+    def language_qa_reference_dirs(self, value: dict[str, str]) -> None:
+        self.data['language_qa_reference_dirs'] = {str(k): str(v) for k, v in (value or {}).items() if v}
+        self.save_sanitized()
+
+    @property
+    def language_qa_related_words(self) -> bool:
+        """Offer related words (OV/IRV equivalents and same-stem forms). On by default."""
+        return bool(self.data.get('language_qa_related_words', True))
+
+    @language_qa_related_words.setter
+    def language_qa_related_words(self, value: Any) -> None:
+        self.data['language_qa_related_words'] = bool(value)
+        self.save_sanitized()
+
     @staticmethod
     def _seed_reviewer_name() -> str:
         """A brand-new profile has never had a reviewer name typed in.

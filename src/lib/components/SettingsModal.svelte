@@ -32,6 +32,9 @@
   let inlinePrecision = 0;
   let inlineConfidence: InlineConfidence = "low";
   let learnedFixes = true;
+  let relatedWords = true;
+  // The reference Bible per Language QA pack (folder path; "" = none).
+  let referenceDirs: Record<string, string> = {};
   let inlineSaving = false;
   let inlineMessage = "";
 
@@ -103,6 +106,8 @@
       inlinePrecision = s.languageQaInlinePrecision ?? 0;
       inlineConfidence = s.languageQaInlineConfidence ?? "low";
       learnedFixes = s.languageQaLearnedFixes ?? true;
+      relatedWords = s.languageQaRelatedWords ?? true;
+      referenceDirs = { ...(s.languageQaReferenceDirs ?? {}) };
       reviewerMode.set(s.reviewerMode);
       navigationStatus.set(await bridge.navigationStatus());
     } catch (e) {
@@ -179,10 +184,14 @@
       const result = await bridge.setSettings({
         languageQaInlinePrecision: inlinePrecision, languageQaInlineConfidence: inlineConfidence,
         languageQaLearnedFixes: learnedFixes,
+        languageQaRelatedWords: relatedWords,
+        languageQaReferenceDirs: referenceDirs,
       });
       inlinePrecision = result.languageQaInlinePrecision ?? inlinePrecision;
       inlineConfidence = result.languageQaInlineConfidence ?? inlineConfidence;
       learnedFixes = result.languageQaLearnedFixes ?? learnedFixes;
+      relatedWords = result.languageQaRelatedWords ?? relatedWords;
+      referenceDirs = { ...(result.languageQaReferenceDirs ?? referenceDirs) };
       inlineMessage = "Applied.";
       nudgeLanguageQa();
     } catch (e) {
@@ -190,6 +199,14 @@
     } finally {
       inlineSaving = false;
     }
+  }
+
+  /** Every pack a reference Bible can be set for: the registered ones. */
+  $: referencePacks = lqaPacks.length ? lqaPacks : [];
+
+  async function browseReference(pack: string): Promise<void> {
+    const folder = await bridge.pickFolder();
+    if (folder) referenceDirs = { ...referenceDirs, [pack]: folder };
   }
 
   async function refreshConnections(): Promise<void> {
@@ -627,6 +644,24 @@
           <input type="checkbox" bind:checked={learnedFixes} />
           <span><b>Offer my earlier replacements</b><small>When you replace one word in a verse, the same word elsewhere in the book gets a blue dotted underline offering your change. Manage them in Language QA › Dictionary.</small></span>
         </label>
+        <label class="mode-option" class:selected={relatedWords}>
+          <input type="checkbox" bind:checked={relatedWords} />
+          <span><b>Show related words</b><small>In the review panel: what the reference Bible used in the same place, and forms sharing the word's stem.</small></span>
+        </label>
+        <h3 class="sub">Reference Bible</h3>
+        <p class="desc">An Old Version beside the text, for each language: a folder of USFM books, or an indic-qa dictionary folder with verses.tsv. Tamil has the 1957 OV built in. Nothing is copied into Bridge; the folder is read once and kept.</p>
+        {#each referencePacks as p (p.pack)}
+          <div class="field">
+            <label for={`ref-${p.pack}`}>{p.name} ({p.pack})</label>
+            <div class="ref-row">
+              <input id={`ref-${p.pack}`} type="text" bind:value={referenceDirs[p.pack]}
+                placeholder={p.pack === "ta-irv" ? "Built in: the 1957 OV" : "Not set"} />
+              <button class="btn" type="button" on:click={() => browseReference(p.pack)}>Browse…</button>
+            </div>
+          </div>
+        {:else}
+          <p class="muted">Open a project to list its language's packs.</p>
+        {/each}
         <div class="save-row">
           <button class="btn primary" on:click={saveInlineThreshold} disabled={inlineSaving}>{inlineSaving ? "Saving…" : "Apply"}</button>
           {#if inlineMessage}<span class="save-msg" role="status">{inlineMessage}</span>{/if}
@@ -749,6 +784,8 @@
   .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   .btn:disabled { opacity: 0.6; cursor: not-allowed; }
   .save-msg { font-size: var(--fs-xs); color: var(--success); }
+  .ref-row { display: flex; gap: 6px; }
+  .ref-row input { flex: 1; }
   .term-conflict { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--warning); border-radius: 6px; background: var(--warning-bg); font-size: var(--fs-sm); }
   .term-conflict p { margin: 0 0 8px; }
   .field textarea { width: 100%; border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: var(--fs-sm); color: var(--text); background: var(--surface-2); box-sizing: border-box; font-family: inherit; }

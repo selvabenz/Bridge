@@ -3,6 +3,7 @@ import type {
   LearnedFix, LearnedFixesResponse, VerseEditLearned,
   BatchUndoResult, LanguageQaScope, ScopeAcceptResult, ScopeFindResult, ScopeIgnoreResult,
   FlagInput, FlagStatus, FlagType, LanguageQaFlag, BookWordsResult, OccurrencesResult,
+  ReferenceChapter, RelatedWordsResult,
 } from "../types/languageQa";
 import type { CollectionQaSnapshot } from "../types/collectionQa";
 import type {
@@ -215,6 +216,8 @@ export type EngineMethod =
   | "languageQa.words.list"
   | "languageQa.bookWords"
   | "languageQa.occurrences"
+  | "languageQa.reference"
+  | "languageQa.related"
   | "housestyle.list"
   | "housestyle.nameSuggestions"
   | "housestyle.record"
@@ -432,6 +435,16 @@ export const bridge = {
     return call("languageQa.occurrences", { projectPath, word, source, limit });
   },
 
+  /** One chapter of the reference Bible; `ready` is false while it loads. */
+  languageQaReference(projectPath: string, chapter: string): Promise<ReferenceChapter> {
+    return call("languageQa.reference", { projectPath, chapter });
+  },
+
+  /** OV/IRV equivalents and same-stem forms; `ready` is false while the index builds. */
+  languageQaRelated(projectPath: string, word: string): Promise<RelatedWordsResult> {
+    return call("languageQa.related", { projectPath, word });
+  },
+
   /** This book's flags (one chapter's when given), in reading order. */
   languageQaFlagsList(projectPath: string, chapter?: string): Promise<{ flags: LanguageQaFlag[] }> {
     const params: Record<string, unknown> = { projectPath };
@@ -506,6 +519,11 @@ export const bridge = {
   },
 
   async pickProjectFolder(): Promise<string | null> {
+    return invoke<string | null>("pick_project_folder");
+  },
+
+  /** Any folder (the same native dialog): a reference Bible's folder. */
+  async pickFolder(): Promise<string | null> {
     return invoke<string | null>("pick_project_folder");
   },
 

@@ -494,6 +494,27 @@ write would also change every other project of that language.
 **Revisit when:** the indic-qa checker's own consistency majorities should
 count a project word (they do not today).
 
+## 2026-10-07 — The reference Bible is a folder the reviewer chooses; related words are ported, not vendored
+**Decision:** indic-qa's OV panel, "OV occurrences" and related words read
+a reference Bible from a folder set per pack in Settings › Language QA. The
+folder is an indic-qa dictionary folder with `verses.tsv`, or a folder of
+USFM books read through Bridge's importer. Tamil falls back to the 1957 OV
+that ta-irv already ships. Its plain text is cached under
+`%LOCALAPPDATA%\Bridge\data\reference-cache\`, keyed by the folder's
+file names, sizes and mtimes. Related words are Bridge's own port of
+upstream `related.py`, built in memory once per session and pack.
+**Because:** the OV text for Hindi, Malayalam, Odia and Punjabi has no
+settled licence (NOTICE.md), so Bridge must not ship it, and a reviewer who
+has a copy can still use it. Upstream `related.py` reads indic-qa's own
+book objects and private checker counts; porting ~150 lines onto Language
+QA's tokenizer keeps one meaning of "word" across Bridge.
+**Rules out:**
+- bundling any OV-derived file for hi, ml, or or pa;
+- a network fetch of a reference text;
+- parsing the reference folder's USFM anywhere but the importer;
+- writing to the reference folder.
+**Revisit when:** the OV licence question is answered.
+
 <!-- New entries go above this line. -->
 
 ## 2026-10-07 — indic-qa's checker core is vendored in-process for Punjabi, Malayalam, Hindi and Odia

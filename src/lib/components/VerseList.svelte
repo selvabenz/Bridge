@@ -36,7 +36,7 @@
   /** Opens a verse anywhere in the book (an occurrence in another chapter). */
   export let onNavigate: (book: string, chapter: string, verse: string) => void = () => {};
   // The word whose occurrences are listed (verse menu), or null.
-  let occurrencesOf: string | null = null;
+  let occurrencesOf: { word: string; source: "irv" | "ov" } | null = null;
 
   let openNotes: { kind: VerseNoteKind; notes: VerseNote[]; reference: string } | null = null;
   let contextMenu: { finding: QaFinding; verse: string; x: number; y: number } | null = null;
@@ -185,6 +185,12 @@
         label: "Show IRV occurrences…",
         disabled: !$project,
         title: "Every place this word occurs in the book",
+      },
+      {
+        id: "occurrences-ov",
+        label: "Show OV occurrences…",
+        disabled: !$project,
+        title: "Every place this word occurs in the reference Bible (Settings › Language QA)",
       },
       {
         id: "flag",
@@ -510,8 +516,8 @@
         contextNotice = error;
         contextNoticeError = true;
       });
-    } else if (id === "occurrences") {
-      occurrencesOf = finding.originalText.trim();
+    } else if (id === "occurrences" || id === "occurrences-ov") {
+      occurrencesOf = { word: finding.originalText.trim(), source: id === "occurrences" ? "irv" : "ov" };
     } else if (id.startsWith("use-scope:")) {
       const [, rank, scope] = id.split(":");
       const chosen = languageQaSuggestions(finding).find((s) => String(s.rank) === rank);
@@ -1037,7 +1043,7 @@
 {/if}
 
 {#if occurrencesOf && $project}
-  <OccurrencesPopup projectPath={$project.path} word={occurrencesOf} source="irv" {onNavigate}
+  <OccurrencesPopup projectPath={$project.path} word={occurrencesOf.word} source={occurrencesOf.source} {onNavigate}
     onClose={() => (occurrencesOf = null)} />
 {/if}
 {#if flagDraft}

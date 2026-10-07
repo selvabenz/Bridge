@@ -10,6 +10,8 @@
   import ScopeNotice from "./lib/components/ScopeNotice.svelte";
   import { resetScopedApply, scopeDialog } from "./lib/scopedApply";
   import { startFlagLoader } from "./lib/flags";
+  import ReferencePanel from "./lib/components/ReferencePanel.svelte";
+  import { referencePanelOpen } from "./lib/editorPrefs";
   import AlignmentReview from "./lib/components/AlignmentReview.svelte";
   import CrossVerseAlignmentModal from "./lib/components/CrossVerseAlignmentModal.svelte";
   import {
@@ -1123,6 +1125,10 @@
           >
             Cross-verse alignment{#if $selectedVerseSet.length > 1}&nbsp;({$selectedVerseSet.length}){/if}
           </button>
+          <span class="toolbar-divider" aria-hidden="true" />
+          <button class="whole-book-btn" class:on={$referencePanelOpen} aria-pressed={$referencePanelOpen}
+            title="Show a reference Bible (an Old Version) beside the text"
+            on:click={() => referencePanelOpen.update((open) => !open)}>Ref.</button>
           <span class="grow" />
           <span title="Word-alignment status for this chapter">
             Alignment: {alignmentChapterSummary.complete} complete · {alignmentChapterSummary.partial} partial
@@ -1132,7 +1138,12 @@
         </div>
         <VerseList onSelect={selectVerse} onNavigate={navigateToReportRow} />
       </div>
-      <ReviewPanel />
+      {#if $referencePanelOpen && $project}
+        {#key $project.path}
+          <ReferencePanel onOpenSettings={() => openSettings("languageQa")} onSelectVerse={selectVerse} />
+        {/key}
+      {/if}
+      <ReviewPanel onNavigate={navigateToReportRow} />
     </div>
 
     <div class="statusbar">
@@ -1217,6 +1228,8 @@
   .editor-toolbar > * { white-space: nowrap; flex-shrink: 0; }
   .whole-book-btn { font-size: var(--fs-xs); font-weight: 600; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); cursor: pointer; }
   .whole-book-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+  .whole-book-btn.on { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
+  .toolbar-divider { width: 1px; height: 20px; background: var(--border-strong); }
   .grow { flex: 1; }
   .statusbar { height: 28px; background: var(--surface); border-top: 1px solid var(--border); display: flex; align-items: center; padding: 0 16px; gap: 16px; font-size: var(--fs-xs); color: var(--text-2); flex-shrink: 0; }
   .engine-notice { color: var(--warning); font-weight: 600; }

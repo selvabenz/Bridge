@@ -15481,3 +15481,67 @@ list. DECISIONS 2026-10-07, "A project word is a house-style list entry".
   - `npm run build`: ok.
 
 **Not verified.** The desktop app.
+
+## 2026-10-07 — Reference Bible panel, OV occurrences, related words (branch `indic-qa-editor`, commit 7)
+
+These are indic-qa's OV panel, "OV occurrences" and related-word
+suggestions. DECISIONS 2026-10-07, "The reference Bible is a folder the
+reviewer chooses".
+
+**Engine.**
+- New `language_packs/reference_text.py`:
+  - `detect` tells a `verses.tsv` folder from a USFM folder;
+  - USFM books go through `language_qa_benchmark.book_verses` (the
+    importer), never a regex;
+  - `ReferenceHolder` builds on a daemon thread and caches the plain text
+    under `reference-cache/` beside `settings.json`, keyed by each file's
+    name, size and mtime.
+- New `language_packs/related_words.py`, a port of upstream `related.py`.
+  Before porting, upstream was run on a real Hindi IRV/OV pair. The port's
+  equivalents matched upstream's except one count (गये: 6 vs 7).
+- Settings: `languageQaReferenceDirs` (validated with `detect`, `""`
+  clears) and `languageQaRelatedWords`.
+- RPCs:
+  - `languageQa.reference`;
+  - `languageQa.related`, built in the background once per pack;
+  - `languageQa.occurrences` with `source: "ov"`.
+- ta-irv falls back to its bundled `verses.tsv`.
+- NOTICE.md no longer says Bridge lacks the related-word lookup. The
+  non-Tamil `verses.tsv` files are still not vendored.
+
+**Frontend.**
+- `ReferencePanel.svelte`: the "Ref." toolbar toggle, remembered in
+  `editorPrefs.ts` (localStorage). Its "follow" checkbox scrolls the panel
+  to the selected verse, and clicking a reference verse selects it in the
+  text. It is hidden under 1,200 px.
+- `RelatedWords.svelte` appears in the review panel for the verse's first
+  single-word Language QA finding. It shows equivalents, the same-stem
+  family and IRV/OV counts, with links to both occurrence lists.
+- The verse menu gains "Show OV occurrences…".
+- Settings › Language QA:
+  - a Reference Bible row per pack, with Browse (`pick_project_folder`);
+  - a "Show related words" checkbox.
+
+**Verified.**
+- Engine:
+  - `test_reference_text.py`: 5 passed;
+  - `test_related_words.py`: 4 passed;
+  - `tests/service/test_language_qa_reference.py`: 5 passed. These cover the
+    bundled Tamil OV, a Settings folder replacing it and being cached, an
+    empty folder refused, OV occurrences, and related words built once and
+    turned off.
+  - Latency gate: Tamil passed. Hindi passed 2 of 3 runs; the failing run
+    had `verse.get` at 55.87 ms against the 50 ms local budget. This is the
+    same flakiness recorded at commits 1 and 4.
+- Frontend:
+  - `npm run check`: 0 errors, 0 warnings;
+  - `npm run test`: 578 passed;
+  - `npm run build`: ok.
+  - One full vitest run, made while the engine tests were running alongside
+    it, failed the VerseList click-budget test (356 ms against a 100 ms
+    budget). It passed alone and in a full run with nothing else running.
+
+**Not verified.**
+- The desktop app.
+- A real USFM reference folder of a whole Bible. Only the test fixtures and
+  the bundled Tamil TSV have been read.

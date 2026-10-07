@@ -51,9 +51,14 @@ through Tauri `bundle.resources` (`docs/LANGUAGE_QA_PACKS.md`). Each pack's
   decisions and house style, and one Scripture writer. indic-qa's editor writes
   corrections straight into `.SFM` files, and none of that path is brought over.
 - **`related.py` and every non-Tamil `verses.tsv`** (10–13 MB per language).
-  Only the OV↔IRV related-word lookup reads them, and Bridge does not offer that
-  lookup. Tamil's `verses.tsv` *is* taken. Bridge's own `ov_reference.py` reads
-  it to show the OV verse beside a Tamil layer finding.
+  Bridge offers the related-word lookup, but as its own port
+  (`tc_ai_bridge/language_packs/related_words.py`, same algorithm and
+  thresholds), because upstream walks indic-qa's `usfm_doc.Book` objects and
+  the checker's private counts. The non-Tamil `verses.tsv` files stay out:
+  their licence is unresolved, so a reviewer points Settings › Language QA at
+  their own copy (`reference_text.py`). Tamil's `verses.tsv` *is* taken.
+  Bridge's own `ov_reference.py` reads it to show the OV verse beside a Tamil
+  layer finding, and it is Tamil's default reference Bible.
 - **`usfm/`, `docs/` and `tests/`.** Also every other
   `scripts/*.py` (dictionary builds, workbooks, measurements), and the build
   reports nothing reads at runtime: `REPORT.md`, `malformed_words.tsv`,

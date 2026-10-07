@@ -1000,6 +1000,10 @@ export interface SettingsData {
   languageQaInlineConfidence: InlineConfidence;
   /** Learn a word the reviewer replaced and offer the change where it recurs. Default on. */
   languageQaLearnedFixes?: boolean;
+  /** The reference Bible per Language QA pack: {"hi-irv": "D:/OV Hindi"}. */
+  languageQaReferenceDirs?: Record<string, string>;
+  /** Offer related words from the reference text. Default on. */
+  languageQaRelatedWords?: boolean;
   hasApiKey: boolean;
   aiUsage: { tokens: number; estimatedCostUSD: number };
 }

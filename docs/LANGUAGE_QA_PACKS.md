@@ -246,7 +246,28 @@ or the whole verse.
 - `languageQa.occurrences {word, source: "irv"}` lists every place the word
   occurs in the open book's verse text. It uses Language QA's own tokenizer,
   returns raw offsets and a visible-text snippet, and caps at 5,000 verses.
-  `source: "ov"` comes with the reference text (commit 7).
+  `source: "ov"` searches the reference Bible (next section).
+
+### Reference Bible and related words (every pack, DECISIONS 2026-10-07)
+
+- Settings › Language QA sets a folder per pack
+  (`languageQaReferenceDirs`, `{pack: folder}`). A folder holding neither
+  `verses.tsv` nor USFM/SFM books is refused when saved. ta-irv falls back
+  to its own `dictionary/verses.tsv` (the 1957 OV) with no folder set.
+- `reference_text.ReferenceHolder` reads the folder on a background thread.
+  It caches the plain text as `<fingerprint>.json.gz` in
+  `%LOCALAPPDATA%\Bridge\data\reference-cache\` and answers
+  `ready: false` until then; the UI polls once a second.
+- `languageQa.reference {chapter}` gives the open book's chapter. The
+  Ref. toolbar toggle shows it in a 300 px panel that follows the selected
+  verse. The panel is hidden under 1,200 px.
+- `languageQa.related {word}`: `related_words.RelatedWords`, ported from
+  upstream `related.py` (`MIN_PAIR = 2`, `MAX_SPAN = 3`). It returns
+  equivalents (what the other text used in the same slot, with a count and
+  an example reference), same-stem forms, and the word's own IRV/OV counts.
+  It is built in memory from the reference and the materialized books of the
+  collection, once per session and pack. It can be turned off with
+  `languageQaRelatedWords`.
 
 ### Phase 1 data rules (DECISIONS 2026-10-07)
 

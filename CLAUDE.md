@@ -246,6 +246,9 @@ A raw Scripture import becomes a translationCore-compatible book project:
                                                 project registry, non-secret settings, and one cached
                                                 progress rollup per project for the dashboard
 %LOCALAPPDATA%\Bridge\data\settings.json       DPAPI-wrapped secrets only
+%LOCALAPPDATA%\Bridge\data\reference-cache\    plain text of each reference Bible folder chosen in
+                                                Settings > Language QA, `<fingerprint>.json.gz`;
+                                                derived, rebuilt when the folder changes, never shipped
 ```
 
 **The file stores have moved (#76 and #77, 2026-09-15).** `decisions/`,

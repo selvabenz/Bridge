@@ -8,6 +8,8 @@
   import { addFlag } from "../flags";
   import { addProjectWords, isKnownMisspellingRule } from "../projectWords";
   import FlagDialog from "./FlagDialog.svelte";
+  import RelatedWords from "./RelatedWords.svelte";
+  import OccurrencesPopup from "./OccurrencesPopup.svelte";
   import type { FlagInput } from "../types/languageQa";
   import type { LanguageQaFinding, LanguageQaScope, LanguageQaSuggestion } from "../types/languageQa";
   import AlignmentModal from "./AlignmentModal.svelte";
@@ -165,6 +167,12 @@
       removed.forEach(restoreLqa);
     });
   }
+
+  // Related words are offered for the first single-word finding of the verse.
+  $: relatedWord = lqaFindings.map((f) => f.originalText.trim()).find((w) => w && !/\s/.test(w)) ?? "";
+  let occurrences: { word: string; source: "irv" | "ov" } | null = null;
+  /** Opens a verse anywhere in the book (an IRV occurrence). */
+  export let onNavigate: (book: string, chapter: string, verse: string) => void = () => {};
 
   // Flag for review: a question for the team, never a change to the verse.
   let lqaFlagDraft: LanguageQaFinding | null = null;
@@ -826,6 +834,10 @@
               </p>
             {/each}
           </div>
+          {#if relatedWord && $project}
+            <RelatedWords projectPath={$project.path} word={relatedWord}
+              onShowOccurrences={(word, source) => (occurrences = { word, source })} />
+          {/if}
           {#if lqaHidden.length > 0}
             <details class="section ignored-section">
               <summary class="section-title ignored-summary">Decided ({lqaHidden.length})</summary>
@@ -967,6 +979,10 @@
   <AlignmentModal chapter={$currentChapter} verse={$selectedVerse} onClose={() => alignmentOpen.set(false)} />
 {/if}
 
+{#if occurrences && $project}
+  <OccurrencesPopup projectPath={$project.path} word={occurrences.word} source={occurrences.source}
+    {onNavigate} onClose={() => (occurrences = null)} />
+{/if}
 {#if lqaFlagDraft}
   <FlagDialog
     draft={{ chapter: lqaFlagDraft.chapter, verse: lqaFlagDraft.verse, start: lqaFlagDraft.start, end: lqaFlagDraft.end,

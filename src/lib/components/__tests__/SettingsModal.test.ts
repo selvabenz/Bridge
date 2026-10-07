@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 
-const { getSettings, getNavigationStatus, setSettings, engineInfo, terminologyList, terminologyRecord, housestyleList, housestyleRecord, housestyleSetState, housestyleNameSuggestions, languageQaStatus, languageQaSetPack } = vi.hoisted(() => ({
+const { getSettings, getNavigationStatus, setSettings, engineInfo, terminologyList, terminologyRecord, housestyleList, housestyleRecord, housestyleSetState, housestyleNameSuggestions, languageQaStatus, languageQaSetPack, pickFolder } = vi.hoisted(() => ({
+  pickFolder: vi.fn(),
   languageQaStatus: vi.fn(),
   languageQaSetPack: vi.fn(),
   housestyleNameSuggestions: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock("../../api/bridgeClient", () => ({
     housestyleNameSuggestions,
     languageQaStatus,
     languageQaSetPack,
+    pickFolder,
   },
 }));
 
@@ -510,8 +512,8 @@ describe("SettingsModal terminology (#171)", () => {
     await fireEvent.change(floor, { target: { value: "high" } });
     await fireEvent.click(screen.getByRole("button", { name: "Apply" }));
 
-    await waitFor(() => expect(setSettings).toHaveBeenCalledWith(
-      { languageQaInlinePrecision: 60, languageQaInlineConfidence: "high", languageQaLearnedFixes: true }));
+    await waitFor(() => expect(setSettings).toHaveBeenCalledWith(expect.objectContaining(
+      { languageQaInlinePrecision: 60, languageQaInlineConfidence: "high", languageQaLearnedFixes: true })));
     expect(await screen.findByText("Applied.")).toBeInTheDocument();
     expect(screen.getByText(/confirmed less than 60% of the time are listed, not drawn/)).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
@@ -538,5 +540,20 @@ describe("SettingsModal terminology (#171)", () => {
     expect(screen.getByText(/Open a project to choose its Language QA rules/)).toBeInTheDocument();
     expect(languageQaStatus).not.toHaveBeenCalled();
     expect(housestyleList).not.toHaveBeenCalled();
+  });
+
+  it("sets a pack's reference Bible folder with Browse and saves it with Apply", async () => {
+    project.set(minimalProject());
+    languageQaStatus.mockResolvedValue({ setting: "auto", packs: [{ language: "hi", name: "Hindi", pack: "hi-irv" }] });
+    pickFolder.mockResolvedValue("D:/OV Hindi");
+    setSettings.mockResolvedValue({ languageQaReferenceDirs: { "hi-irv": "D:/OV Hindi" } });
+    render(SettingsModal, { props: { initialPane: "languageQa", onClose: vi.fn() } });
+    const field = (await screen.findByLabelText("Hindi (hi-irv)")) as HTMLInputElement;
+    expect(field.value).toBe("");
+    await fireEvent.click(screen.getByRole("button", { name: "Browse…" }));
+    await waitFor(() => expect(field.value).toBe("D:/OV Hindi"));
+    await fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    await waitFor(() => expect(setSettings).toHaveBeenCalledWith(expect.objectContaining({
+      languageQaReferenceDirs: { "hi-irv": "D:/OV Hindi" }, languageQaRelatedWords: true })));
   });
 });
