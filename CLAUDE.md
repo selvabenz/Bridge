@@ -243,7 +243,8 @@ A raw Scripture import becomes a translationCore-compatible book project:
                                                 journalled verse edits; it never writes Scripture.
 <project>/.apps/translationCoreAI/backups/      the backup files themselves, indexed by the DB
 %LOCALAPPDATA%\Bridge\data\workspace.sqlite3    app-level, schema v2 (#77): users, devices, the
-                                                project registry, non-secret settings, and one cached
+                                                project registry, non-secret settings (bookmarks and
+                                                recent chapters among them), and one cached
                                                 progress rollup per project for the dashboard
 %LOCALAPPDATA%\Bridge\data\settings.json       DPAPI-wrapped secrets only
 %LOCALAPPDATA%\Bridge\data\reference-cache\    plain text of each reference Bible folder chosen in

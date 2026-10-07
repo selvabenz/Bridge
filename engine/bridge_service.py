@@ -5130,6 +5130,8 @@ class BridgeEngine:
             "languageQaLearnedFixes": self.settings.language_qa_learned_fixes,
             "languageQaReferenceDirs": self.settings.language_qa_reference_dirs,
             "languageQaRelatedWords": self.settings.language_qa_related_words,
+            "bookmarks": self.settings.bookmarks,
+            "recentChapters": self.settings.recent_chapters,
             "hasApiKey": bool(self.settings.get_api_key()),
             "aiUsage": self.settings.get_ai_usage_totals(),
         }
@@ -5169,12 +5171,52 @@ class BridgeEngine:
             self.settings.language_qa_related_words = bool(kwargs["languageQaRelatedWords"])
         if "languageQaReferenceDirs" in kwargs:
             self.settings.language_qa_reference_dirs = self._valid_reference_dirs(kwargs["languageQaReferenceDirs"])
+        if "bookmarks" in kwargs:
+            self.settings.bookmarks = self._valid_places(kwargs["bookmarks"], "bookmarks", self.BOOKMARKS_MAX, True)
+        if "recentChapters" in kwargs:
+            self.settings.recent_chapters = self._valid_places(
+                kwargs["recentChapters"], "recentChapters", self.RECENT_CHAPTERS_MAX, False)
         self._configure_language_qa()
         self._navigation.configure(
             paratext=self.settings.paratext_navigation,
             logos=self.settings.logos_navigation,
         )
         return self.get_settings()
+
+    BOOKMARKS_MAX = 200
+    RECENT_CHAPTERS_MAX = 20
+    PLACE_LABEL_MAX = 200
+
+    @classmethod
+    def _valid_places(cls, value: Any, name: str, cap: int, with_verse: bool) -> list[dict[str, Any]]:
+        """Bookmarks (a verse) or recent chapters, newest first. A place is
+        `{collection, book, chapter[, verse], label, ts}`; `collection` is the
+        open collection's id (or the project path), so a list can span projects
+        and each shows only its own. A repeat keeps its first (newest) entry,
+        and the list is cut to `cap`."""
+        if not isinstance(value, list):
+            raise ProjectError(f"{name} must be a list")
+        out: list[dict[str, Any]] = []
+        seen: set[tuple[str, ...]] = set()
+        for place in value:
+            if not isinstance(place, dict):
+                raise ProjectError(f"each of {name} must be an object")
+            fields = {k: place.get(k) for k in ("collection", "book", "chapter", "verse", "label", "ts")}
+            for key in ("collection", "book", "chapter") + (("verse",) if with_verse else ()):
+                if not isinstance(fields[key], str) or not fields[key].strip():
+                    raise ProjectError(f"each of {name} needs a non-empty {key}")
+            label = fields["label"] if isinstance(fields["label"], str) else ""
+            clean = {"collection": fields["collection"], "book": fields["book"].lower(),
+                     "chapter": fields["chapter"], "label": label[:cls.PLACE_LABEL_MAX],
+                     "ts": fields["ts"] if isinstance(fields["ts"], str) else ""}
+            if with_verse:
+                clean["verse"] = fields["verse"]
+            identity = (clean["collection"], clean["book"], clean["chapter"], clean.get("verse", ""))
+            if identity in seen:
+                continue
+            seen.add(identity)
+            out.append(clean)
+        return out[:cap]
 
     @staticmethod
     def _valid_reference_dirs(value: Any) -> dict[str, str]:

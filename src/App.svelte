@@ -11,7 +11,11 @@
   import { resetScopedApply, scopeDialog } from "./lib/scopedApply";
   import { startFlagLoader } from "./lib/flags";
   import ReferencePanel from "./lib/components/ReferencePanel.svelte";
-  import { rawView, referencePanelOpen } from "./lib/editorPrefs";
+  import FindingContextMenu from "./lib/components/FindingContextMenu.svelte";
+  import { TEXT_SCALES, bumpTextScale, rawView, referencePanelOpen, textScale } from "./lib/editorPrefs";
+  import {
+    bookmarks, buildPlacesMenu, collectionOf, recentChapters, recordRecentChapter, setPlaces, toggleBookmark,
+  } from "./lib/bookmarks";
   import AlignmentReview from "./lib/components/AlignmentReview.svelte";
   import CrossVerseAlignmentModal from "./lib/components/CrossVerseAlignmentModal.svelte";
   import {
@@ -111,6 +115,31 @@
       $editSaving ? "saving" : "idle",
       screen,
     ].join("|");
+  }
+
+  // The ★ Bookmarks menu, anchored under its button.
+  let placesMenu: { x: number; y: number } | null = null;
+  $: currentPlace = $project && $selectedVerse
+    ? { collection: collectionOf($project), book: $project.bookId.toLowerCase(), chapter: $currentChapter, verse: $selectedVerse }
+    : null;
+  $: placesActions = placesMenu ? buildPlacesMenu($bookmarks, $recentChapters, collectionOf($project), currentPlace) : [];
+
+  function openPlacesMenu(event: MouseEvent): void {
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    placesMenu = { x: rect.left, y: rect.bottom + 4 };
+  }
+
+  async function onPlacesAction(event: CustomEvent<{ id: string }>): Promise<void> {
+    placesMenu = null;
+    const [kind, index] = event.detail.id.split(":");
+    if (kind === "toggle") {
+      if (!currentPlace) return;
+      const error = await toggleBookmark(currentPlace);
+      if (error) showNavigationNotice(error);
+      return;
+    }
+    const place = kind === "bm" ? $bookmarks[Number(index)] : kind === "recent" ? $recentChapters[Number(index)] : undefined;
+    if (place) await navigateToReportRow(place.book, place.chapter, place.verse ?? "");
   }
 
   function showNavigationNotice(message: string): void {
@@ -338,6 +367,7 @@
         try {
           const settings = await bridge.getSettings();
           reviewerMode.set(settings.reviewerMode);
+          setPlaces(settings);
           triageThreshold = settings.triageHideThreshold > 0 ? settings.triageHideThreshold : null;
         } catch (error) {
           console.error("Could not load reviewer mode", error);
@@ -861,6 +891,7 @@
       targetVerse && verses.includes(targetVerse) ? targetVerse : (verses.length > 0 ? verses[0] : null),
     );
     void hydrateChapterAIReviews(chapter, $project?.path ?? "", sequence);
+    if ($project) recordRecentChapter({ collection: collectionOf($project), book: $project.bookId.toLowerCase(), chapter });
     if (!$loadedChapters[chapter] && !activeJobId) {
       await beginChecks("chapter", [chapter]);
     }
@@ -1109,7 +1140,7 @@
     {/key}
   {:else}
     <div class="body">
-      <div class="editor-col">
+      <div class="editor-col" style:--verse-scale={$textScale}>
         <div class="editor-toolbar">
           <span>Chapter {$currentChapter} of {$project?.chapters.length ?? "?"}</span>
           <button class="whole-book-btn" on:click={runWholeBook} disabled={Boolean(activeJobId)}>
@@ -1135,6 +1166,15 @@
           <button class="whole-book-btn" class:on={$rawView} aria-pressed={$rawView}
             title="Show each verse exactly as stored, USFM markers included"
             on:click={() => rawView.update((on) => !on)}>Raw</button>
+          <button class="whole-book-btn" aria-haspopup="menu" disabled={!$project}
+            title="Bookmark this verse, or go to a bookmark or a recent chapter"
+            on:click={openPlacesMenu}>★ Bookmarks</button>
+          <span class="text-size" role="group" aria-label="Text size">
+            <button class="whole-book-btn" title="Smaller text" aria-label="Smaller text"
+              disabled={$textScale === TEXT_SCALES[0]} on:click={() => bumpTextScale(-1)}>A−</button>
+            <button class="whole-book-btn" title="Larger text" aria-label="Larger text"
+              disabled={$textScale === TEXT_SCALES[TEXT_SCALES.length - 1]} on:click={() => bumpTextScale(1)}>A+</button>
+          </span>
           <span class="grow" />
           <span title="Word-alignment status for this chapter">
             Alignment: {alignmentChapterSummary.complete} complete · {alignmentChapterSummary.partial} partial
@@ -1187,6 +1227,11 @@
     {/key}
   {/if}
 
+  {#if placesMenu}
+    <FindingContextMenu x={placesMenu.x} y={placesMenu.y} findingLabel="Bookmarks and recent chapters"
+      actions={placesActions} on:action={onPlacesAction} on:close={() => (placesMenu = null)} />
+  {/if}
+
   {#if $settingsOpen}
     <SettingsModal initialPane={settingsInitialPane} onClose={() => settingsOpen.set(false)} />
   {/if}
@@ -1227,6 +1272,7 @@
   /* A 66-book table must not push the dashboard off screen: it scrolls. */
   .collection-qa-host { flex-shrink: 0; max-height: 40vh; overflow: auto; padding: 12px 16px 0; background: var(--bg); }
   .editor-col { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .text-size { display: inline-flex; gap: 2px; }
   /* min-height + wrap, not a fixed height: on a narrow window the items used to
      shrink, break their labels onto two lines and get clipped by the 34px box.
      Now each item keeps its label on one line and the row wraps instead. */

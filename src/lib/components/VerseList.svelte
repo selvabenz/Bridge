@@ -1145,7 +1145,7 @@
   .verse.check-failed .vnum { color: var(--danger, #ef4444); }
   /* --font-target rather than plain inheritance so the leading below can be
      tuned for Indic ascender/descender depth without moving the UI chrome. */
-  .vtext { font-family: var(--font-target); font-size: var(--fs-xl); line-height: 1.85; color: var(--text); }
+  .vtext { font-family: var(--font-target); font-size: calc(var(--fs-xl) * var(--verse-scale, 1)); line-height: 1.85; color: var(--text); }
   .finding-num { font-size: var(--fs-2xs); font-weight: 700; color: var(--accent); margin-left: 1px; }
   /* Where Shift+F10 would open the menu. A visible ring, not colour alone:
      the underline classes already carry the finding's source colour. */
@@ -1171,7 +1171,7 @@
   .history-btn { margin-left: 6px; padding: 0 3px; border: 0; background: none; cursor: pointer; font: inherit;
     font-family: var(--font-ui); font-size: var(--fs-2xs); color: var(--text-3); vertical-align: super; }
   .history-btn:hover, .history-btn:focus-visible { color: var(--accent); background: var(--surface-2); border-radius: 3px; outline: none; }
-  .vtext.raw { white-space: pre-wrap; font-size: var(--fs-md); }
+  .vtext.raw { white-space: pre-wrap; font-size: calc(var(--fs-md) * var(--verse-scale, 1)); }
   .edit-warning { margin: 4px 0 0; font-family: var(--font-ui); font-size: var(--fs-2xs); color: var(--warning); }
   .note-btn.xref { color: var(--accent); }
   /* Edit pencil stacked above the alignment arrow (issue #73), so a reviewer
@@ -1222,7 +1222,7 @@
   .vedit textarea {
     /* Same face, size and leading as .vtext above: entering edit mode must not
        reflow the verse. The line-height was 1.7 and is now matched to 1.85. */
-    flex: 1; min-width: 0; box-sizing: border-box; font-size: var(--fs-xl); line-height: 1.85; color: var(--text);
+    flex: 1; min-width: 0; box-sizing: border-box; font-size: calc(var(--fs-xl) * var(--verse-scale, 1)); line-height: 1.85; color: var(--text);
     font-family: var(--font-target); padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 8px;
     resize: none; overflow-y: hidden;
   }

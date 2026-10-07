@@ -15594,3 +15594,47 @@ read.
 
 **Not verified.** The desktop app, including how the ↺ and Raw text look at
 1366×768.
+
+## 2026-10-07 — Bookmarks, recent chapters, text size (branch `indic-qa-editor`, commit 9)
+
+These are indic-qa's bookmarks, recent chapters and A−/A+.
+
+**Engine.**
+- Two app-level settings, `AppSettings.bookmarks` and `recent_chapters`.
+  They are `settings_kv` rows in `workspace.sqlite3`, never `settings.json`.
+- `settings.get` and `settings.set` gain `bookmarks` and `recentChapters`.
+- `_valid_places` checks a place's shape:
+  `{collection, book, chapter[, verse], label, ts}`. It lower-cases the book,
+  keeps the newest of a repeat, and caps bookmarks at 200 and recent
+  chapters at 20.
+- `collection` is the open collection's id, or the project path when there
+  is none. A list can therefore span projects, and each project shows only
+  its own places.
+
+**Frontend.**
+- `src/lib/bookmarks.ts`:
+  - `toggleBookmark` is optimistic and puts the list back if the save is
+    refused;
+  - `recordRecentChapter` records a chapter after 2 s on it, called from
+    `activateChapter`;
+  - `buildPlacesMenu` is pure.
+- The toolbar's **★ Bookmarks** button opens `FindingContextMenu`. A place
+  goes through `navigateToReportRow`, which switches book inside the
+  collection.
+- The toolbar's **A− / A+** buttons step `editorPrefs.textScale` (0.85 to
+  1.7, localStorage). It sets `--verse-scale` on `.editor-col`, which the
+  verse text, the edit box and the reference panel use. Every toolbar button
+  has a text label (gotcha 9).
+
+**Verified.**
+- Engine: `tests/service/test_settings_places.py`, 3 tests. They check the
+  lists survive a restart, are kept out of `settings.json`, have no repeats,
+  are capped, and refuse a bad shape. Settings tests in `tests/service`: 10
+  passed.
+- Frontend:
+  - `npm run check`: 0 errors, 0 warnings.
+  - `npm run test`: 591 passed.
+  - `npm run build`: ok.
+
+**Not verified.** The desktop app, including how the toolbar fits at
+1366×768 now that it has seven buttons.

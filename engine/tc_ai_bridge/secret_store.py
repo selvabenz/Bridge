@@ -322,6 +322,30 @@ class AppSettings:
         self.data['language_qa_related_words'] = bool(value)
         self.save_sanitized()
 
+    # Places the reviewer keeps (indic-qa's bookmarks and recent chapters):
+    # app-level, so they follow the reviewer across projects. Each is
+    # {collection, book, chapter, verse, label, ts}; the dispatcher validates.
+
+    @property
+    def bookmarks(self) -> list[dict[str, Any]]:
+        value = self.data.get('bookmarks') or []
+        return [dict(p) for p in value if isinstance(p, dict)] if isinstance(value, list) else []
+
+    @bookmarks.setter
+    def bookmarks(self, value: list[dict[str, Any]]) -> None:
+        self.data['bookmarks'] = list(value)
+        self.save_sanitized()
+
+    @property
+    def recent_chapters(self) -> list[dict[str, Any]]:
+        value = self.data.get('recent_chapters') or []
+        return [dict(p) for p in value if isinstance(p, dict)] if isinstance(value, list) else []
+
+    @recent_chapters.setter
+    def recent_chapters(self, value: list[dict[str, Any]]) -> None:
+        self.data['recent_chapters'] = list(value)
+        self.save_sanitized()
+
     @staticmethod
     def _seed_reviewer_name() -> str:
         """A brand-new profile has never had a reviewer name typed in.

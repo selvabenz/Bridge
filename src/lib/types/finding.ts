@@ -707,6 +707,17 @@ export interface VerseData {
   alignmentStatus: AlignmentWorkStatus;
 }
 
+/** A bookmarked verse or a recent chapter: `collection` is the collection id
+ *  (or the project path) it belongs to, `book` a lower-case book id. */
+export interface Place {
+  collection: string;
+  book: string;
+  chapter: string;
+  verse?: string;
+  label?: string;
+  ts?: string;
+}
+
 /** One recorded Scripture edit (verse.history): the native checkData/verseEdits
  *  record every edit writes, with the visible text of both sides for a diff. */
 export interface VerseHistoryEntry {
@@ -1029,6 +1040,9 @@ export interface SettingsData {
   languageQaReferenceDirs?: Record<string, string>;
   /** Offer related words from the reference text. Default on. */
   languageQaRelatedWords?: boolean;
+  /** Kept verses and recently visited chapters, newest first (app-level). */
+  bookmarks?: Place[];
+  recentChapters?: Place[];
   hasApiKey: boolean;
   aiUsage: { tokens: number; estimatedCostUSD: number };
 }
