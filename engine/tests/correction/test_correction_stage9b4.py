@@ -46,7 +46,7 @@ from tc_ai_bridge.passage_semantic_repository import (
 )
 from tc_ai_bridge.secret_store import AppSettings
 
-from .test_correction_stage9b3b import _apply, _fixture, _hash
+from tests.support.correction_9b3b import _apply, _fixture, _hash
 
 
 BEFORE = "நான் உங்களை நினைக்கும் போதெல்லாம் என் தேவனை ஸ்தோத்திரிக்கிறேன்."

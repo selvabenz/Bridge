@@ -12,7 +12,8 @@ from tc_ai_bridge.qa_audit import QaAuditEngine, QaAuditPolicy
 from tc_ai_bridge.semantic_location import SemanticEmbeddingProvider, SemanticLocationEngine
 from tc_ai_bridge.passage_semantic_runtime import PassageSemanticRuntime
 from tc_ai_bridge.tc_project import TranslationCoreProject
-from tests.support.semantic import TAMIL, semantic_runtime
+from tests.support.semantic import TAMIL
+from tests.support.semantic import qa8_runtime as _runtime
 
 
 PHP_PAIRS = [
@@ -23,14 +24,6 @@ PHP_PAIRS = [
     ("ἐνάρχομαι", "தொடங்கினவர்"), ("ἔργον", "செயலைத்"), ("ἀγαθός", "நல்ல"),
     ("ἐπιτελέω", "நடத்தி வருவார்"), ("χριστός", "கிறிஸ்துவின்"), ("Ἰησοῦς", "இயேசு"),
 ]
-
-
-def _runtime(tmp_path: Path, **kwargs) -> PassageSemanticRuntime:
-    """The shared builder, with this file's own project prefix (#74 phase 4).
-
-    Kept as a local name so the call sites below are untouched: this phase
-    moves and de-duplicates, it does not rewrite tests."""
-    return semantic_runtime(tmp_path, project_prefix="qa8", **kwargs)
 
 
 def _norm(value: str) -> str:

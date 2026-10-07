@@ -21,7 +21,7 @@ from greek_room_engine.protocol import EngineRequest
 from tc_ai_bridge.models import VerseAlignment
 from tc_ai_bridge.tc_project import TranslationCoreProject
 
-from tests.ai.test_ai_review_protocol import (  # noqa: F401  (fixture import)
+from tests.support.ai_review import (  # noqa: F401  (fixture import)
     _grounded_fake_transport,
     _wait_for_ai_job,
     imported_titus_project,

@@ -26,7 +26,7 @@ def tamil_distance(a, b):
 def substitution_cost(a, b):
     return ta_pack().confusion().substitution_cost(a, b)
 from tc_ai_bridge.language_qa_jobs import LanguageQaManager
-from tests.service.test_language_qa import project_at, wait
+from tests.support.language_qa import project_at, wait
 from tests.support.projects import fixture_project  # noqa: F401
 
 

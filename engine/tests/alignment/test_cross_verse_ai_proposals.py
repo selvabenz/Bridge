@@ -21,7 +21,7 @@ import pytest
 from bridge_service import BridgeEngine
 from greek_room_engine.protocol import EngineRequest
 
-from .test_cross_verse_propose_protocol import (  # reuse the #139 fixture shape
+from tests.support.cross_verse import (  # the #139 fixture shape
     KADAVUL, VARTHAI, _bottom, _group, _top, _write_book,
 )
 

@@ -44,8 +44,8 @@ from tc_ai_bridge.passage_semantic_runtime import PassageSemanticRuntime
 from tc_ai_bridge.qa_audit import QaAuditEngine
 from tc_ai_bridge.semantic_location import SemanticLocationEngine
 
-from .test_correction_stage9b0 import TEXT as TAMIL_TEXT, VERSE, _confirmed_finding, _service
-from tests.semantic.test_qa_target_hash_contract_stage8_9b import (
+from tests.support.correction_9b0 import TEXT as TAMIL_TEXT, VERSE, _confirmed_finding, _service
+from tests.support.qa_target_hash import (
     CROSS_VERSE_PAIRS,
     ENGLISH_PHP,
     SOURCE_REFERENCE,

@@ -15789,3 +15789,77 @@ show.
 8. **Upstream.** Decide whether this goes to RevantCI/bridge, as one PR per
    commit with issues (CONTRIBUTING.md).
 
+## 2026-10-07 — Follow-ups to the indic-qa editor handoff: two fixed, two corrected
+
+The handoff above listed four follow-ups. Two have been fixed. Measuring the
+other two showed my descriptions were wrong. The corrections are recorded
+here, and those two now wait on a decision.
+
+**Fixed: the benchmark launched a frozen engine without its data**
+(`980209b`).
+- Root cause: `benchmark_language_qa.py --engine` started the exe with no
+  arguments. The packs and the tN/tW/UHB/UGNT resources ship outside the
+  onefile exe, and Tauri passes `--resources-dir` and
+  `--language-packs-dir` (`sidecar.rs`).
+- The script now passes the same two folders as Tauri and
+  `smoke_sidecars.py`.
+- Verified: the frozen Tamil and Hindi gates pass with
+  `BRIDGE_LANGUAGE_PACKS_DIR` unset.
+
+**Fixed: test modules importing other test modules** (CLAUDE.md rule 2).
+- There were 25, not the 3 the handoff named, across 17 files from 11 lending
+  modules. Relative imports (`from .test_x import`) had been missed.
+- Nothing enforced the rule. #74 phase 4 had brought these imports to 0 on
+  2026-09-30, and they grew back.
+- Helpers moved verbatim into `tests/support/`: `language_qa.py`,
+  `workbench.py`, `alignment.py`, `cross_verse.py`, `ai_review.py`,
+  `analysis_jobs.py`, `correction_9b0.py`, `correction_9b1.py`,
+  `correction_9b3b.py` and `qa_target_hash.py`. `semantic.qa8_runtime` was
+  added, and `test_qa_report.py` now imports from `tests.support.projects`.
+- Each lending module imports the helpers back, so no call site changed.
+- Each correction stage has its own support module, because `_fixture`,
+  `TEXT` and `_hash` mean different things in different stages.
+- Two `call` copies identical to `tests.support.projects.call` were
+  replaced by that import.
+- **Guard**: `tests/support/test_no_cross_test_imports.py`. It fails on the
+  old tree and passes now.
+- How the move was kept safe, given the 2026-09-30 hazards:
+  - A mover script cut each helper from its first decorator, with any
+    comments directly above it.
+  - It carried exactly the imports the moved code uses, and refused to move
+    a helper that needed an unmoved one.
+  - After every move, `--collect-only` had to stay at 4,932, and pyflakes
+    undefined names had to stay at 0.
+  - Imports a move left unused were removed, but never one that was already
+    unused before the refactor.
+
+**Corrected, open: "a chapter accept is slow on Malayalam because a rebuild
+runs after each verse."** That is wrong. Measured on Malayalam Romans:
+- Language QA rebuilds the indic-qa index once, in the background, after
+  all the writes (`build_index` 1,620 ms).
+- The 15-verse chapter accept took 5,930 ms on the dispatcher (7.1 s under
+  cProfile). All of it is 15 calls to `apply_scripture_edit`, about 0.4–0.48 s
+  each. The same cost applies to every `verse.edit`, in every language.
+- Per edit, the cost is:
+  - rewriting and fsyncing the chapter and alignment JSON (about 165 ms);
+  - `PassageSemanticRuntime.synchronize_alignment_state` (about 154 ms). It
+    digests every alignment file of the book twice and rescans them all for
+    legacy issues, because any content change moves the whole-directory
+    digest. This part grows with the size of the book.
+  - backups and the journal.
+- A real fix is in the Scripture writer or the Stage 4 runtime, not in
+  Language QA. It needs a decision (see the open questions).
+
+**Corrected, open: "learned fixes reach only the books that have been
+opened."** Also wrong. Learned fixes are written only to the open book, by
+the recorded decision (DECISIONS 2026-10-07, "per book"; sharing them is
+"Rules out ... in this version"). There is no lazy-book bug. Applying a
+fix across a collection is a feature change to that decision.
+
+**Verified.**
+- `pytest -n auto`: 4,931 passed, 1 skipped, 3 xfailed.
+- The persistence and Language QA subset (699 tests) passed four further
+  times.
+- One earlier run of that subset reported 1 failed and 698 passed. Its name
+  was not captured, and it has not recurred in five runs since or in the
+  full suite. It is recorded here rather than dismissed.

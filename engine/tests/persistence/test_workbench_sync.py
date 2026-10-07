@@ -23,7 +23,7 @@ from tc_ai_bridge.workbench_repository import (
     _MIGRATION_V2,
     _MIGRATION_V3,
 )
-from tests.persistence.test_workbench_repository import _REQUIRED_EXTRA_COLUMNS, _write
+from tests.support.workbench import _REQUIRED_EXTRA_COLUMNS, _write
 
 
 _SECOND_ROW = {

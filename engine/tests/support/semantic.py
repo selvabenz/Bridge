@@ -75,3 +75,12 @@ def semantic_runtime(
     return PassageSemanticRuntime(
         TranslationCoreProject(root), f"{project_prefix}-{book}-{language}-{tmp_path.name}",
     )
+
+
+def qa8_runtime(tmp_path: Path, **kwargs) -> PassageSemanticRuntime:
+    """semantic_runtime with the Stage 8 tests' project prefix ("qa8").
+
+    test_qa_audit_stage8.py and test_analysis_jobs_stage9a4.py both build their
+    runtimes this way and import it as `_runtime`, so their call sites read as
+    they always did."""
+    return semantic_runtime(tmp_path, project_prefix="qa8", **kwargs)

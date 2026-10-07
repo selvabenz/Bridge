@@ -18,7 +18,7 @@ from bridge_service import BridgeEngine
 from greek_room_engine.protocol import EngineRequest
 from tc_ai_bridge.secret_store import AppSettings
 from tc_ai_bridge.tc_project import ProjectError, TranslationCoreProject, peek_progress_totals
-from tests.persistence.test_workbench_repository import _build_minimal_project
+from tests.support.workbench import _build_minimal_project
 
 
 def call(engine, method, params=None):

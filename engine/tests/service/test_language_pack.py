@@ -10,7 +10,7 @@ from tc_ai_bridge.language_packs.loader import apply_overrides
 from tc_ai_bridge.language_packs.registry import packs_dir
 from tc_ai_bridge.language_qa import scan_text, stable_finding_id
 from tc_ai_bridge.language_qa_jobs import LanguageQaManager
-from tests.service.test_language_qa import project_at, wait
+from tests.support.language_qa import project_at, wait
 from tests.support.packs import ta_pack as default_pack
 
 

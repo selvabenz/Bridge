@@ -4,7 +4,6 @@ import re
 import threading
 import time
 import unicodedata
-from types import SimpleNamespace
 
 import pytest
 
@@ -20,6 +19,7 @@ from tests.support.projects import fixture_project, call
 from tests.support.packs import switch_off_ta_lexicon, ta_pack
 from tests.support.paths import REPO_ROOT
 from bridge_service import BridgeEngine
+from tests.support.language_qa import issue_for, project_at, wait
 
 
 @pytest.fixture(autouse=True)
@@ -538,12 +538,6 @@ def test_verse_decide_ignored_actually_suppresses_a_vallinam_finding_through_the
         assert not [f for f in after["findings"] if f["rule"] == "tamil.vallinam-missing"]
     finally:
         engine._language_qa.unbind()
-
-
-def issue_for(finding):
-    """What the frontend sends with a Language QA verse.decide."""
-    return {key: finding[key] for key in ("source", "rule", "ruleVersion", "originalText",
-                                          "suggestedReplacement", "message", "start", "end")}
 
 
 def test_every_language_qa_finding_carries_its_source(tmp_path):
@@ -1070,30 +1064,6 @@ def test_wordlist_findings_tie_break_is_deterministic():
     findings = wordlist("php", counts, first_seen)
     assert lower_count in findings[0]["message"]
     assert lower_count < higher_count
-
-
-def project_at(root, text="தமிழ் தமிழ்  ", book="php", verses=None, terminology=None, decisions=None):
-    folder = root / book
-    folder.mkdir(parents=True)
-    (folder / "1.json").write_text(json.dumps(verses or {"3a": text}, ensure_ascii=False), encoding="utf-8")
-    namespace = SimpleNamespace(path=root, book_id=book, book_dir=folder,
-                                manifest={"target_language": {"id": "tam"}})
-    if terminology is not None:
-        namespace.terminology_rules = terminology if callable(terminology) else (lambda: terminology)
-    if decisions is not None:
-        namespace.project_qa_decisions = decisions if callable(decisions) else (lambda: decisions)
-    return namespace
-
-
-def wait(manager, state="completed"):
-    deadline = time.monotonic() + 8
-    while time.monotonic() < deadline:
-        status = manager.status(limit=100)
-        if status["state"] == state:
-            return status
-        assert status["state"] != "failed", status
-        time.sleep(.005)
-    pytest.fail(f"Language QA did not reach {state}: {manager.status()}")
 
 
 def test_wordlist_audit_end_to_end_via_manager(tmp_path):

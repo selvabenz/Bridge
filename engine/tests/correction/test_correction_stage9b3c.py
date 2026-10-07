@@ -18,8 +18,8 @@ from tc_ai_bridge.correction_affected_analysis import (
 from bridge_service import BridgeEngine
 from greek_room_engine.protocol import EngineRequest
 
-from tests.jobs.test_analysis_jobs_stage9a4 import _Stage, _stub_stages, _wait
-from .test_correction_stage9b3b import _apply, _fixture
+from tests.support.analysis_jobs import _Stage, _stub_stages, _wait
+from tests.support.correction_9b3b import _apply, _fixture
 
 
 BEFORE = "நான் உங்களை நினைக்கும் போதெல்லாம் என் தேவனை ஸ்தோத்திரிக்கிறேன்."

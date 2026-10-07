@@ -33,7 +33,7 @@ from tc_ai_bridge.passage_semantic_models import (
     ReviewStatus,
 )
 
-from tests.correction.test_correction_stage9b3b import _fixture
+from tests.support.correction_9b3b import _fixture
 
 
 def _second_finding(runtime, *, finding_id: str) -> dict:

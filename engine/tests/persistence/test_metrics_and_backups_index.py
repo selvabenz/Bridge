@@ -13,7 +13,7 @@ import pytest
 
 from tc_ai_bridge.metrics import MetricsStore
 from tc_ai_bridge.tc_project import ProjectError, TranslationCoreProject
-from tests.persistence.test_workbench_repository import _build_minimal_project
+from tests.support.workbench import _build_minimal_project
 
 
 @pytest.fixture

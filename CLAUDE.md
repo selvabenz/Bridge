@@ -67,7 +67,9 @@ pay off):
 2. **Never import from another test module.** `from tests.service.test_bridge_service
    import fixture_project` was in seven files and is now gone: a borrowed helper
    drags the whole importing module's dependencies with it. Shared builders go in
-   `tests/support/`.
+   `tests/support/`. `tests/support/test_no_cross_test_imports.py` enforces this
+   (both `from tests.x.test_y` and `from .test_y`); 25 had crept back by
+   2026-10-07 before it existed.
 
 **If you extract a helper**, take its decorators and its imports with it.
 `ast.get_source_segment()` starts at the `def`, so a copy loses `@pytest.fixture`

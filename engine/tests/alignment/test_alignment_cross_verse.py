@@ -14,7 +14,8 @@ import pytest
 
 from bridge_service import BridgeEngine
 from tc_ai_bridge.cross_verse_links import TABLE
-from tests.alignment.test_alignment_statistics import _write_book, call
+from tests.support.alignment import _write_book
+from tests.support.projects import call
 
 
 def _top(word: str, strong: str) -> dict:

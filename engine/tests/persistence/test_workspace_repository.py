@@ -143,7 +143,7 @@ def test_the_engine_owns_one_workspace_beside_its_settings_and_projects_write_th
     database, so the engine constructs it and injects it."""
     from bridge_service import BridgeEngine
     from tc_ai_bridge.secret_store import AppSettings
-    from tests.persistence.test_workbench_repository import _build_minimal_project
+    from tests.support.workbench import _build_minimal_project
 
     settings_root = tmp_path / "app"
     settings_root.mkdir()
@@ -168,7 +168,7 @@ def test_the_users_row_follows_the_name_chosen_in_settings_not_the_os_account(tm
     """
     from bridge_service import BridgeEngine
     from tc_ai_bridge.secret_store import AppSettings
-    from tests.persistence.test_workbench_repository import _build_minimal_project
+    from tests.support.workbench import _build_minimal_project
 
     settings_root = tmp_path / "app"
     settings_root.mkdir()

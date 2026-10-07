@@ -14,7 +14,7 @@ from pathlib import Path
 from tc_ai_bridge.correction_wording import CorrectionWordingService
 from tc_ai_bridge.passage_semantic_models import LifecycleStatus, ReviewStatus
 
-from .test_correction_stage9b1 import _FixtureProvider, _Runtime, _intent
+from tests.support.correction_9b1 import _FixtureProvider, _Runtime, _intent
 
 
 def _seed_stuck_proposal(runtime: _Runtime, *, human_text: str = "என் தேவனுக்கு") -> str:

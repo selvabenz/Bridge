@@ -23,30 +23,7 @@ from tc_ai_bridge.workbench_repository import (
     natural_row_id,
 )
 from tc_ai_bridge.workspace_repository import WorkspaceRepository
-
-# Extra columns each table requires beyond the nine common ones, per
-# TEAM_ARCHITECTURE.md ss3.1/3.2 -- only the NOT NULL ones need a value here.
-_REQUIRED_EXTRA_COLUMNS = {
-    "human_decisions": {"kind": "qa", "key": "k1"},
-    "ai_review_results": {"chapter": "1", "verse": "1", "input_fingerprint": "fp", "generated_at": "now"},
-    "semantic_mappings": {"fingerprint": "fp"},
-    "semantic_validation_runs": {"suite_id": "s1"},
-    "project_state": {"key": "k1"},
-    "progress_chapters": {"chapter": "1"},
-    "check_findings": {"chapter": "1"},
-}
-
-
-def _write(repo, table, row_id, *, project_id="proj-1", book_id="rut",
-           payload=None, actor_id="human", device_id="dev-1",
-           expected_revision=None, **kwargs):
-    extra = dict(_REQUIRED_EXTRA_COLUMNS.get(table, {}))
-    extra.update(kwargs.pop("extra_columns", {}) or {})
-    return repo._write(
-        table, row_id, project_id=project_id, book_id=book_id,
-        payload=payload or {"note": "x"}, actor_id=actor_id, device_id=device_id,
-        expected_revision=expected_revision, extra_columns=extra, **kwargs,
-    )
+from tests.support.workbench import _build_minimal_project, _write
 
 
 def test_schema_creates_every_table_from_team_architecture(tmp_path):
@@ -178,21 +155,6 @@ def test_workspace_repository_device_id_is_stable_across_reopen(tmp_path):
     second = WorkspaceRepository(path).get_or_create_device_id()
     assert first == second
     assert first  # non-empty
-
-
-def _build_minimal_project(root: Path) -> Path:
-    align_dir = root / ".apps" / "translationCore" / "alignmentData" / "rut"
-    align_dir.mkdir(parents=True)
-    (root / "rut").mkdir(parents=True)
-    (root / "manifest.json").write_text(json.dumps({
-        "project": {"id": "rut", "name": "Ruth"},
-        "target_language": {"id": "tam", "name": "Tamil"},
-        "tc_version": "8", "tc_edit_version": "3.7.0",
-    }), encoding="utf-8")
-    (align_dir / "1.json").write_text(
-        json.dumps({"1": {"alignments": [], "wordBank": []}}), encoding="utf-8",
-    )
-    return root
 
 
 def test_a_pre_cutover_project_refuses_to_open_rather_than_looking_empty(tmp_path):

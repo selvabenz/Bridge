@@ -688,7 +688,7 @@ def test_an_opened_external_project_is_an_exact_duplicate_of_itself(tmp_path):
     no `.bridge/import.json` — which is the case that falls through to the tree
     fingerprint.
     """
-    from tests.persistence.test_workbench_repository import _build_minimal_project
+    from tests.support.workbench import _build_minimal_project
 
     root = _build_minimal_project(tmp_path / "rut")
     (root / "rut" / "1.json").write_text(json.dumps({"1": "text"}), encoding="utf-8")
@@ -711,7 +711,7 @@ def test_bridge_private_state_never_changes_a_project_fingerprint(tmp_path):
     decision and `transactions/` on every edit, so either would break the same
     comparison as soon as the project was used."""
     from tc_ai_bridge.project_registry import _tree_fingerprint
-    from tests.persistence.test_workbench_repository import _build_minimal_project
+    from tests.support.workbench import _build_minimal_project
 
     root = _build_minimal_project(tmp_path / "rut")
     before = _tree_fingerprint(root)
