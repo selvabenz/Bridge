@@ -599,7 +599,25 @@ def _canonical_reference(
     }
 
 
-def alignment_directory_digest(project: Any) -> str:
+# The compatibility scan's per-file memo rows in migration_runs (one per
+# chapter file and content). The folder-level row keeps its own schema,
+# "translationCore.alignmentData.compatibility-scan.v1", and its report.
+ALIGNMENT_FILE_SCAN_SCHEMA = "translationCore.alignmentData.compatibility-scan.file.v1"
+
+
+def alignment_files(project: Any) -> list[tuple[Path, bytes]]:
+    """Every tC alignmentData chapter file of the book, in name order, with its
+    bytes: read once and shared by the digests and the compatibility scan."""
+    return [(path, path.read_bytes()) for path in sorted(project.alignment_dir.glob("*.json"))]
+
+
+def alignment_file_digest(path: Path, data: bytes) -> str:
+    """One chapter file's digest (its name and bytes): the compatibility scan's
+    per-file memo key, so an edit re-scans only the chapter it changed."""
+    return hashlib.sha256(path.name.encode("utf-8") + data).hexdigest()
+
+
+def alignment_directory_digest(project: Any, files: list[tuple[Path, bytes]] | None = None) -> str:
     """Content digest over every tC alignmentData chapter file for this book.
 
     Pulled out of `_scan_native_alignment_compatibility` so Stage 6B's word
@@ -607,16 +625,17 @@ def alignment_directory_digest(project: Any) -> str:
     digest into its run fingerprint without a second directory walk -- any
     alignment change anywhere in the book changes this, which is deliberately
     coarser than per-verse but matches the compatibility scan's own
-    memoization key exactly.
+    memoization key exactly. `files` (from `alignment_files`) saves a second
+    read when the caller has them already; the digest is the same either way.
     """
     digest_builder = hashlib.sha256()
-    for path in sorted(project.alignment_dir.glob("*.json")):
+    for path, data in (alignment_files(project) if files is None else files):
         digest_builder.update(path.name.encode("utf-8"))
-        digest_builder.update(path.read_bytes())
+        digest_builder.update(data)
     return digest_builder.hexdigest()
 
 
-def alignment_state_digest(project: Any) -> str:
+def alignment_state_digest(project: Any, *, content_digest: str | None = None) -> str:
     """Content digest over alignment content AND completion/invalid markers.
 
     Distinct from `alignment_directory_digest` (content only): completing or
@@ -629,7 +648,7 @@ def alignment_state_digest(project: Any) -> str:
     Stage 6B/7/8 records must be sensitive to completion state too.
     """
     digest_builder = hashlib.sha256()
-    digest_builder.update(alignment_directory_digest(project).encode("utf-8"))
+    digest_builder.update((content_digest or alignment_directory_digest(project)).encode("utf-8"))
     tools_dir = project.tc_dir / "tools" / "wordAlignment"
     for path in sorted(tools_dir.glob("*/*/*.json")):
         digest_builder.update(str(path.relative_to(tools_dir)).encode("utf-8"))
@@ -1180,7 +1199,10 @@ class PassageSemanticRuntime:
         leaves that digest reading as unprocessed next time, which redoes it
         safely (staling something already STALE is a no-op in effect).
         """
-        state_digest = alignment_state_digest(self.project)
+        # Every chapter file is read once here, for both digests and the scan.
+        files = alignment_files(self.project)
+        digest = alignment_directory_digest(self.project, files)
+        state_digest = alignment_state_digest(self.project, content_digest=digest)
         state_key = f"{self.project.alignment_dir}::state"
         staled = 0
         if self.repository.migration_run_for(self.project_id, state_key, state_digest) is None:
@@ -1192,36 +1214,45 @@ class PassageSemanticRuntime:
                 status="IMPORTED", started_at=_now(), report={"staled": staled},
             )
 
-        paths = sorted(self.project.alignment_dir.glob("*.json"))
-        digest = alignment_directory_digest(self.project)
         source_path = str(self.project.alignment_dir)
         if self.repository.migration_run_for(self.project_id, source_path, digest) is not None:
             return {"changed": staled > 0, "staled": staled}
         started = _now()
+        # Each chapter file is scanned once per content: a file whose digest
+        # already has a run is not scanned again. One verse edit changes one
+        # chapter file, so it scans that chapter, not the book, and records
+        # nothing twice for the chapters it did not touch (the quarantine is
+        # append-only and not deduplicated, so a whole-book rescan per edit
+        # re-recorded every legacy issue of every unchanged chapter).
+        scanned = self.repository.migration_run_hashes(self.project_id, ALIGNMENT_FILE_SCAN_SCHEMA)
+        file_digests = {path: alignment_file_digest(path, data) for path, data in files}
+        pending = [(path, data) for path, data in files
+                   if file_digests[path] not in scanned.get(str(path), ())]
         report = {
-            "filesScanned": len(paths), "groupsScanned": 0, "quarantined": 0,
+            "filesScanned": len(pending), "filesUnchanged": len(files) - len(pending),
+            "groupsScanned": 0, "quarantined": 0,
             "legacyEmptyBottomWords": 0, "duplicateMembership": 0,
             "malformedTokenIdentity": 0, "rawImportStubsSkipped": 0, "mutated": False,
         }
         # Collected and written in one transaction below. See
         # quarantine_migration_records_bulk: batching this was what brought a
         # Genesis-sized scan back under the import timeout.
-        pending: list[dict[str, Any]] = []
+        found: list[dict[str, Any]] = []
 
         def quarantine(*, source_kind: str, source_identity: str, reason_code: str, payload: dict[str, Any]) -> None:
-            pending.append({
+            found.append({
                 "sourceKind": source_kind, "sourceIdentity": source_identity,
                 "reasonCode": reason_code, "payload": payload,
             })
 
-        for path in paths:
+        for path, data in pending:
             try:
-                chapter = json.loads(path.read_text(encoding="utf-8-sig"))
+                chapter = json.loads(data.decode("utf-8-sig"))
             except Exception as exc:
                 quarantine(
                     source_kind="translationCore.alignmentData", source_identity=str(path),
                     reason_code="MALFORMED_LEGACY_ALIGNMENT_FILE",
-                    payload={"originalText": path.read_text(encoding="utf-8-sig", errors="replace"), "error": str(exc)},
+                    payload={"originalText": data.decode("utf-8-sig", errors="replace"), "error": str(exc)},
                 )
                 report["quarantined"] += 1
                 continue
@@ -1296,13 +1327,20 @@ class PassageSemanticRuntime:
                             "originalVerseRecord": verse_data,
                         },
                     )
-        self.repository.quarantine_migration_records_bulk(pending)
-        self.repository.save_migration_run(
-            run_id=str(uuid.uuid4()), project_id=self.project_id,
-            source_path=source_path, source_hash=digest,
-            source_schema="translationCore.alignmentData.compatibility-scan.v1",
-            status="IMPORTED", started_at=started, report=report,
-        )
+        self.repository.quarantine_migration_records_bulk(found)
+        # One transaction for the per-file runs and the folder's run. A crash
+        # before it re-scans only the files of this sync next time.
+        runs = [{
+            "run_id": str(uuid.uuid4()), "source_path": str(path), "source_hash": file_digests[path],
+            "source_schema": ALIGNMENT_FILE_SCAN_SCHEMA, "status": "IMPORTED", "started_at": started,
+            "report": {"file": path.name},
+        } for path, _data in pending]
+        runs.append({
+            "run_id": str(uuid.uuid4()), "source_path": source_path, "source_hash": digest,
+            "source_schema": "translationCore.alignmentData.compatibility-scan.v1",
+            "status": "IMPORTED", "started_at": started, "report": report,
+        })
+        self.repository.save_migration_runs(self.project_id, runs)
         return {"changed": True, "staled": staled, "report": report}
 
     def status(self) -> dict[str, Any]:

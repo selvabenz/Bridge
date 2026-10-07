@@ -585,6 +585,71 @@ def test_alignment_compatibility_scan_quarantines_in_one_batch(
     assert batches == [120]
 
 
+def test_an_alignment_change_rescans_only_its_chapter_and_records_nothing_twice(
+    tmp_path: Path, stage4_project: Path,
+) -> None:
+    """Every Scripture edit rewrites one chapter's alignment file. The scan
+    used to key only on the whole folder's digest, so each edit re-parsed every
+    chapter of the book (154 ms per edit on Malayalam Romans, more for a long
+    book) and re-inserted every legacy issue of the unchanged chapters into the
+    append-only quarantine. Now each file is scanned once per content."""
+    align_dir = stage4_project / ".apps" / "translationCore" / "alignmentData" / "rut"
+    legacy = json.loads((align_dir / "1.json").read_text(encoding="utf-8"))
+    legacy["1"]["alignments"].append({"topWords": [
+        {"word": "ג", "occurrence": 1, "occurrences": 1},
+        {"word": "ד", "occurrence": 1, "occurrences": 1},
+    ], "bottomWords": []})
+    (align_dir / "1.json").write_text(json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
+    engine = _engine(tmp_path)
+    _call(engine, "project.open", {"path": str(stage4_project)})
+    runtime = engine.passage_semantic_runtime
+    first = _scan_report(runtime.migration_report())
+    assert (first["filesScanned"], first["filesUnchanged"]) == (2, 0)
+    assert runtime.migration_report()["quarantineByReason"]["LEGACY_EMPTY_BOTTOM_WORDS_AMBIGUOUS"] == 1
+
+    chapter_two = json.loads((align_dir / "2.json").read_text(encoding="utf-8"))
+    chapter_two["1"]["wordBank"] = [{"word": "அடுத்த", "occurrence": 1, "occurrences": 1}]
+    (align_dir / "2.json").write_text(json.dumps(chapter_two, ensure_ascii=False), encoding="utf-8")
+    sync = runtime.synchronize_alignment_state()
+    assert sync["changed"] is True
+    assert (sync["report"]["filesScanned"], sync["report"]["filesUnchanged"]) == (1, 1)
+    assert runtime.migration_report()["quarantineByReason"]["LEGACY_EMPTY_BOTTOM_WORDS_AMBIGUOUS"] == 1,         "chapter 1 did not change, so its legacy issue is not recorded again"
+    assert runtime.synchronize_alignment_state() == {"changed": False, "staled": 0}
+
+
+def test_a_changed_chapter_with_a_legacy_issue_is_scanned_again(tmp_path: Path, stage4_project: Path) -> None:
+    """Scanning per file must not skip a chapter whose content did change."""
+    align_dir = stage4_project / ".apps" / "translationCore" / "alignmentData" / "rut"
+    engine = _engine(tmp_path)
+    _call(engine, "project.open", {"path": str(stage4_project)})
+    runtime = engine.passage_semantic_runtime
+    assert "LEGACY_EMPTY_BOTTOM_WORDS_AMBIGUOUS" not in runtime.migration_report()["quarantineByReason"]
+    (align_dir / "2.json").write_text(json.dumps({"1": {"alignments": [{"topWords": [
+        {"word": "ג", "occurrence": 1, "occurrences": 1},
+        {"word": "ד", "occurrence": 1, "occurrences": 1},
+    ], "bottomWords": []}], "wordBank": []}}, ensure_ascii=False), encoding="utf-8")
+    (align_dir / "3.json").write_text("{not json", encoding="utf-8")
+    report = runtime.synchronize_alignment_state()["report"]
+    assert (report["filesScanned"], report["filesUnchanged"]) == (2, 1)
+    reasons = runtime.migration_report()["quarantineByReason"]
+    assert reasons["LEGACY_EMPTY_BOTTOM_WORDS_AMBIGUOUS"] == 1
+    assert reasons["MALFORMED_LEGACY_ALIGNMENT_FILE"] == 1
+    malformed = [r for r in runtime.repository.migration_quarantine_records()
+                 if r["reasonCode"] == "MALFORMED_LEGACY_ALIGNMENT_FILE"]
+    assert malformed[0]["payload"]["originalText"] == "{not json"
+
+
+def test_the_digests_are_the_same_from_shared_bytes(stage4_project: Path) -> None:
+    """The sync reads each file once and hands the bytes to both digests; the
+    values must be exactly those Stage 6B's run fingerprint computes alone."""
+    project = TranslationCoreProject(str(stage4_project))
+    files = psr.alignment_files(project)
+    assert [path.name for path, _ in files] == ["1.json", "2.json"]
+    content = psr.alignment_directory_digest(project)
+    assert psr.alignment_directory_digest(project, files) == content
+    assert psr.alignment_state_digest(project, content_digest=content) == psr.alignment_state_digest(project)
+
+
 @pytest.mark.parametrize(("book", "chapter", "verse", "mapped", "kind"), [
     ("RUT", "1", "1", {"mapping": "same", "orgRef": "RUT 1:1"}, "SAME"),
     ("RUT", "1", "1", {"mapping": "mapped", "orgRef": "RUT 1:2"}, "MAPPED"),

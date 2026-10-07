@@ -4707,6 +4707,33 @@ class FoundationRepository:
             )
             conn.commit()
 
+    def save_migration_runs(self, project_id: str, runs: list[dict[str, Any]]) -> None:
+        """Several runs in one transaction (one fsync): the alignment
+        compatibility scan's per-file runs and its folder run together."""
+        now = self._now()
+        rows = [(run["run_id"], project_id, run["source_path"], run["source_hash"], run["source_schema"],
+                 run["status"], run["started_at"], now, json.dumps(run["report"], ensure_ascii=False))
+                for run in runs]
+        if not rows:
+            return
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.executemany("INSERT INTO migration_runs VALUES(?,?,?,?,?,?,?,?,?)", rows)
+            conn.commit()
+
+    def migration_run_hashes(self, project_id: str, source_schema: str) -> dict[str, set[str]]:
+        """source_path -> every source_hash recorded under one schema, in one
+        query (the compatibility scan asks this for every chapter file)."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT source_path,source_hash FROM migration_runs WHERE project_id=? AND source_schema=?",
+                (project_id, source_schema),
+            ).fetchall()
+        out: dict[str, set[str]] = {}
+        for row in rows:
+            out.setdefault(row["source_path"], set()).add(row["source_hash"])
+        return out
+
     def migration_report(self, project_id: str) -> dict[str, Any]:
         with self._connect() as conn:
             runs = conn.execute(

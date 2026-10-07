@@ -15863,3 +15863,63 @@ fix across a collection is a feature change to that decision.
 - One earlier run of that subset reported 1 failed and 698 passed. Its name
   was not captured, and it has not recurred in five runs since or in the
   full suite. It is recorded here rather than dismissed.
+
+## 2026-10-07 — Every verse edit re-scanned the whole book's alignment files; now only the changed chapter
+
+Follow-up 1 of the indic-qa editor handoff, after measurement showed the
+chapter-accept cost is in the Scripture write path (entry above). Benz chose
+"rescan only the changed chapter". Who writes Scripture is unchanged.
+
+**Root cause.** `apply_scripture_edit` rewrites one chapter's alignment file.
+`PassageSemanticRuntime.synchronize_alignment_state` keyed the
+legacy-compatibility scan on a digest of the whole alignment folder, so any
+edit changed it. Then, per edit:
+1. Every chapter file of the book was read twice, once for each digest.
+2. Every chapter file was re-parsed and re-scanned (O(book)).
+3. Every legacy issue found in the unchanged chapters was inserted into
+   `migration_quarantine` again. That table is append-only and not
+   deduplicated.
+
+**Fix.**
+- Each chapter file is read once per sync (`alignment_files`), and the same
+  bytes feed both digests. The digest values are unchanged, so Stage 6B's run
+  fingerprint is not affected; a test pins this.
+- The scan now also keeps a per-file memo: one `migration_runs` row per
+  chapter file and content, schema
+  `translationCore.alignmentData.compatibility-scan.file.v1`. A file that
+  already has a row is not scanned again.
+- The folder-level run and its report schema are kept as they were. The
+  report gains `filesUnchanged`, and `filesScanned` now counts the files
+  actually scanned.
+- Runs are saved in one transaction (`save_migration_runs`), and the
+  recorded hashes are read in one query (`migration_run_hashes`). No schema
+  change: the table and its unique key were already there.
+- A project opened under the old code has no per-file rows, so its first
+  sync after this change scans every file once. That is what every edit did
+  before.
+
+**Measured** (median `verse.edit`, Language QA off; old code, then new):
+
+| Book | Edits | Old | New |
+|---|---|---|---|
+| Malayalam Romans | 10 | 381 ms | 273 ms |
+| Malayalam Psalms | 6 | 483 ms | 292 ms |
+
+The per-edit cost no longer grows with the size of the book. What remains
+(about 270 ms) is the writer's own fixed work: the chapter and alignment
+JSON with fsync, backups and the journal. A chapter accept is still one such
+edit per verse. Writing a whole chapter in one transaction would change the
+one Scripture writer, which stays a maintainer question (CLAUDE.md
+stop-and-ask).
+
+**Verified.**
+- `test_passage_semantic_runtime.py` has three new tests:
+  - A one-chapter change scans one file and records nothing twice. On the
+    old code this fails with `assert 2 == 1`: chapter 1's issue is recorded
+    twice.
+  - A changed chapter is still scanned, including a malformed file.
+  - The digests are the same from shared bytes.
+- The existing quarantine-batch and raw-import-stub tests are unchanged and
+  pass.
+- semantic, correction, alignment, project_io and `test_bridge_service.py`:
+  797 passed.
