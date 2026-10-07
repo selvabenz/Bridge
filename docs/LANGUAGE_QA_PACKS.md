@@ -231,6 +231,23 @@ shows ⚑ after the flagged span. The panel's Flags tab lists the book's flags;
 flags are created from a Language QA mark, the Review panel, a text selection
 or the whole verse.
 
+### Project words, Book words, occurrences (every pack)
+
+- `languageQa.words.add {words, scope: book|project}` records house-style
+  entries with `list: "projectWords"` (LANGUAGE_QA_HOUSESTYLE.md). They
+  silence spelling-type findings on those words. `.list` shows them; removing
+  one is `housestyle.setState`.
+- `languageQa.bookWords` lists the book's words outside the dictionary, most
+  frequent first, from the last pass: the pass's word counts plus the
+  resident checker's view (`indic_qa_adapter.word_statuses`: unknown,
+  irv_ok, inflected_ok, compound, rare_near_common) with IRV and OV counts.
+  A pack with only a lexicon reports words its lexicon does not count. A word
+  on the project list reports `added`.
+- `languageQa.occurrences {word, source: "irv"}` lists every place the word
+  occurs in the open book's verse text. It uses Language QA's own tokenizer,
+  returns raw offsets and a visible-text snippet, and caps at 5,000 verses.
+  `source: "ov"` comes with the reference text (commit 7).
+
 ### Phase 1 data rules (DECISIONS 2026-10-07)
 
 - No rule has high severity together with high confidence, so none blocks

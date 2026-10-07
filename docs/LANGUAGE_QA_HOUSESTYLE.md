@@ -23,7 +23,7 @@ v5):
 | `scope` | `word-in-book`, `word-in-project`, `rule-in-book`, `rule-in-project` |
 | `ruleId` | the finding's pack-qualified rule id, e.g. `ta-irv/sandhi.vallinam.demonstrative` |
 | `word` | the flagged text (NFC), for a word scope |
-| `list` | `properNouns` for an approved name (Phase 6.2), which carries no rule |
+| `list` | `properNouns` for an approved name (Phase 6.2), or `projectWords` for a word the project says is spelt right (2026-10-07); neither carries a rule |
 | `provenance` | `curated` (added in Settings), `explicit` (a scoped Ignore), `learned` (the learner) |
 | `state` | `active`, `removed`, `undone` |
 | `evidence` | the decisions it came from: `{chapter, verse, decisionId}` |
@@ -37,6 +37,12 @@ v5):
   `name.minority-spelling`. The bundled வல்லினம் rules no longer abstain on
   it: the 2026-09-28 reviewer found a name after a case form needed doubling
   in 17 of 25 cases (அவனுக்குச் சேத் என்று பெயரிட்டான்).
+- A **`projectWords`** entry (Language QA's "Add to the project word list",
+  indic-qa's "Add to dictionary") hides every typo, name, consistency or
+  learned-fix finding whose text is that word. Grammar and sandhi leads are
+  not hidden: they are about a pair of words. The list is applied after the
+  scan, like a word entry, so it is outside `list_fingerprint` and adding a
+  word never rescans. It is never written into a dictionary file.
 - A **learned preference** ranks a suggestion first (see below).
 
 **What an entry may never do:** add or widen a match pattern, change a

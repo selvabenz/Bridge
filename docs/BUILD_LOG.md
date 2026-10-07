@@ -15414,3 +15414,70 @@ writes the verse.
 
 **Not verified.** The desktop app. Mouse selection in a real WebView2 is the
 part jsdom cannot show (QA matrix A105).
+
+## 2026-10-07 — Project word list, Book words, IRV occurrences (branch `indic-qa-editor`, commit 6)
+
+These are indic-qa's "Add to dictionary", unknown-word table and occurrence
+list. DECISIONS 2026-10-07, "A project word is a house-style list entry".
+
+**Engine.**
+- `housestyle.LISTS` gains `projectWords`.
+- `HouseStyle.suppresses` hides typo, name, consistency and learned findings
+  whose text is a project word.
+- `list_fingerprint` now covers only the scan lists (`SCAN_LISTS`, which is
+  `properNouns`). Two consequences:
+  - Existing cache keys are byte-identical, because the hashed JSON is the
+    same as before.
+  - Adding a project word scans 0 verses. A test pins this.
+- The plan had project words go into the vendored checker through
+  `Checker.set_ignored`. Suppressing after the scan made that unnecessary,
+  and the resident checker key stays as it was.
+- `language_packs/indic_qa_adapter.word_statuses` classifies words with the
+  resident checker, under its lock. `LanguageQaManager.book_words` serves the
+  last pass's `book_counts` and `book_first_seen`.
+- New RPCs:
+  - `languageQa.words.add`: single words only, at most 500, NFC, book or
+    project scope, recorded through `housestyle_record`.
+  - `languageQa.words.list`.
+  - `languageQa.bookWords`.
+  - `languageQa.occurrences` with `source: "irv"`. `source: "ov"` waits for
+    the reference text (commit 7).
+
+**Frontend.**
+- `src/lib/projectWords.ts`:
+  - `addProjectWords` drops the word's spelling findings at once and keeps
+    grammar leads. It puts them back on a refusal, and takes an explicit
+    project path when the caller has one.
+  - `isKnownMisspellingRule`.
+- Verse menu: "Add “X” to the project word list". It is disabled, with the
+  reason, on a known-misspelling rule or a multi-word span, as in indic-qa's
+  editor. Also "Show IRV occurrences…".
+- Review panel: "Add to word list".
+- `OccurrencesPopup`: the word is marked in each snippet; an IRV hit opens its
+  verse through a new `onNavigate` prop on VerseList, which App wires to
+  `navigateToReportRow`.
+- Language QA panel:
+  - a **Book words** tab: tick by IRV frequency, add the ticked words for
+    this book or every book, with a sticky table header;
+  - a project-words section in Dictionary, with Remove.
+- Settings › House style names a project word as one.
+
+**Verified.**
+- Engine:
+  - `test_language_qa_words.py`, 5 tests:
+    - a project word hides its findings and scans 0 verses;
+    - removing it brings them back;
+    - input is checked;
+    - Book words has real Hindi data: राज्यपाल is `irv_ok`, counted twice,
+      with its first verse;
+    - occurrences come with raw offsets, snippet and cap.
+  - `test_language_qa.py` serially: 297 passed.
+  - House style, words, flags, scope, learned, indic, packs, jobs and bridge
+    service: 285 passed.
+  - Latency gate, Tamil and Hindi: pass.
+- Frontend:
+  - `npm run check`: 0 errors, 0 warnings.
+  - `npm run test`: 571 passed.
+  - `npm run build`: ok.
+
+**Not verified.** The desktop app.

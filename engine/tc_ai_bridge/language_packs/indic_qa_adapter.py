@@ -338,6 +338,29 @@ class LoadedChecker:
 _LOCK = threading.Lock()
 _RESIDENT: LoadedChecker | None = None
 
+# What a word not in the OV dictionary looks like to the checker: the "Book
+# words" list (indic-qa's unknown-word table). irv_ok / inflected_ok are words
+# the IRV itself uses; unknown is neither.
+BOOK_WORD_STATUSES = frozenset({"unknown", "irv_ok", "inflected_ok", "compound", "rare_near_common"})
+
+
+def word_statuses(pack_name: str, words: list[str]) -> dict[str, tuple[str, int, int]] | None:
+    """word -> (status, IRV count, OV count) from the resident checker of
+    `pack_name`, for words outside the dictionary; None when no checker of that
+    pack is resident (no pass has run it yet). Read under the adapter's lock,
+    since a pass mutates the checker."""
+    with _LOCK:
+        loaded = _RESIDENT
+        if loaded is None or loaded.key[0] != pack_name:
+            return None
+        checker = loaded.checker
+        out: dict[str, tuple[str, int, int]] = {}
+        for word in words:
+            status = checker.classify(word).status
+            if status in BOOK_WORD_STATUSES:
+                out[word] = (status, int(checker.irv_count.get(word, 0)), int(checker.lex.lemma_count.get(word, 0)))
+        return out
+
 
 def _settings(pack: RulePack) -> dict[str, Any]:
     """indic-qa's own per-rule switches follow the pack (and its overrides),

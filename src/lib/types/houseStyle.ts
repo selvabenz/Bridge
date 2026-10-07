@@ -14,7 +14,9 @@ export interface HouseStyleEntryInput {
   scope: HouseStyleScope;
   ruleId?: string;
   word?: string;
-  list?: "" | "properNouns";
+  /** properNouns: names the pack's rules abstain on; projectWords: words the
+   * project says are spelt right (Language QA's word list). */
+  list?: "" | "properNouns" | "projectWords";
   provenance?: HouseStyleProvenance;
   state?: HouseStyleState;
   evidence?: HouseStyleEvidence[];

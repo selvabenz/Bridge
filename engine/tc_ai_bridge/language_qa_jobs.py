@@ -54,7 +54,8 @@ def _may_concern_language_qa(decision: dict[str, Any]) -> bool:
 
 # The rule pack's listRef lists. Phase 6 fills these from the project's house
 # style; until then they are empty, so a proper-noun abstain never fires.
-HOUSE_STYLE_LISTS: dict[str, frozenset] = {"housestyle.properNouns": frozenset()}
+HOUSE_STYLE_LISTS: dict[str, frozenset] = {"housestyle.properNouns": frozenset(),
+                                           "housestyle.projectWords": frozenset()}
 # A pack with no confusion.json: every one-cluster edit costs 1.
 PLAIN_DISTANCE = ConfusionSet({"entries": []})
 
@@ -397,6 +398,8 @@ class LanguageQaManager:
         # new one shows on the next pass without a rescan; off in Settings.
         self._learned_loader: Callable[[], list[dict[str, Any]]] | None = None
         self._learned_on = True
+        # The last completed pass's word counts, for the panel's Book words list.
+        self._book_words: dict[str, Any] = {}
 
     def configure(self, *, inline_precision: Any = 0, inline_confidence: Any = "low",
                   learned_fixes: bool = True) -> None:
@@ -441,6 +444,7 @@ class LanguageQaManager:
                              pack_setting(project.manifest))
             self._pack_name = None
             self._gated = {}
+            self._book_words = {}
             self._cache = {}
             self._cache_loaded = False
             self._by_verse = {}
@@ -470,6 +474,7 @@ class LanguageQaManager:
             self._context = None
             self._pack_name = None
             self._gated = {}
+            self._book_words = {}
             self._generation += 1
             self._wake.set()
             self._cache = {}
@@ -1066,6 +1071,11 @@ class LanguageQaManager:
             if cancelled is None and self._cancelled(generation):
                 return None
             self._by_verse = by_verse
+            self._book_words = {"counts": dict(book_counts), "first": dict(book_first_seen),
+                                "pack": rule_pack.name if rule_pack is not None else None,
+                                "checker": bool(book_checker), "lexicon": lexicon,
+                                "projectWords": frozenset(style.lists.get("housestyle.projectWords", frozenset())),
+                                "generation": generation}
         return {"state": "completed", "language": detection, "findings": findings,
                 "falsePositives": false_positives, "inlineRules": inline_rule_names(rule_pack),
                 "rulePack": rule_pack.pack_version if rule_pack is not None else "common",
@@ -1150,6 +1160,36 @@ class LanguageQaManager:
                     "chapter": chapter, "verse": verse,
                     "findings": with_drawn(slot["findings"], self._gated, self._policy),
                     "hidden": slot.get("hidden", [])}
+
+    def book_words(self, *, min_count: int = 1, limit: int = 500) -> dict[str, Any]:
+        """indic-qa's "Book words": every word of the book that is not in the
+        dictionary, most frequent first, with its IRV and OV counts where the
+        pack's checker knows them, and the project's own word list marked
+        `added`. From the last completed pass; nothing is rescanned."""
+        with self._lock:
+            basis = dict(self._book_words)
+        if not basis:
+            return {"ready": False, "reason": "Language QA has not finished a pass yet.", "words": [], "total": 0}
+        counts, first = basis["counts"], basis["first"]
+        words = [w for w, n in counts.items() if n >= max(1, int(min_count))]
+        if basis["checker"] and basis["pack"]:
+            statuses = indic_qa_adapter.word_statuses(basis["pack"], words)
+            if statuses is None:
+                return {"ready": False, "reason": "The pack's checker is not loaded; run a pass first.",
+                        "words": [], "total": 0}
+        elif basis["lexicon"] is not None:
+            statuses = {w: ("unknown", 0, 0) for w in words if not basis["lexicon"].count(w)}
+        else:
+            return {"ready": False, "reason": "This book's Language QA rules have no dictionary to compare with.",
+                    "words": [], "total": 0}
+        added = basis["projectWords"]
+        rows = []
+        for word, (status, irv, ov) in statuses.items():
+            chapter, verse, *_rest = first.get(word, ("", "", 0, 0, "", ""))
+            rows.append({"word": word, "status": "added" if word in added else status, "countBook": counts[word],
+                         "countIrv": irv, "countOv": ov, "firstRef": {"chapter": chapter, "verse": verse}})
+        rows.sort(key=lambda r: (-r["countBook"], -r["countIrv"], r["word"]))
+        return {"ready": True, "generation": basis["generation"], "total": len(rows), "words": rows[:max(1, int(limit))]}
 
     def scope_findings(self, chapter: str, verse: str, finding_id: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         """(origin finding, every shown finding of the book) from the last

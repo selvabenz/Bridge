@@ -1130,7 +1130,7 @@
           </span>
           <span>{bookSummary.approvedChapters}/{bookSummary.totalChapters} chapters approved</span>
         </div>
-        <VerseList onSelect={selectVerse} />
+        <VerseList onSelect={selectVerse} onNavigate={navigateToReportRow} />
       </div>
       <ReviewPanel />
     </div>

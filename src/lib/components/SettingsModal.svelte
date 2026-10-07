@@ -261,6 +261,7 @@
   }
 
   function describeEntry(e: HouseStyleEntry): string {
+    if (e.list === "projectWords") return `project word “${e.word}”`;
     if (e.list) return `proper noun “${e.word}”`;
     return e.scope.startsWith("word") ? `“${e.word}” for ${e.ruleId}` : `${e.ruleId} off`;
   }
@@ -666,7 +667,8 @@
                 <span>{describeEntry(e)} · from the language pack's reviewed house style
                   <!-- Removing a bundled entry records this project's own entry for it, state removed. -->
                   <button class="btn link" on:click={() => houseStyleAct(() => bridge.housestyleRecord({ scope: e.scope,
-                    ruleId: e.ruleId, word: e.word, list: e.list === "properNouns" ? "properNouns" : "",
+                    ruleId: e.ruleId, word: e.word,
+                    list: e.list === "properNouns" || e.list === "projectWords" ? e.list : "",
                     provenance: "curated", state: "removed" }))} disabled={houseStyleBusy}>Remove</button>
                 </span>
               </div>

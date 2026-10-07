@@ -476,6 +476,24 @@ out deliberately.
 "alternative path for applying corrections" (CLAUDE.md stop-and-ask), or
 asks for the cross-book scope.
 
+## 2026-10-07 — A project word is a house-style list entry, applied after the scan
+**Decision:** indic-qa's "Add to dictionary" is a house-style entry with
+`list: "projectWords"`, scope word-in-book or word-in-project. It hides
+typo, name, consistency and learned-fix findings on that word. It is applied
+in `HouseStyle.suppresses`, after the scan, and kept out of
+`list_fingerprint`, so adding or removing a word never rescans a book.
+**Because:** a translator's "this word is fine" is a project decision, and
+house style already holds those, with provenance, removal and sync. The
+vendored dictionaries are read-only (NOTICE contract 2), and a dictionary
+write would also change every other project of that language.
+**Rules out:**
+- writing `extra_words.txt`;
+- calling the vendored `Checker.set_ignored`, which is not needed when
+  suppression happens after the scan;
+- hiding a grammar or sandhi lead because one of its words is listed.
+**Revisit when:** the indic-qa checker's own consistency majorities should
+count a project word (they do not today).
+
 <!-- New entries go above this line. -->
 
 ## 2026-10-07 — indic-qa's checker core is vendored in-process for Punjabi, Malayalam, Hindi and Odia

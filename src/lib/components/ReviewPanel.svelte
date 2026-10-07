@@ -6,6 +6,7 @@
   import { forgetLearnedFix, isLearnedFinding, learnedPairOf } from "../learnedFixes";
   import { openScopeDialog } from "../scopedApply";
   import { addFlag } from "../flags";
+  import { addProjectWords, isKnownMisspellingRule } from "../projectWords";
   import FlagDialog from "./FlagDialog.svelte";
   import type { FlagInput } from "../types/languageQa";
   import type { LanguageQaFinding, LanguageQaScope, LanguageQaSuggestion } from "../types/languageQa";
@@ -176,6 +177,20 @@
     lqaNotice = "Flag saved.";
     lqaNoticeError = false;
     return "";
+  }
+
+  /** "This word is spelt right in this project": its spelling findings go. */
+  function addLqaWord(finding: LanguageQaFinding): void {
+    const word = finding.originalText.trim();
+    lqaFindings = lqaFindings.filter((f) => f.originalText.trim() !== word);
+    lqaNotice = `“${word}” is now a project word.`;
+    lqaNoticeError = false;
+    void addProjectWords([word]).then((error) => {
+      if (!error) return;
+      lqaNotice = error;
+      lqaNoticeError = true;
+      restoreLqa(finding);
+    });
   }
 
   function decideLqa(finding: LanguageQaFinding, status: "ignored" | "rejected"): void {
@@ -785,6 +800,13 @@
                   {/if}
                   <button class="flag" title="Ask the team about this text; nothing in the verse changes"
                     on:click={() => (lqaFlagDraft = f)}>⚑ Flag…</button>
+                  {#if ["typo", "name", "consistency"].includes(f.category) && !/\s/.test(f.originalText.trim())}
+                    <button class="ignore" disabled={isKnownMisspellingRule(f.ruleId)}
+                      title={isKnownMisspellingRule(f.ruleId)
+                        ? "This rule flags a spelling reviewers already corrected; ignore or flag it instead."
+                        : "This word is spelt right in this project: stop reporting it anywhere in the book"}
+                      on:click={() => addLqaWord(f)}>Add to word list</button>
+                  {/if}
                 </div>
                 {#if lqaSuggestions(f).length && !f.context}
                   <div class="scope-row" role="radiogroup" aria-label="Apply a suggestion to">

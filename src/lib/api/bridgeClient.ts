@@ -2,7 +2,7 @@ import type {
   LanguageQaDecisionIssue, LanguageQaHistory, LanguageQaInline, LanguageQaStatus, LanguageQaVerse, LanguageQaView,
   LearnedFix, LearnedFixesResponse, VerseEditLearned,
   BatchUndoResult, LanguageQaScope, ScopeAcceptResult, ScopeFindResult, ScopeIgnoreResult,
-  FlagInput, FlagStatus, FlagType, LanguageQaFlag,
+  FlagInput, FlagStatus, FlagType, LanguageQaFlag, BookWordsResult, OccurrencesResult,
 } from "../types/languageQa";
 import type { CollectionQaSnapshot } from "../types/collectionQa";
 import type {
@@ -211,6 +211,10 @@ export type EngineMethod =
   | "languageQa.flags.add"
   | "languageQa.flags.update"
   | "languageQa.flags.delete"
+  | "languageQa.words.add"
+  | "languageQa.words.list"
+  | "languageQa.bookWords"
+  | "languageQa.occurrences"
   | "housestyle.list"
   | "housestyle.nameSuggestions"
   | "housestyle.record"
@@ -404,6 +408,28 @@ export const bridge = {
     projectPath: string, chapter: string, verse: string, findingId: string, scope: LanguageQaScope,
   ): Promise<ScopeIgnoreResult> {
     return call("languageQa.scopeApply", { projectPath, action: "ignore", chapter, verse, findingId, scope });
+  },
+
+  /** Add words to the project word list (house style, list "projectWords"):
+   * they stop being reported as spelling problems. Never a dictionary write. */
+  languageQaWordsAdd(projectPath: string, words: string[], scope: "book" | "project" = "book"):
+    Promise<{ entries: HouseStyleEntry[]; count: number }> {
+    return call("languageQa.words.add", { projectPath, words, scope });
+  },
+
+  languageQaWordsList(projectPath: string): Promise<{ added: HouseStyleEntry[] }> {
+    return call("languageQa.words.list", { projectPath });
+  },
+
+  /** The book's words outside the dictionary, most frequent first (last pass). */
+  languageQaBookWords(projectPath: string, minCount = 1): Promise<BookWordsResult> {
+    return call("languageQa.bookWords", { projectPath, minCount });
+  },
+
+  /** Where a word occurs: "irv" in this book's verse text, "ov" in the reference text. */
+  languageQaOccurrences(projectPath: string, word: string, source: "irv" | "ov" = "irv", limit = 200):
+    Promise<OccurrencesResult> {
+    return call("languageQa.occurrences", { projectPath, word, source, limit });
   },
 
   /** This book's flags (one chapter's when given), in reading order. */

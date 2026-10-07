@@ -2,7 +2,9 @@
   import { onDestroy } from "svelte";
   import { bridge } from "../api/bridgeClient";
   import { languageQaChannel, nudgeLanguageQa } from "../languageQaInline";
-  import type { LanguageQaFlag, LanguageQaStatus, LanguageQaView, LearnedFix } from "../types/languageQa";
+  import type { BookWordRow, LanguageQaFlag, LanguageQaStatus, LanguageQaView, LearnedFix } from "../types/languageQa";
+  import type { HouseStyleEntry } from "../types/houseStyle";
+  import { addProjectWords } from "../projectWords";
   import { deleteFlag, setFlagStatus } from "../flags";
   import LanguageQaHistoryList from "./LanguageQaHistoryList.svelte";
 
@@ -15,13 +17,24 @@
   let view: LanguageQaView = "findings";
   // The panel's own tabs. "findings" holds the three engine lists above; the
   // others are the reviewer's own data (learned fixes in Dictionary).
-  type PanelTab = "findings" | "flags" | "dictionary";
+  type PanelTab = "findings" | "bookWords" | "flags" | "dictionary";
   let panelTab: PanelTab = "findings";
   let learned: LearnedFix[] = [];
   let learnedOn = true;
   let learnedLoaded = false;
   let learnedBusy = false;
   let learnedError = "";
+  // Book words: the book's words outside the dictionary (last pass).
+  let bookWords: BookWordRow[] = [];
+  let bookWordsReason = "";
+  let bookWordsLoaded = false;
+  let bookWordsBusy = false;
+  let bookWordsNotice = "";
+  let ticked = new Set<string>();
+  let tickAtLeast = 5;
+  let wordScope: "book" | "project" = "book";
+  // Dictionary: the project word list.
+  let projectWords: HouseStyleEntry[] = [];
   let flags: LanguageQaFlag[] = [];
   let flagsLoaded = false;
   let flagsError = "";
@@ -116,8 +129,68 @@
 
   function showPanelTab(next: PanelTab): void {
     panelTab = next;
-    if (next === "dictionary") void loadLearned();
+    if (next === "dictionary") {
+      void loadLearned();
+      void loadProjectWords();
+    }
+    if (next === "bookWords") void loadBookWords();
     if (next === "flags") void loadFlags();
+  }
+
+  async function loadBookWords(): Promise<void> {
+    try {
+      const result = await bridge.languageQaBookWords(projectPath);
+      bookWords = result.words;
+      bookWordsReason = result.ready ? "" : result.reason ?? "";
+    } catch (cause) {
+      bookWordsReason = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      bookWordsLoaded = true;
+    }
+  }
+
+  /** indic-qa's "tick words used at least N times in the IRV". */
+  function tickFrequent(): void {
+    ticked = new Set(bookWords.filter((w) => w.status !== "added" && w.countIrv >= tickAtLeast).map((w) => w.word));
+  }
+
+  function toggleTick(word: string): void {
+    const next = new Set(ticked);
+    if (!next.delete(word)) next.add(word);
+    ticked = next;
+  }
+
+  async function addTicked(): Promise<void> {
+    if (!ticked.size || bookWordsBusy) return;
+    bookWordsBusy = true;
+    const words = [...ticked];
+    const error = await addProjectWords(words, wordScope, projectPath);
+    bookWordsBusy = false;
+    if (error) {
+      bookWordsNotice = error;
+      return;
+    }
+    bookWords = bookWords.map((w) => (ticked.has(w.word) ? { ...w, status: "added" } : w));
+    bookWordsNotice = `${words.length} word${words.length === 1 ? "" : "s"} added to the project word list.`;
+    ticked = new Set();
+  }
+
+  async function loadProjectWords(): Promise<void> {
+    try {
+      projectWords = (await bridge.languageQaWordsList(projectPath)).added;
+    } catch {
+      projectWords = [];
+    }
+  }
+
+  async function removeProjectWord(entry: HouseStyleEntry): Promise<void> {
+    try {
+      await bridge.housestyleSetState(entry.key, "removed");
+      projectWords = projectWords.filter((e) => e.key !== entry.key);
+      nudgeLanguageQa();
+    } catch (cause) {
+      learnedError = cause instanceof Error ? cause.message : String(cause);
+    }
   }
 
   /** The whole book's flags, fetched when the tab opens. */
@@ -246,6 +319,7 @@
         {/if}
         <div class="panel-tabs" role="tablist" aria-label="Language QA panel">
           <button role="tab" aria-selected={panelTab === "findings"} on:click={() => showPanelTab("findings")}>Issues</button>
+          <button role="tab" aria-selected={panelTab === "bookWords"} on:click={() => showPanelTab("bookWords")}>Book words</button>
           <button role="tab" aria-selected={panelTab === "flags"} on:click={() => showPanelTab("flags")}>Flags</button>
           <button role="tab" aria-selected={panelTab === "dictionary"} on:click={() => showPanelTab("dictionary")}>Dictionary</button>
         </div>
@@ -299,6 +373,53 @@
             <button on:click={() => turnPage(50)} disabled={busy || offset + 50 >= status.totalFindings}>Next</button>
           </div>
         {/if}
+        {:else if panelTab === "bookWords"}
+          <section aria-label="Book words" class="book-words">
+            <p class="muted">Words in this book that are not in the dictionary, most used first. Add the ones that are right
+              to the project word list; they stop being reported as spelling problems. Nothing here changes the text.</p>
+            {#if !bookWordsLoaded}
+              <p class="muted">Loading…</p>
+            {:else if bookWordsReason}
+              <p class="muted">{bookWordsReason}</p>
+            {:else if !bookWords.length}
+              <p class="muted">Every word of this book is in the dictionary.</p>
+            {:else}
+              <div class="tick-row">
+                <label>Tick words used at least
+                  <input type="number" min="1" bind:value={tickAtLeast} aria-label="Minimum uses in the IRV" /> times in the IRV</label>
+                <button on:click={tickFrequent}>Tick</button>
+                <button on:click={() => (ticked = new Set())}>Untick all</button>
+              </div>
+              <div class="table-box">
+                <table>
+                  <thead><tr><th></th><th>Word</th><th>In book</th><th>IRV</th><th>OV</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {#each bookWords as row (row.word)}
+                      <tr class:added={row.status === "added"}>
+                        <td><input type="checkbox" aria-label={`Tick ${row.word}`} checked={ticked.has(row.word)}
+                          disabled={row.status === "added"} on:change={() => toggleTick(row.word)} /></td>
+                        <td class="word">
+                          <button class="link" on:click={() => onNavigate(status?.book ?? "", row.firstRef.chapter, row.firstRef.verse)}
+                            title="Open its first verse">{row.word}</button>
+                        </td>
+                        <td>{row.countBook}</td><td>{row.countIrv}</td><td>{row.countOv}</td>
+                        <td>{row.status === "added" ? "in word list" : row.status === "irv_ok" ? "IRV word" : row.status}</td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+              <div class="tick-row">
+                <span class="muted">{ticked.size} ticked</span>
+                <select bind:value={wordScope} aria-label="Where the words apply">
+                  <option value="book">this book</option>
+                  <option value="project">every book of the project</option>
+                </select>
+                <button on:click={addTicked} disabled={!ticked.size || bookWordsBusy}>Add to the project word list</button>
+              </div>
+              {#if bookWordsNotice}<p class="muted" role="status">{bookWordsNotice}</p>{/if}
+            {/if}
+          </section>
         {:else if panelTab === "flags"}
           <section aria-label="Flags" class="flags">
             <p class="muted">Questions reviewers raised on the text (⚑). A flag never changes the verse.</p>
@@ -333,6 +454,19 @@
             {/if}
           </section>
         {:else if panelTab === "dictionary"}
+          <section aria-label="Project words" class="dictionary">
+            <h3>Project words</h3>
+            {#if !projectWords.length}
+              <p class="muted">None yet. Add words from Book words or a word's menu.</p>
+            {:else}
+              <ul class="words">
+                {#each projectWords as entry (entry.key)}
+                  <li><span class="word">{entry.word}</span> <span class="muted">{entry.scope === "word-in-project" ? "every book" : "this book"}</span>
+                    <button on:click={() => removeProjectWord(entry)}>Remove</button></li>
+                {/each}
+              </ul>
+            {/if}
+          </section>
           <section aria-label="Learned fixes" class="dictionary">
             <h3>Learned fixes</h3>
             <p class="muted">
@@ -399,6 +533,19 @@
   .panel-tabs button[aria-selected="true"] { border-color: var(--accent); background: var(--accent-bg); font-weight: 600; }
   .dictionary h3 { font-size: 13px; margin: 10px 0 4px; }
   .flags .toggle { display: flex; gap: 6px; align-items: center; }
+  .book-words .tick-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
+  .book-words input[type="number"] { width: 48px; }
+  .book-words .table-box { max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
+  .book-words table { width: 100%; border-collapse: collapse; }
+  .book-words th { position: sticky; top: 0; background: var(--surface); text-align: left; font-size: 11px;
+    color: var(--text-3); padding: 4px; border-bottom: 1px solid var(--border); }
+  .book-words td { padding: 3px 4px; border-bottom: 1px solid var(--border); }
+  .book-words td.word { font-family: var(--font-target); font-size: 15px; }
+  .book-words tr.added td { opacity: .55; }
+  .link { border: 0; background: none; padding: 0; font: inherit; color: inherit; text-decoration: underline dotted; }
+  .dictionary .words { list-style: none; padding: 0; margin: 0; }
+  .dictionary .words li { display: flex; gap: 8px; align-items: center; padding: 3px 0; border: 0; }
+  .dictionary .words .word { font-family: var(--font-target); font-size: 15px; }
   .flags li.resolved { opacity: .7; }
   .dictionary table { width: 100%; border-collapse: collapse; }
   .dictionary th { text-align: left; font-size: 11px; color: var(--text-3); padding: 4px; border-bottom: 1px solid var(--border); }

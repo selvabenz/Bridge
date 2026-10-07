@@ -224,6 +224,47 @@ export interface FlagInput {
   findingId?: string;
 }
 
+/** languageQa.bookWords: a word of the book outside the dictionary. */
+export interface BookWordRow {
+  word: string;
+  /** The checker's view (irv_ok: the IRV uses it; unknown: neither), or "added" to the project word list. */
+  status: "unknown" | "irv_ok" | "inflected_ok" | "compound" | "rare_near_common" | "added";
+  countBook: number;
+  countIrv: number;
+  countOv: number;
+  firstRef: { chapter: string; verse: string };
+}
+
+export interface BookWordsResult {
+  ready: boolean;
+  reason?: string;
+  generation?: number;
+  total: number;
+  words: BookWordRow[];
+}
+
+export interface OccurrenceHit {
+  book: string;
+  chapter: string;
+  verse: string;
+  /** Raw code points into the verse. */
+  start: number;
+  end: number;
+  /** What a reader sees around it; the word is snippet[snippetStart:snippetEnd]. */
+  snippet: string;
+  snippetStart: number;
+  snippetEnd: number;
+}
+
+export interface OccurrencesResult {
+  word: string;
+  source: "irv" | "ov";
+  ready: boolean;
+  total: number;
+  truncated: boolean;
+  hits: OccurrenceHit[];
+}
+
 /** What verse.edit says it learned from a single-word edit. */
 export interface VerseEditLearned {
   old: string;

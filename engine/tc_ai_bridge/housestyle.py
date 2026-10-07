@@ -45,7 +45,16 @@ from typing import Any, Callable
 SCOPES = ("word-in-book", "word-in-project", "rule-in-book", "rule-in-project")
 PROVENANCES = ("curated", "explicit", "learned")
 STATES = ("active", "removed", "undone")
-LISTS = ("properNouns",)
+# properNouns feeds the rule pack's abstains inside the (cached) verse scan.
+# projectWords (indic-qa's "Add to dictionary", 2026-10-07) is a word the
+# project says is spelt right: applied after the scan, like a word entry, so it
+# never touches the cache key, and never written to a dictionary file.
+LISTS = ("properNouns", "projectWords")
+# The finding categories a project word silences: the ones about how a word is
+# spelt. Grammar and sandhi leads are about a pair of words, so they stay.
+PROJECT_WORD_CATEGORIES = frozenset({"typo", "name", "consistency", "learned"})
+# The lists that feed the rule pack inside the verse scan (list_fingerprint).
+SCAN_LISTS = frozenset({"housestyle.properNouns"})
 
 # The learner's thresholds, in one place (docs/LANGUAGE_QA_HOUSESTYLE.md).
 LEARN_IGNORES = 3              # ignores of one (rule, word) in a book, none Used since -> learned word-in-book
@@ -124,14 +133,18 @@ class HouseStyle:
     def list_fingerprint(self) -> str:
         """The lists feed the rule pack inside the (cached) verse scan, so they
         join its cache key. Word and rule entries are applied after the scan."""
-        return hashlib.sha1(json.dumps({k: sorted(v) for k, v in sorted(self.lists.items())},
+        return hashlib.sha1(json.dumps({k: sorted(v) for k, v in sorted(self.lists.items()) if k in SCAN_LISTS},
                                        ensure_ascii=False).encode("utf-8")).hexdigest()
 
     def suppresses(self, finding: dict[str, Any]) -> bool:
         rule_id = str(finding.get("ruleId") or "")
         if rule_id in self.disabled_rules:
             return True
-        return nfc(str(finding.get("originalText") or "")) in self.hidden_words.get(rule_id, ())
+        word = nfc(str(finding.get("originalText") or ""))
+        if word in self.hidden_words.get(rule_id, ()):
+            return True
+        return (str(finding.get("category") or "") in PROJECT_WORD_CATEGORIES
+                and word in self.lists.get("housestyle.projectWords", ()))
 
     def rank(self, finding: dict[str, Any]) -> dict[str, Any]:
         """A learned preference ranks an existing suggestion first. It never

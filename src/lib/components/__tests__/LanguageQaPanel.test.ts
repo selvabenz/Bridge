@@ -13,6 +13,8 @@ const learnedForgetCall = vi.fn();
 const learnedRestoreCall = vi.fn();
 const flagsListCall = vi.fn();
 const flagUpdateCall = vi.fn();
+const bookWordsCall = vi.fn();
+const wordsAddCall = vi.fn();
 vi.mock("../../api/bridgeClient", () => ({ bridge: {
   languageQaStatus: (...args: unknown[]) => statusCall(...args),
   languageQaPause: (...args: unknown[]) => pauseCall(...args),
@@ -22,6 +24,8 @@ vi.mock("../../api/bridgeClient", () => ({ bridge: {
   languageQaLearnedRestore: (...args: unknown[]) => learnedRestoreCall(...args),
   languageQaFlagsList: (...args: unknown[]) => flagsListCall(...args),
   languageQaFlagUpdate: (...args: unknown[]) => flagUpdateCall(...args),
+  languageQaBookWords: (...args: unknown[]) => bookWordsCall(...args),
+  languageQaWordsAdd: (...args: unknown[]) => wordsAddCall(...args),
 } }));
 import LanguageQaPanel from "../LanguageQaPanel.svelte";
 import { languageQaChannel } from "../../languageQaInline";
@@ -303,5 +307,23 @@ describe("Language QA", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
     await waitFor(() => expect(flagUpdateCall).toHaveBeenCalledWith("C:/project", "f1", { status: "resolved" }));
     await waitFor(() => expect(screen.queryByText("Is this the sense?")).toBeNull());
+  });
+
+  it("Book words ticks the words the IRV uses often and adds them to the project word list", async () => {
+    const row = (word: string, countIrv: number) => ({ word, status: "irv_ok" as const, countBook: 2, countIrv, countOv: 0,
+      firstRef: { chapter: "1", verse: "1" } });
+    bookWordsCall.mockReset().mockResolvedValue({ ready: true, total: 2, words: [row("राज्यपाल", 25), row("सोची", 2)] });
+    wordsAddCall.mockReset().mockResolvedValue({ entries: [], count: 1 });
+    render(LanguageQaPanel, { projectPath: "C:/project", onNavigate: vi.fn() });
+    await fireEvent.click(await screen.findByRole("button", { name: /Language QA · completed/ }));
+    await fireEvent.click(screen.getByRole("tab", { name: "Book words" }));
+    expect(await screen.findByText("राज्यपाल")).toBeTruthy();
+    await fireEvent.click(screen.getByRole("button", { name: "Tick" }));
+    expect((screen.getByRole("checkbox", { name: "Tick राज्यपाल" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("checkbox", { name: "Tick सोची" }) as HTMLInputElement).checked).toBe(false);
+    await fireEvent.click(screen.getByRole("button", { name: "Add to the project word list" }));
+    await waitFor(() => expect(wordsAddCall).toHaveBeenCalledWith("C:/project", ["राज्यपाल"], "book"));
+    expect(await screen.findByText(/1 word added to the project word list/)).toBeTruthy();
+    expect(screen.getByText("in word list")).toBeTruthy();
   });
 });

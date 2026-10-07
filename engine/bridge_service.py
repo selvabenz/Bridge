@@ -82,6 +82,7 @@ from tc_ai_bridge.language_qa_learned import learned_pair
 from tc_ai_bridge import language_qa_scope
 from tc_ai_bridge.language_qa import text_hash as language_qa_text_hash
 from tc_ai_bridge.language_qa import word_occurrences as language_qa_word_occurrences
+from tc_ai_bridge.language_qa import lift_inline_usfm as language_qa_lift
 from tc_ai_bridge.language_packs.registry import available as available_language_packs
 from tc_ai_bridge.workbench_repository import WorkbenchConflict, WorkbenchValidationError
 from tc_ai_bridge.alignment_engine import (
@@ -393,6 +394,10 @@ class Methods:
     LANGUAGE_QA_FLAGS_ADD = "languageQa.flags.add"
     LANGUAGE_QA_FLAGS_UPDATE = "languageQa.flags.update"
     LANGUAGE_QA_FLAGS_DELETE = "languageQa.flags.delete"
+    LANGUAGE_QA_WORDS_ADD = "languageQa.words.add"
+    LANGUAGE_QA_WORDS_LIST = "languageQa.words.list"
+    LANGUAGE_QA_BOOK_WORDS = "languageQa.bookWords"
+    LANGUAGE_QA_OCCURRENCES = "languageQa.occurrences"
     CHECKS_STATUS = "checks.status"
     CHECKS_CANCEL = "checks.cancel"
     CHECKS_RETRY = "checks.retry"
@@ -4329,6 +4334,86 @@ class BridgeEngine:
         self._language_qa.invalidate_all()
         return {"fix": fix}
 
+    # -- project words and book words (indic-qa's "Add to dictionary") --------
+    #
+    # A project word is a house-style list entry (list "projectWords"): it
+    # silences spelling-type findings on that word and is never written into a
+    # dictionary file (NOTICE contract 2). Book words come from the last pass.
+
+    WORDS_MAX = 500
+
+    def language_qa_words(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
+        """languageQa.words.add | .list."""
+        self._require_project()
+        if action == "list":
+            entries = [e for e in self.project.housestyle_entries()
+                       if e.get("list") == "projectWords" and e.get("state", "active") == "active"]
+            return {"added": entries}
+        words, scope = params.get("words"), params.get("scope", "book")
+        if (not isinstance(words, list) or not words or len(words) > self.WORDS_MAX
+                or not all(isinstance(w, str) and w.strip() and not any(c.isspace() for c in w.strip()) for w in words)):
+            raise ProjectError(f"words must be a list of 1 to {self.WORDS_MAX} single words")
+        if scope not in {"book", "project"}:
+            raise ProjectError("scope must be book or project")
+        entries = []
+        for word in dict.fromkeys(unicodedata.normalize("NFC", w.strip()) for w in words):
+            result = self.housestyle_record({"scope": f"word-in-{scope}", "list": "projectWords", "word": word,
+                                             "provenance": "explicit"})
+            entries.append(result.get("entry"))
+        return {"entries": entries, "count": len(entries)}
+
+    def language_qa_book_words(self, params: dict[str, Any]) -> dict[str, Any]:
+        min_count, limit = params.get("minCount", 1), params.get("limit", 500)
+        if not isinstance(min_count, int) or min_count < 1 or not isinstance(limit, int) or not 1 <= limit <= 5000:
+            raise ProjectError("minCount must be a positive integer and limit 1-5000")
+        return self._language_qa.book_words(min_count=min_count, limit=limit)
+
+    OCCURRENCE_VERSE_CAP = 5000
+
+    def language_qa_occurrences(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Every place a word occurs in this book's verse text (source "irv"),
+        with raw offsets and a snippet of the text a reader sees. Same tokenizer
+        as Language QA, so "a word" means what it means everywhere else."""
+        self._require_project()
+        word, source, limit = params.get("word"), params.get("source", "irv"), params.get("limit", 50)
+        if not isinstance(word, str) or not word.strip():
+            raise ProjectError("word must be a non-empty string")
+        if not isinstance(limit, int) or not 1 <= limit <= 1000:
+            raise ProjectError("limit must be an integer from 1 to 1000")
+        if source == "ov":
+            return self._reference_occurrences(word, limit)
+        if source != "irv":
+            raise ProjectError("source must be irv or ov")
+        wanted = unicodedata.normalize("NFC", word.strip())
+        hits, total, scanned = [], 0, 0
+        for chapter in self.project.chapters():
+            for verse, raw in (self.project.target_chapter(chapter) or {}).items():
+                if not isinstance(raw, str) or verse == "front":
+                    continue
+                scanned += 1
+                if scanned > self.OCCURRENCE_VERSE_CAP:
+                    break
+                lifted, _ = language_qa_lift(raw)
+                if lifted is None:
+                    continue
+                for token, start, end in language_qa_word_occurrences(lifted.visible):
+                    if token != wanted:
+                        continue
+                    total += 1
+                    span = lifted.raw_span(start, end)
+                    if len(hits) < limit and span is not None:
+                        before = lifted.visible[max(0, start - 40):start]
+                        hits.append({"book": self.project.book_id, "chapter": str(chapter), "verse": str(verse),
+                                     "start": span[0], "end": span[1],
+                                     "snippet": before + lifted.visible[start:end + 40],
+                                     "snippetStart": len(before), "snippetEnd": len(before) + end - start})
+        return {"word": wanted, "source": "irv", "ready": True, "total": total, "truncated": total > len(hits),
+                "hits": hits}
+
+    def _reference_occurrences(self, word: str, limit: int) -> dict[str, Any]:
+        """The reference text's occurrences of a word (commit 7, reference_text)."""
+        raise ProjectError("No reference text is configured for this language yet.")
+
     # -- flags (indic-qa's reviewer flags) -----------------------------------
     #
     # A reviewer's question on a passage: never a Scripture write, never a
@@ -4976,7 +5061,8 @@ class BridgeEngine:
                      Methods.LANGUAGE_QA_LEARNED_RESTORE, Methods.LANGUAGE_QA_SCOPE_FIND,
                      Methods.LANGUAGE_QA_SCOPE_APPLY, Methods.LANGUAGE_QA_BATCH_UNDO, Methods.LANGUAGE_QA_BATCHES,
                      Methods.LANGUAGE_QA_FLAGS_LIST, Methods.LANGUAGE_QA_FLAGS_ADD, Methods.LANGUAGE_QA_FLAGS_UPDATE,
-                     Methods.LANGUAGE_QA_FLAGS_DELETE}:
+                     Methods.LANGUAGE_QA_FLAGS_DELETE, Methods.LANGUAGE_QA_WORDS_ADD, Methods.LANGUAGE_QA_WORDS_LIST,
+                     Methods.LANGUAGE_QA_BOOK_WORDS, Methods.LANGUAGE_QA_OCCURRENCES}:
                 self._require_project()
                 # Compared canonically, not as strings. `project.open` resolves
                 # the path it is given, so a caller echoing back the path *it*
@@ -4991,6 +5077,12 @@ class BridgeEngine:
                 if m in {Methods.LANGUAGE_QA_LEARNED_LIST, Methods.LANGUAGE_QA_LEARNED_FORGET,
                          Methods.LANGUAGE_QA_LEARNED_RESTORE}:
                     result = self.language_qa_learned(m.rsplit(".", 1)[1], p)
+                elif m in {Methods.LANGUAGE_QA_WORDS_ADD, Methods.LANGUAGE_QA_WORDS_LIST}:
+                    result = self.language_qa_words(m.rsplit(".", 1)[1], p)
+                elif m == Methods.LANGUAGE_QA_BOOK_WORDS:
+                    result = self.language_qa_book_words(p)
+                elif m == Methods.LANGUAGE_QA_OCCURRENCES:
+                    result = self.language_qa_occurrences(p)
                 elif m in {Methods.LANGUAGE_QA_FLAGS_LIST, Methods.LANGUAGE_QA_FLAGS_ADD,
                            Methods.LANGUAGE_QA_FLAGS_UPDATE, Methods.LANGUAGE_QA_FLAGS_DELETE}:
                     result = self.language_qa_flags(m.rsplit(".", 1)[1], p)

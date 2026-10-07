@@ -20,6 +20,8 @@
   import { IGNORE_SCOPES, houseStyleNotice, recordScopedIgnore, undoLearned } from "../houseStyleUi";
   import { forgetLearnedFix, isLearnedFinding, learnedPairOf } from "../learnedFixes";
   import { openScopeDialog } from "../scopedApply";
+  import { addProjectWords, isKnownMisspellingRule } from "../projectWords";
+  import OccurrencesPopup from "./OccurrencesPopup.svelte";
   import type { HouseStyleScope } from "../types/houseStyle";
   import type { QaFinding } from "../types/finding";
   import type { LanguageQaFinding, LanguageQaSuggestion } from "../types/languageQa";
@@ -31,6 +33,10 @@
   import { requestAIReview, aiJobActive, type AIReviewScope } from "../aiReviewUi";
 
   export let onSelect: (verse: string) => void;
+  /** Opens a verse anywhere in the book (an occurrence in another chapter). */
+  export let onNavigate: (book: string, chapter: string, verse: string) => void = () => {};
+  // The word whose occurrences are listed (verse menu), or null.
+  let occurrencesOf: string | null = null;
 
   let openNotes: { kind: VerseNoteKind; notes: VerseNote[]; reference: string } | null = null;
   let contextMenu: { finding: QaFinding; verse: string; x: number; y: number } | null = null;
@@ -164,6 +170,21 @@
         label: "Mark as false positive",
         disabled: langQaContextBusy,
         title: "This is not a problem: hide it and list it under False positives in the Language QA panel.",
+      },
+      {
+        id: "add-word",
+        label: `Add “${finding.originalText}” to the project word list`,
+        separatorBefore: true,
+        disabled: langQaContextBusy || isKnownMisspellingRule(finding.ruleId) || /\s/.test(finding.originalText.trim()),
+        title: isKnownMisspellingRule(finding.ruleId)
+          ? "This rule flags a spelling reviewers already corrected; ignore or flag it instead."
+          : "This word is spelt right in this project: stop reporting it as a spelling problem anywhere in the book.",
+      },
+      {
+        id: "occurrences",
+        label: "Show IRV occurrences…",
+        disabled: !$project,
+        title: "Every place this word occurs in the book",
       },
       {
         id: "flag",
@@ -480,6 +501,17 @@
       void editWithSelection(finding, verse);
     } else if (id === "flag") {
       startFlagFromFinding(finding);
+    } else if (id === "add-word") {
+      const word = finding.originalText.trim();
+      contextNotice = `“${word}” is now a project word.`;
+      contextNoticeError = false;
+      void addProjectWords([word]).then((error) => {
+        if (!error) return;
+        contextNotice = error;
+        contextNoticeError = true;
+      });
+    } else if (id === "occurrences") {
+      occurrencesOf = finding.originalText.trim();
     } else if (id.startsWith("use-scope:")) {
       const [, rank, scope] = id.split(":");
       const chosen = languageQaSuggestions(finding).find((s) => String(s.rank) === rank);
@@ -1004,6 +1036,10 @@
   />
 {/if}
 
+{#if occurrencesOf && $project}
+  <OccurrencesPopup projectPath={$project.path} word={occurrencesOf} source="irv" {onNavigate}
+    onClose={() => (occurrencesOf = null)} />
+{/if}
 {#if flagDraft}
   <FlagDialog
     draft={flagDraft}
