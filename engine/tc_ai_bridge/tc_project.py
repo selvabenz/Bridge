@@ -7,6 +7,8 @@ import os
 import shutil
 import tempfile
 import time
+import unicodedata
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -2863,6 +2865,217 @@ class TranslationCoreProject:
                     actor_id=identity.actor_id, device_id=identity.device_id,
                     extra_columns={'chapter': chapter_key},
                 )
+
+    # -- indic-qa editor stores (workbench v6) --------------------------------
+    #
+    # Three Bridge-private stores for the reviewer features brought over from
+    # indic-qa's editor. None of them writes Scripture: a scoped correction is
+    # N ordinary apply_scripture_edit calls, and its batch row only groups
+    # them. Every row is rewritten (revision++), never deleted, so change_log
+    # keeps every image.
+
+    def _v6_write(self, table: str, row_id: str, payload: dict[str, Any], extra_columns: dict[str, Any]) -> None:
+        identity = self.workbench_identity
+        self.workbench._write(
+            table, row_id, project_id=identity.project_id, book_id=self.book_id, payload=payload,
+            actor_id=identity.actor_id, device_id=identity.device_id, expected_revision=None,
+            extra_columns=extra_columns,
+        )
+
+    def _v6_payload(self, table: str, row_id: str) -> dict[str, Any] | None:
+        row = self.workbench.get(table, row_id)
+        if row is None:
+            return None
+        try:
+            payload = json.loads(row['payload_json'])
+        except (TypeError, ValueError):
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    # Batches: one per scoped correction and one per undo of it.
+
+    def _language_qa_batch_row_id(self, batch_id: str) -> str:
+        return natural_row_id(self.workbench_identity.project_id, self.book_id, 'language_qa_batch', batch_id)
+
+    def language_qa_batches(self) -> list[dict[str, Any]]:
+        """This book's correction batches, newest first."""
+        rows = self.workbench.payloads('language_qa_batches', project_id=self.workbench_identity.project_id,
+                                       book_id=self.book_id)
+        return sorted(rows, key=lambda b: str(b.get('createdAt') or ''), reverse=True)
+
+    def language_qa_batch(self, batch_id: str) -> dict[str, Any] | None:
+        return self._v6_payload('language_qa_batches', self._language_qa_batch_row_id(batch_id))
+
+    def record_language_qa_batch(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Write a new batch. `payload` carries `batchId`, `kind` ("accept" |
+        "undo"), `state` and `chapter` (where the action was taken)."""
+        batch_id = str(payload['batchId'])
+        record = {'schemaVersion': 1, **payload}
+        self._v6_write('language_qa_batches', self._language_qa_batch_row_id(batch_id), record, {
+            'chapter': str(record.get('chapter') or ''), 'kind': str(record.get('kind') or ''),
+            'state': str(record.get('state') or ''),
+        })
+        return record
+
+    def set_language_qa_batch_state(self, batch_id: str, state: str, **fields: Any) -> dict[str, Any]:
+        """Move a batch to `state` ("applied" | "undone"), keeping every other
+        field. The earlier image stays in change_log."""
+        current = self.language_qa_batch(batch_id)
+        if current is None:
+            raise KeyError(f"no Language QA batch {batch_id}")
+        updated = {**current, **fields, 'state': state, 'updatedAt': self._timestamp()[0]}
+        self._v6_write('language_qa_batches', self._language_qa_batch_row_id(batch_id), updated, {
+            'chapter': str(updated.get('chapter') or ''), 'kind': str(updated.get('kind') or ''), 'state': state,
+        })
+        return updated
+
+    # Learned fixes: a reviewer's single-word replacement, offered again.
+
+    @staticmethod
+    def _nfc(word: str) -> str:
+        return unicodedata.normalize('NFC', str(word))
+
+    def _learned_fix_row_id(self, old: str, new: str) -> str:
+        return natural_row_id(self.workbench_identity.project_id, self.book_id, 'learned_fix',
+                              self._nfc(old), self._nfc(new))
+
+    def learned_fix(self, old: str, new: str) -> dict[str, Any] | None:
+        return self._v6_payload('language_qa_learned_fixes', self._learned_fix_row_id(old, new))
+
+    def learned_fixes(self) -> list[dict[str, Any]]:
+        """Every learned fix of this book, enabled or not: most used first."""
+        rows = self.workbench.payloads('language_qa_learned_fixes', project_id=self.workbench_identity.project_id,
+                                       book_id=self.book_id)
+        return sorted(rows, key=lambda f: (-int(f.get('count') or 0), str(f.get('old') or ''),
+                                           str(f.get('new') or '')))
+
+    def _write_learned_fix(self, fix: dict[str, Any]) -> dict[str, Any]:
+        self._v6_write('language_qa_learned_fixes', self._learned_fix_row_id(fix['old'], fix['new']), fix, {
+            'old_word': fix['old'], 'new_word': fix['new'], 'enabled': 1 if fix.get('enabled') else 0,
+        })
+        return fix
+
+    def record_learned_fix(self, old: str, new: str, *, ref: str, reviewer: str, source: str,
+                           n: int = 1) -> dict[str, Any]:
+        """The reviewer replaced `old` with `new` `n` times (an edit, a scoped
+        correction, a flag's suggested form). Adds to the count; a forgotten
+        fix stays forgotten until it is restored."""
+        old, new = self._nfc(old), self._nfc(new)
+        now = self._timestamp()[0]
+        current = self.learned_fix(old, new)
+        if current is None:
+            fix = {'schemaVersion': 1, 'old': old, 'new': new, 'count': max(1, int(n)), 'firstRef': ref,
+                   'lastRef': ref, 'reviewer': reviewer, 'source': source, 'enabled': True,
+                   'createdAt': now, 'updatedAt': now}
+        else:
+            fix = {**current, 'count': int(current.get('count') or 0) + max(1, int(n)), 'lastRef': ref,
+                   'reviewer': reviewer, 'source': source, 'updatedAt': now}
+        return self._write_learned_fix(fix)
+
+    def retract_learned_fix(self, old: str, new: str, *, n: int = 1) -> dict[str, Any] | None:
+        """Take back `n` uses (the reviewer typed the word back, or undid the
+        change). At zero the fix stops being offered; the row is kept."""
+        current = self.learned_fix(old, new)
+        if current is None:
+            return None
+        count = max(0, int(current.get('count') or 0) - max(1, int(n)))
+        return self._write_learned_fix({**current, 'count': count, 'updatedAt': self._timestamp()[0]})
+
+    def set_learned_fix_enabled(self, old: str, new: str, enabled: bool) -> dict[str, Any]:
+        """Forget (False) or restore (True) a learned fix."""
+        current = self.learned_fix(old, new)
+        if current is None:
+            raise KeyError(f"no learned fix {old} -> {new}")
+        return self._write_learned_fix({**current, 'enabled': bool(enabled), 'updatedAt': self._timestamp()[0]})
+
+    def learned_map(self) -> dict[str, list[str]]:
+        """old -> [new, ...] for every fix that is enabled and still counted,
+        the most used replacement first. What a Language QA pass offers."""
+        out: dict[str, list[str]] = {}
+        for fix in self.learned_fixes():
+            if fix.get('enabled') and int(fix.get('count') or 0) > 0:
+                out.setdefault(str(fix['old']), []).append(str(fix['new']))
+        return out
+
+    # Flags: a reviewer's question on a passage. Deleting is a status.
+
+    def _language_qa_flag_row_id(self, flag_id: str) -> str:
+        return natural_row_id(self.workbench_identity.project_id, self.book_id, 'language_qa_flag', flag_id)
+
+    def language_qa_flag(self, flag_id: str) -> dict[str, Any] | None:
+        return self._v6_payload('language_qa_flags', self._language_qa_flag_row_id(flag_id))
+
+    def language_qa_flags(self, *, chapter: str | None = None, status: str | None = None,
+                          include_deleted: bool = False) -> list[dict[str, Any]]:
+        """This book's flags in reading order (chapter, verse, start)."""
+        equals = {'chapter': str(chapter)} if chapter is not None else None
+        rows = self.workbench.payloads('language_qa_flags', project_id=self.workbench_identity.project_id,
+                                       book_id=self.book_id, equals=equals)
+        if status is not None:
+            rows = [f for f in rows if f.get('status') == status]
+        elif not include_deleted:
+            rows = [f for f in rows if f.get('status') != 'deleted']
+
+        def order(f: dict[str, Any]) -> tuple:
+            def num(value: Any) -> tuple[int, str]:
+                text = str(value or '')
+                digits = ''.join(ch for ch in text.split('-')[0] if ch.isdigit())
+                return (int(digits) if digits else 0, text)
+            return (num(f.get('chapter')), num(f.get('verse')), int(f.get('start') or 0), str(f.get('createdAt')))
+        return sorted(rows, key=order)
+
+    def _write_language_qa_flag(self, flag: dict[str, Any]) -> dict[str, Any]:
+        self._v6_write('language_qa_flags', self._language_qa_flag_row_id(flag['flagId']), flag, {
+            'chapter': str(flag.get('chapter') or ''), 'verse': str(flag.get('verse') or ''),
+            'status': str(flag.get('status') or ''),
+        })
+        return flag
+
+    def record_language_qa_flag(self, flag: dict[str, Any], *, reviewer: str) -> dict[str, Any]:
+        """A new flag, status "open". The caller has validated the fields."""
+        now = self._timestamp()[0]
+        record = {'schemaVersion': 1, **flag, 'flagId': uuid.uuid4().hex[:16], 'reviewer': reviewer,
+                  'status': 'open', 'createdAt': now, 'updatedAt': now}
+        return self._write_language_qa_flag(record)
+
+    def update_language_qa_flag(self, flag_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        """Change a flag's fields (status "deleted" is a delete)."""
+        current = self.language_qa_flag(flag_id)
+        if current is None:
+            raise KeyError(f"no Language QA flag {flag_id}")
+        protected = {'flagId', 'createdAt', 'schemaVersion'}
+        updated = {**current, **{k: v for k, v in patch.items() if k not in protected},
+                   'updatedAt': self._timestamp()[0]}
+        return self._write_language_qa_flag(updated)
+
+    # Verse change history: the native checkData/verseEdits records every
+    # Scripture edit already writes (apply_scripture_edit).
+
+    def verse_edit_history(self, chapter: str | int, verse: str | int) -> list[dict[str, Any]]:
+        """Every recorded edit of one verse, newest first."""
+        entries: list[dict[str, Any]] = []
+        for path in self._state_files_for_verse('verseEdits', chapter, verse):
+            try:
+                record = _read_json(path)
+            except Exception:
+                continue
+            if isinstance(record, dict):
+                entries.append(record)
+        return sorted(entries, key=lambda e: str(e.get('modifiedTimestamp') or ''), reverse=True)
+
+    def verse_edit_counts(self, chapter: str | int) -> dict[str, int]:
+        """verse -> number of recorded edits, for one chapter, without reading
+        any record: one directory listing per edited verse."""
+        folder = self.check_dir / 'verseEdits' / self.book_id / str(chapter)
+        counts: dict[str, int] = {}
+        if not folder.is_dir():
+            return counts
+        for verse_dir in folder.iterdir():
+            if verse_dir.is_dir():
+                n = sum(1 for p in verse_dir.glob('*.json'))
+                if n:
+                    counts[verse_dir.name] = n
+        return counts
 
     def progress_finding_status(self, chapter: str | int, verse: str | int, finding_id: str) -> str | None:
         """The rollup's status for one finding, or None when the rollup has no

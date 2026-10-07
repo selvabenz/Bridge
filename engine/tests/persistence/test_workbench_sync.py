@@ -189,7 +189,7 @@ def test_workbench_v1_to_v2_keeps_v1_rows_readable_and_the_log_immutable(tmp_pat
         conn.close()
 
     repo = WorkbenchRepository(path)
-    assert repo.schema_version() == WORKBENCH_SCHEMA_VERSION == 5
+    assert repo.schema_version() == WORKBENCH_SCHEMA_VERSION == 6
     assert json.loads(repo.get("check_cache", "c1")["payload_json"]) == {"v": 1}
     [event] = _events(repo)
     assert event["columns_json"] is None and event["event_id"] == "e1"
@@ -245,7 +245,7 @@ def test_workbench_v2_to_v3_adds_the_cross_verse_link_table_and_keeps_v2_data(tm
         conn.close()
 
     repo = WorkbenchRepository(path)
-    assert repo.schema_version() == WORKBENCH_SCHEMA_VERSION == 5
+    assert repo.schema_version() == WORKBENCH_SCHEMA_VERSION == 6
     assert json.loads(repo.get("alignment_history", "a1")["payload_json"]) == {"operation": "realign"}
     [event] = _events(repo)
     assert event["event_id"] == "e1" and json.loads(event["columns_json"]) == {"chapter": "1"}
@@ -285,7 +285,7 @@ def test_workbench_v3_to_v4_adds_the_language_qa_cache_one_row_per_chapter(tmp_p
     finally:
         conn.close()
     repo = WorkbenchRepository(path)
-    assert repo.schema_version() == WORKBENCH_SCHEMA_VERSION == 5
+    assert repo.schema_version() == WORKBENCH_SCHEMA_VERSION == 6
     assert list((tmp_path / "backups").glob("pre-workbench-v4-*"))
     _write(repo, "language_qa_cache", "c1", payload={"verses": {}}, extra_columns={"chapter": "1"})
     assert repo.get("language_qa_cache", "c1")["chapter"] == "1"
@@ -319,7 +319,7 @@ def test_workbench_v4_to_v5_rebuilds_human_decisions_keeping_every_row_and_allow
     finally:
         conn.close()
     repo = WorkbenchRepository(path)
-    assert repo.schema_version() == WORKBENCH_SCHEMA_VERSION == 5
+    assert repo.schema_version() == WORKBENCH_SCHEMA_VERSION == 6
     assert list((tmp_path / "backups").glob("pre-workbench-v5-*"))
     row = repo.get("human_decisions", "d1")
     assert (row["revision"], row["kind"], row["chapter"], row["verse"], row["key"], row["decision"],
@@ -331,3 +331,45 @@ def test_workbench_v4_to_v5_rebuilds_human_decisions_keeping_every_row_and_allow
         _write(repo, "human_decisions", "h6", extra_columns={"kind": "nonsense", "key": "k"})
     with pytest.raises(sqlite3.IntegrityError):  # the unique natural key survived the rebuild
         _write(repo, "human_decisions", "h7", extra_columns={"kind": "qa", "chapter": "1", "verse": "2", "key": "finding-1"})
+
+
+def test_workbench_v5_to_v6_adds_the_three_editor_stores_and_keeps_v5_data(tmp_path):
+    """v6 (indic-qa editor features) only adds tables: a v5 database comes up at
+    v6 with a backup, its rows are untouched, and the three new tables are
+    ordinary mutable tables (a learned fix's pair is unique per book)."""
+    from tc_ai_bridge.workbench_repository import _MIGRATION_V4, _MIGRATION_V5
+    path = tmp_path / "bridge-workbench.sqlite3"
+    conn = sqlite3.connect(str(path))
+    try:
+        conn.execute("CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, schema_id TEXT NOT NULL, applied_at TEXT NOT NULL)")
+        script = "BEGIN;\n"
+        blocks = (_MIGRATION_V1, _MIGRATION_V2, _MIGRATION_V3, _MIGRATION_V4, _MIGRATION_V5)
+        for version, block in enumerate(blocks, start=1):
+            script += block + f"\nINSERT INTO schema_migrations(version,schema_id,applied_at) VALUES({version},'bridge-workbench-v1','t');\n"
+        conn.executescript(script + "COMMIT;")
+        conn.execute(
+            "INSERT INTO human_decisions(id,project_id,book_id,revision,actor_id,device_id,created_at,updated_at,"
+            "payload_json,kind,chapter,verse,key,decision) VALUES('d1','proj-1','rut',2,'human','dev-1','c','u',"
+            "'{\"decision\":\"ignored\"}','housestyle','','','word-in-book|r|w','active')")
+        conn.execute(
+            "INSERT INTO language_qa_cache(id,project_id,book_id,actor_id,device_id,created_at,updated_at,"
+            "payload_json,chapter) VALUES('c1','proj-1','rut','h','d','c','u','{\"verses\":{}}','1')")
+        conn.commit()
+    finally:
+        conn.close()
+    repo = WorkbenchRepository(path)
+    assert repo.schema_version() == WORKBENCH_SCHEMA_VERSION == 6
+    assert list((tmp_path / "backups").glob("pre-workbench-v6-*"))
+    row = repo.get("human_decisions", "d1")
+    assert (row["revision"], row["kind"], row["key"], row["decision"]) == (2, "housestyle", "word-in-book|r|w", "active")
+    assert repo.get("language_qa_cache", "c1")["chapter"] == "1"
+    _write(repo, "language_qa_batches", "b1", payload={"state": "applied"},
+           extra_columns={"chapter": "1", "kind": "accept", "state": "applied"})
+    _write(repo, "language_qa_flags", "f1", payload={"status": "open"},
+           extra_columns={"chapter": "1", "verse": "2", "status": "open"})
+    pair = {"old_word": "a", "new_word": "b", "enabled": 1}
+    _write(repo, "language_qa_learned_fixes", "l1", payload={"count": 1}, extra_columns=pair)
+    assert repo.get("language_qa_batches", "b1")["state"] == "applied"
+    assert repo.get("language_qa_flags", "f1")["status"] == "open"
+    with pytest.raises(sqlite3.IntegrityError):
+        _write(repo, "language_qa_learned_fixes", "l2", payload={"count": 1}, extra_columns=pair)

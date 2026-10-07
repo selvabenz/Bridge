@@ -58,7 +58,7 @@ def test_schema_creates_every_table_from_team_architecture(tmp_path):
     for table in MUTABLE_TABLES:
         assert table in names, table
     assert "change_log" in names
-    assert repo.schema_version() == 5
+    assert repo.schema_version() == 6
 
 
 def test_write_inserts_row_and_appends_one_change_log_entry(tmp_path):
@@ -258,7 +258,7 @@ def test_translation_core_project_creates_an_empty_workbench_db(tmp_path):
 
     workbench_path = root / ".apps" / "translationCoreAI" / "bridge-workbench.sqlite3"
     assert workbench_path.is_file()
-    assert project.workbench.schema_version() == 5
+    assert project.workbench.schema_version() == 6
     # Nothing has written into it yet -- an empty DB is the only change (#75).
     assert repo_is_empty(project.workbench)
 

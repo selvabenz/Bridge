@@ -15122,3 +15122,57 @@ is why the baseline full run passed.
 
 **Not verified.** The desktop app (QA matrix A102), and how noisy the text
 looks with every indic-qa finding drawn.
+
+## 2026-10-07 — Workbench schema v6: batches, learned fixes, flags (branch `indic-qa-editor`, commit 2)
+
+The three Bridge-private stores the next commits need are designed together,
+so the workbench ladder moves once. Any later column is v7; v6 is not edited
+again.
+
+| Table | Lifted columns | What a row is |
+|---|---|---|
+| `language_qa_batches` | `chapter`, `kind` (accept, undo), `state` (applied, undone) | One scoped correction, or one undo of it. It only *groups* ordinary journalled verse edits (`apply_scripture_edit`, once per verse); it never writes Scripture. Undo writes a new row and moves the original's state. |
+| `language_qa_learned_fixes` | `old_word`, `new_word`, `enabled` (unique per book and pair) | A reviewer's single-word replacement. Count, forget, restore and retract re-write the row; it is never deleted. Keyed in NFC. |
+| `language_qa_flags` | `chapter`, `verse`, `status` | A reviewer's question on a passage. Delete is `status: "deleted"`. |
+
+All lifted columns are nullable, as in v3 and v4, so the generic per-table
+tests (write, change_log row, mutable-table set) cover the new tables
+unchanged. No `human_decisions` rebuild: project words (commit 6) are a
+house-style list, `kind='housestyle'`.
+
+**`tc_project.py` accessors.**
+- Batches: `language_qa_batches`, `record_language_qa_batch` and
+  `set_language_qa_batch_state`.
+- Learned fixes: `learned_fixes`, `record_learned_fix`, `retract_learned_fix`,
+  `set_learned_fix_enabled` and `learned_map`. `learned_map` lists only fixes
+  that are enabled and still counted, most used first.
+- Flags: `language_qa_flags`, in reading order, `record_language_qa_flag` and
+  `update_language_qa_flag`.
+- Verse history: `verse_edit_history` and `verse_edit_counts` read the native
+  `checkData/verseEdits` records every Scripture edit already writes. There is
+  no new store for history.
+
+**Tests.**
+- `tests/persistence/test_language_qa_editor_stores.py`, 9 tests:
+  - every write keeps its earlier images in change_log;
+  - a forgotten fix stays forgotten when used again;
+  - a fix retracted to zero is no longer offered, but its row is kept;
+  - the composed and decomposed forms of one letter (U+0B94, and U+0B92 +
+    U+0BD7) are one row;
+  - a flag's id cannot be overwritten by a patch;
+  - flags list in reading order (verse 2 before verse 10);
+  - history is read newest first from real edits.
+- `test_workbench_v5_to_v6_adds_the_three_editor_stores_and_keeps_v5_data`
+  completes the ladder's migration tests. The pre-release amendment does not
+  require one for an additive change, but every earlier step has one.
+- The four "latest is 5" assertions now say 6.
+
+**Not fixed, reported.** `tests/persistence/test_workbench_sync.py` imports
+`_REQUIRED_EXTRA_COLUMNS` and `_write` from
+`tests.persistence.test_workbench_repository`. CLAUDE.md's rule 2 ("never
+import from another test module") forbids that. The import predates this
+branch. The helpers belong in `tests/support/`, in a commit of their own.
+
+**Verified.**
+- `tests/persistence`: 214 passed.
+- Full engine suite: 4,874 passed, 1 skipped, 3 xfailed. Commits 1 and 2 add 28 tests, and nothing regressed.
