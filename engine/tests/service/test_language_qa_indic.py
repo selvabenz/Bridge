@@ -73,3 +73,43 @@ def test_the_off_setting_runs_the_common_checks_only(tmp_path):
         assert not [f for f in result["findings"] if f["ruleId"].startswith("hi-irv/")]
     finally:
         engine._language_qa.unbind()
+
+
+def test_set_pack_writes_the_setting_and_rebinds(hindi_engine):
+    import json
+    engine, project = hindi_engine
+    wait(engine._language_qa)
+    before = json.loads((project / "manifest.json").read_text(encoding="utf-8"))
+    assert status(engine, project)["setting"] == "auto"
+    assert {p["pack"] for p in status(engine, project)["packs"]} >= {"hi-irv", "ml-irv", "or-irv", "pa-irv", "ta-irv"}
+
+    response = call(engine, "languageQa.setPack", {"projectPath": str(project), "pack": "off"})
+    assert response["success"], response
+    after = json.loads((project / "manifest.json").read_text(encoding="utf-8"))
+    assert after["language_qa"] == {"pack": "off"}
+    assert {k: v for k, v in after.items() if k != "language_qa"} == before
+    wait(engine._language_qa)
+    result = status(engine, project)
+    assert result["setting"] == "off" and result["language"]["pack"] == "common"
+    assert not [f for f in result["findings"] if f["ruleId"].startswith("hi-irv/")]
+
+    assert call(engine, "languageQa.setPack", {"projectPath": str(project), "pack": "auto"})["success"]
+    wait(engine._language_qa)
+    assert status(engine, project)["language"]["pack"] == "hi-irv"
+
+
+@pytest.mark.parametrize("pack", ["xx-irv", "", None, 3])
+def test_set_pack_refuses_anything_but_a_registered_pack(hindi_engine, pack):
+    import json
+    engine, project = hindi_engine
+    before = (project / "manifest.json").read_text(encoding="utf-8")
+    response = call(engine, "languageQa.setPack", {"projectPath": str(project), "pack": pack})
+    assert not response["success"]
+    assert (project / "manifest.json").read_text(encoding="utf-8") == before
+    assert json.loads(before).get("language_qa") is None
+
+
+def test_set_pack_is_project_guarded(hindi_engine, tmp_path):
+    engine, _ = hindi_engine
+    response = call(engine, "languageQa.setPack", {"projectPath": str(tmp_path / "elsewhere"), "pack": "off"})
+    assert not response["success"]

@@ -150,6 +150,12 @@ export interface LanguageQaStatus {
   error?: string;
   coverage: LanguageQaCoverage;
   storage: string;
+  /** The pack this pass ran, e.g. "hi-irv@1.0.0", or "common". */
+  rulePack?: string;
+  /** The project's setting (Settings > Language QA): "auto", "off" or a pack. */
+  setting?: string;
+  /** Every registered pack, for that setting's choices. */
+  packs?: { language: string; name: string; pack: string }[];
   /** The engine's list of rules that carry an inline span (INLINE_RULES in
    * language_qa.py) -- the one authority for which findings are drawn in the
    * verse text. highlight.ts only maps these names to CSS classes. */

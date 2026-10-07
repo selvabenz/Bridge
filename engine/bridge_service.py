@@ -76,6 +76,7 @@ from tc_ai_bridge.analysis_jobs import (
 from tc_ai_bridge.local_checks import run_local_qa
 from tc_ai_bridge.language_qa import FINDING_SOURCE as LANGUAGE_QA_SOURCE, UNSPECIFIED_DECISION_SOURCE
 from tc_ai_bridge.language_qa_jobs import LanguageQaManager, project_pack_name
+from tc_ai_bridge.language_packs.registry import available as available_language_packs
 from tc_ai_bridge.workbench_repository import WorkbenchConflict, WorkbenchValidationError
 from tc_ai_bridge.alignment_engine import (
     AlignmentError, apply_proposal, make_inventory, realign, unalign_bottom,
@@ -374,6 +375,7 @@ class Methods:
     LANGUAGE_QA_INLINE = "languageQa.inline"
     LANGUAGE_QA_HISTORY = "languageQa.history"
     LANGUAGE_QA_VERSE = "languageQa.verse"
+    LANGUAGE_QA_SET_PACK = "languageQa.setPack"
     CHECKS_STATUS = "checks.status"
     CHECKS_CANCEL = "checks.cancel"
     CHECKS_RETRY = "checks.retry"
@@ -4601,7 +4603,7 @@ class BridgeEngine:
             m, p = request.method, request.params
 
             if m in {Methods.LANGUAGE_QA_STATUS, Methods.LANGUAGE_QA_PAUSE, Methods.LANGUAGE_QA_INLINE,
-                     Methods.LANGUAGE_QA_HISTORY, Methods.LANGUAGE_QA_VERSE}:
+                     Methods.LANGUAGE_QA_HISTORY, Methods.LANGUAGE_QA_VERSE, Methods.LANGUAGE_QA_SET_PACK}:
                 self._require_project()
                 # Compared canonically, not as strings. `project.open` resolves
                 # the path it is given, so a caller echoing back the path *it*
@@ -4613,7 +4615,18 @@ class BridgeEngine:
                 # only ever echoes a path the engine itself produced.
                 if canonical_path_key(str(p.get("projectPath") or "")) != canonical_path_key(self.project.path):
                     raise ProjectError("Language QA request belongs to a different project.")
-                if m == Methods.LANGUAGE_QA_PAUSE:
+                if m == Methods.LANGUAGE_QA_SET_PACK:
+                    # The project's Language QA setting (Settings > Language QA):
+                    # "auto", "off", or a registered pack. Rebinding starts a pass
+                    # with the new pack; nothing else about the project changes.
+                    pack = p.get("pack")
+                    allowed = {"auto", "off"} | {entry["pack"] for entry in available_language_packs()}
+                    if not isinstance(pack, str) or pack not in allowed:
+                        raise ProjectError(f"pack must be one of {sorted(allowed)}")
+                    self.project.set_language_qa_pack(pack)
+                    self._language_qa.bind(self.project)
+                    result = self._language_qa.status(limit=0)
+                elif m == Methods.LANGUAGE_QA_PAUSE:
                     if not isinstance(p.get("paused"), bool):
                         raise ProjectError("paused must be a boolean")
                     result = self._language_qa.pause(p["paused"])

@@ -196,6 +196,7 @@ export type EngineMethod =
   | "languageQa.inline"
   | "languageQa.history"
   | "languageQa.verse"
+  | "languageQa.setPack"
   | "housestyle.list"
   | "housestyle.nameSuggestions"
   | "housestyle.record"
@@ -332,6 +333,12 @@ export const bridge = {
 
   languageQaPause(projectPath: string, paused: boolean): Promise<LanguageQaStatus> {
     return call("languageQa.pause", { projectPath, paused });
+  },
+
+  /** The project's Language QA setting (manifest language_qa.pack): "auto",
+   * "off" or a registered pack name. The engine rebinds and starts a pass. */
+  languageQaSetPack(projectPath: string, pack: string): Promise<LanguageQaStatus> {
+    return call("languageQa.setPack", { projectPath, pack });
   },
 
   /** Every inline-rule finding for `chapter` (the whole book when omitted),

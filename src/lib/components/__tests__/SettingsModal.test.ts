@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 
-const { getSettings, getNavigationStatus, setSettings, engineInfo, terminologyList, terminologyRecord, housestyleList, housestyleRecord, housestyleSetState, housestyleNameSuggestions } = vi.hoisted(() => ({
+const { getSettings, getNavigationStatus, setSettings, engineInfo, terminologyList, terminologyRecord, housestyleList, housestyleRecord, housestyleSetState, housestyleNameSuggestions, languageQaStatus, languageQaSetPack } = vi.hoisted(() => ({
+  languageQaStatus: vi.fn(),
+  languageQaSetPack: vi.fn(),
   housestyleNameSuggestions: vi.fn(),
   housestyleList: vi.fn(),
   housestyleRecord: vi.fn(),
@@ -26,6 +28,8 @@ vi.mock("../../api/bridgeClient", () => ({
     housestyleRecord,
     housestyleSetState,
     housestyleNameSuggestions,
+    languageQaStatus,
+    languageQaSetPack,
   },
 }));
 
@@ -263,6 +267,32 @@ describe("SettingsModal terminology (#171)", () => {
       provider: "openai", apiBaseUrl: "", model: "gpt-5.6", hasApiKey: false,
       reviewerMode: "basic", paratextNavigation: false, logosNavigation: false,
     });
+  });
+
+  it("chooses this project's Language QA pack and says what changed", async () => {
+    project.set(minimalProject());
+    terminologyList.mockResolvedValue({ rules: [] });
+    const packs = [{ language: "hi", name: "Hindi", pack: "hi-irv" }, { language: "ta", name: "Tamil", pack: "ta-irv" }];
+    languageQaStatus.mockResolvedValue({ setting: "auto", packs });
+    languageQaSetPack.mockResolvedValue({ setting: "off", packs });
+    render(SettingsModal, { props: { initialPane: "terminology", onClose: vi.fn() } });
+
+    const select = (await screen.findByLabelText("Rules")) as HTMLSelectElement;
+    expect([...select.options].map((o) => o.value)).toEqual(["auto", "hi-irv", "ta-irv", "off"]);
+    expect(select.value).toBe("auto");
+    await fireEvent.change(select, { target: { value: "off" } });
+    await waitFor(() => expect(languageQaSetPack).toHaveBeenCalledWith(minimalProject().path, "off"));
+    expect(await screen.findByText(/common checks only/)).toBeInTheDocument();
+  });
+
+  it("leaves the Language QA choice out when its status cannot be read", async () => {
+    project.set(minimalProject());
+    terminologyList.mockResolvedValue({ rules: [] });
+    languageQaStatus.mockRejectedValue(new Error("no pass yet"));
+    render(SettingsModal, { props: { initialPane: "terminology", onClose: vi.fn() } });
+
+    expect(await screen.findByText(/No terminology rules recorded/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Rules")).toBeNull();
   });
 
   it("prompts to open a project instead of calling the RPC when none is open", async () => {

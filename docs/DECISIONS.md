@@ -412,3 +412,16 @@ and `<code>.lex.unknown` is off.
 does; rebuilding the clusters on a pass where the text did not change.
 **Revisit when:** reviewer-workbook labels are imported for a rule, or the edit
 latency of the cluster rebuild needs fixing (Malayalam: 2.5 s).
+
+## 2026-10-07 — A project's Language QA pack is a manifest key, set in Settings
+**Decision:** `manifest.json` `language_qa.pack` holds `auto`, `off` or a
+registered pack name. Settings > Language QA writes it through
+`languageQa.setPack`, as one journalled transaction that touches no other key.
+The engine then rebinds and starts a pass.
+**Because:** the ml-irv registry already reads this key. A shared-script
+language (Devanagari) is never guessed, so a project whose metadata is wrong
+or missing needs a person to choose. translationCore ignores keys it does not
+know.
+**Rules out:** guessing a pack from the script for Devanagari or Bengali; a
+setting stored per machine rather than with the project.
+**Revisit when:** the team hub (#46) syncs project settings.

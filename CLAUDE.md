@@ -208,7 +208,9 @@ Rules for this tree:
 A raw Scripture import becomes a translationCore-compatible book project:
 
 ```
-<project>/manifest.json
+<project>/manifest.json                         `language_qa.pack` ("auto" | "off" | a pack name) is
+                                                Bridge's only key here: Settings > Language QA, written
+                                                through the journal (languageQa.setPack, 2026-10-07)
 <project>/<book>.usfm                          original source, preserved verbatim
 <project>/<book>/<chapter>.json                 verse-keyed target Scripture
 <project>/<book>/<chapter>.headings.json        section headings (\s, \ms, \r ...), keyed by the

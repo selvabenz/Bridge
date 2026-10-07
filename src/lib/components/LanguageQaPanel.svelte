@@ -21,6 +21,9 @@
   let localError = "";
   // The page on show while expanded, fetched on demand (see below).
   let page: LanguageQaStatus | null = null;
+  // The coverage headings are bilingual only when the statement itself is
+  // (Tamil); a profile pack's statement is English.
+  $: tamilCoverage = Boolean(status?.coverage?.inScope?.some((row) => row.labelTa));
   const detectionLabels: Record<string, string> = {
     metadata: "Language supplied by the project.",
     "script-suggestion": "Language suggested from the script; the project has no declared language.",
@@ -121,13 +124,14 @@
         <p>
           {status.language?.name || status.language?.language || "Detecting language"}
           {#if status.language} · {status.language.script.toLowerCase()} script{/if}
+          {#if status.language && status.language.pack !== "common"} · {status.language.pack} rules{/if}
         </p>
         {#if status.language}<p>{detectionLabels[status.language.basis] ?? ""}</p>{/if}
         {#if status.coverage?.inScope}
           <!-- Always shown, so a clean result is never read as a review (Phase 7). -->
           <div class="scope" aria-label="What Language QA checks">
             <div>
-              <h3>Checks · <span lang="ta">சரிபார்ப்பவை</span></h3>
+              <h3>Checks{#if tamilCoverage} · <span lang="ta">சரிபார்ப்பவை</span>{/if}</h3>
               <ul>
                 {#each status.coverage.inScope as row (row.category)}
                   <li>{row.label}{#if row.labelTa} · <span lang="ta">{row.labelTa}</span>{/if}</li>
@@ -135,7 +139,7 @@
               </ul>
             </div>
             <div>
-              <h3>Does not check · <span lang="ta">சரிபார்க்காதவை</span></h3>
+              <h3>Does not check{#if tamilCoverage} · <span lang="ta">சரிபார்க்காதவை</span>{/if}</h3>
               <ul>
                 {#each status.coverage.outOfScope as row (row.category)}
                   <li title={row.reason}>

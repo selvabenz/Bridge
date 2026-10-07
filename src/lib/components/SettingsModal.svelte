@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { bridge, type EngineInfo } from "../api/bridgeClient";
+  import { nudgeLanguageQa } from "../languageQaInline";
   import { manualOverrideMode, navigationStatus, project, reviewerMode } from "../stores";
   import type { NavigationSyncState, SettingsData, TerminologyRule } from "../types/finding";
   import type { HouseStyleEntry, HouseStyleListResponse, HouseStyleProposal } from "../types/houseStyle";
@@ -246,6 +247,46 @@
     } finally {
       terminologyLoading = false;
     }
+  }
+
+  // Language QA's pack for this project (manifest language_qa.pack). Loaded
+  // on its own so a failure never blocks the terminology pane.
+  let lqaSetting = "auto";
+  let lqaPacks: { language: string; name: string; pack: string }[] = [];
+  let lqaLoaded = false;
+  let lqaBusy = false;
+  let lqaMessage = "";
+
+  async function loadLanguageQaSetting(path: string): Promise<void> {
+    lqaLoaded = true;
+    try {
+      const status = await bridge.languageQaStatus(path, 0, 0);
+      lqaSetting = status.setting ?? "auto";
+      lqaPacks = status.packs ?? [];
+    } catch {
+      lqaPacks = [];
+    }
+  }
+
+  async function setLanguageQaPack(path: string, pack: string): Promise<void> {
+    lqaBusy = true;
+    lqaMessage = "";
+    try {
+      const status = await bridge.languageQaSetPack(path, pack);
+      lqaSetting = status.setting ?? pack;
+      lqaMessage = pack === "off" ? "Language QA now runs the common checks only."
+        : pack === "auto" ? "Language QA chooses the pack from the project language."
+        : `Language QA now runs ${lqaPacks.find((p) => p.pack === pack)?.name ?? pack} rules.`;
+      nudgeLanguageQa();
+    } catch (e) {
+      lqaMessage = e instanceof Error ? e.message : String(e);
+    } finally {
+      lqaBusy = false;
+    }
+  }
+
+  $: if (activePane === "terminology" && $project && !lqaLoaded) {
+    void loadLanguageQaSetting($project.path);
   }
 
   // Rules are book-scoped, so this only fires once a project is actually
@@ -502,6 +543,21 @@
             {#if editingConcept}<button class="btn" on:click={resetTerminologyForm} disabled={terminologySaving}>Cancel</button>{/if}
             {#if terminologyMessage}<span class="save-msg">{terminologyMessage}</span>{/if}
           </div>
+          {#if lqaPacks.length && $project}
+            {@const projectPath = $project.path}
+            <h3 class="sub">Language QA</h3>
+            <p class="desc">Which language's rules check this book. Automatic uses the project language; a pack chosen here is used whatever the metadata says.</p>
+            <div class="kv">
+              <label for="lqa-pack">Rules</label>
+              <select id="lqa-pack" value={lqaSetting} disabled={lqaBusy}
+                on:change={(e) => setLanguageQaPack(projectPath, e.currentTarget.value)}>
+                <option value="auto">Automatic (from the project language)</option>
+                {#each lqaPacks as p (p.pack)}<option value={p.pack}>{p.name} ({p.pack})</option>{/each}
+                <option value="off">Common checks only</option>
+              </select>
+            </div>
+            {#if lqaMessage}<p class="save-msg" role="status">{lqaMessage}</p>{/if}
+          {/if}
           <h3 class="sub">House style</h3>
           <p class="desc">What this project has decided is not a problem. Learned entries come from your Ignores ({houseStyle?.thresholds.learnIgnores ?? 3} of the same word, none Used); every entry only hides or ranks, never adds a check.</p>
           {#if houseStyle}

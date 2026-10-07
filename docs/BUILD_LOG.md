@@ -14607,3 +14607,35 @@ findings. The human gate passes.
 - `tests/service/test_language_qa_indic.py`: 3 passed.
 - Language QA areas together: 3,401 passed.
 - Vitest: 531. svelte-check: 0 errors, 0 warnings. Build passed.
+
+## 2026-10-07 — Settings > Language QA: choosing a project's pack (PR 4 of the indic-qa plan)
+
+**What changed:**
+
+- `languageQa.setPack {projectPath, pack}` validates the pack against the
+  registry plus `auto`/`off`. It writes `manifest.json` `language_qa.pack` in
+  one journalled transaction (`tc_project.set_language_qa_pack`), rebinds
+  Language QA, and returns the status.
+- `languageQa.status` now also reports `setting` and `packs`.
+- **Settings.** The Terminology pane, which is per project, gains a "Rules"
+  choice: Automatic, each registered pack, or Common checks only.
+- **Panel.** It names the active pack ("Hindi · devanagari script · hi-irv
+  rules"). Its "Checks / Does not check" headings are bilingual only when the
+  coverage statement itself is Tamil.
+
+**Verified:**
+
+- `test_language_qa_indic.py`: 9 passed. The new tests check that:
+  - the manifest gets exactly the new key and keeps every other byte of
+    content;
+  - an unknown pack, `""`, `None` or a number is refused and leaves the
+    manifest untouched;
+  - the request is project-guarded;
+  - `off` → common checks, then `auto` → `hi-irv` again.
+- **Vitest:** 534 passed. New cases cover the Settings choice (and that a
+  failed status load hides it without breaking the pane) and the panel for a
+  Hindi project with no Tamil text.
+- svelte-check: 0 errors, 0 warnings. Build passed.
+
+**Not run:** the desktop app at 1366×768. The Settings control and the
+panel's pack label have only been seen in jsdom.

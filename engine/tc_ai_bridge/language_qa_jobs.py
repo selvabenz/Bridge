@@ -21,7 +21,7 @@ from .language_packs import indic_qa_adapter
 from .language_packs.indic import ConfusionSet
 from .language_packs.lexicon import lexicon_findings, lexicon_fingerprint
 from .language_packs.loader import apply_overrides
-from .language_packs.registry import AUTO, OFF, language_name, language_of_pack, pack_setting, select_pack
+from .language_packs.registry import AUTO, OFF, available, language_name, language_of_pack, pack_setting, select_pack
 from .language_packs.registry import problem as registry_problem
 from .language_qa import RULES as COMMON_RULES
 from .language_qa import (CROSSING_LIMITATION, FINDING_SOURCE, INLINE_RULES, MAX_VERSE_CHARS,
@@ -566,6 +566,9 @@ class LanguageQaManager:
                 "totalFindings": len(findings), "offset": offset,
                 "findings": findings[offset:offset + limit],
                 "coverage": coverage(self._summary.get("coverageCategories")),
+                # Settings > Language QA: the project's setting and what it may name.
+                "setting": self._context[4] if self._context else AUTO,
+                "packs": available(),
                 "storage": ("Persisted in the project workbench." if self._store is not None
                             else "Session results; regenerated on reopen."),
             })

@@ -99,6 +99,30 @@ describe("Language QA", () => {
     expect(screen.getByText(/not publication approval/)).toBeTruthy();
   });
 
+  it("names a profile pack's language and pack, with no empty Tamil label", async () => {
+    const hindi = {
+      totalFindings: 0, findings: [],
+      language: { declared: "hin", language: "hi", name: "Hindi", script: "DEVANAGARI", basis: "metadata",
+        pack: "hi-irv", message: "Hindi spelling, encoding, punctuation and consistency checks." },
+      coverage: {
+        inScope: [{ category: "consistency", label: "Spelling consistency", labelTa: "" }],
+        outOfScope: [{ category: "clause-agreement", label: "Agreement across a whole clause", labelTa: "",
+          reason: "Only corpus-attested pairs are flagged.", reasonTa: "" }],
+        handOff: "docs/LANGUAGE_QA_REVIEW_HANDOFF.md", summary: "Technical checks.",
+      },
+    };
+    publish(hindi);
+    statusCall.mockResolvedValue(snapshot(hindi));
+    render(LanguageQaPanel, { projectPath: "C:/project", onNavigate: vi.fn() });
+    await fireEvent.click(await screen.findByRole("button", { name: /Language QA · completed/ }));
+    const heading = screen.getByText(/hi-irv rules/, { selector: "p" });
+    expect(heading.textContent).toMatch(/^\s*Hindi/);
+    const scope = screen.getByLabelText("What Language QA checks");
+    expect(scope.textContent).toContain("Spelling consistency");
+    expect(scope.querySelector('span[lang="ta"]')).toBeNull();
+    expect(scope.textContent).not.toContain("Tamil");
+  });
+
   it("always states what it checks and what it does not, in Tamil and English", async () => {
     publish({ totalFindings: 0, findings: [] });
     statusCall.mockResolvedValue(snapshot({ totalFindings: 0, findings: [] }));

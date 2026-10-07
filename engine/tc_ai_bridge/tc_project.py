@@ -1325,6 +1325,25 @@ class TranslationCoreProject:
             self.journal.rollback(tx, str(e)); raise
         return backup
 
+    def set_language_qa_pack(self, pack: str) -> str:
+        """Write the project's Language QA setting, manifest `language_qa.pack`:
+        "auto", "off" or a registered pack name (the caller validates it). The
+        manifest is re-read inside the transaction so no other key is touched;
+        translationCore ignores keys it does not know."""
+        manifest_path = self.path / 'manifest.json'
+        tx = self.journal.begin('languageQaSetPack', [manifest_path])
+        self.journal.mark_writing(tx)
+        try:
+            manifest = _read_json(manifest_path)
+            block = manifest.get('language_qa') if isinstance(manifest.get('language_qa'), dict) else {}
+            manifest['language_qa'] = {**block, 'pack': pack}
+            _write_json_atomic(manifest_path, manifest)
+            self.manifest = manifest
+            self.journal.commit(tx, {'operation': 'languageQaSetPack', 'pack': pack})
+        except Exception as e:
+            self.journal.rollback(tx, str(e)); raise
+        return pack
+
     @property
     def cross_verse_links(self):
         """The Bridge-private cross-verse link store (#117), over this project's
