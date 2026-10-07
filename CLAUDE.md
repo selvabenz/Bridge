@@ -269,6 +269,15 @@ linked via `.bridge/collection.json` on every sibling. Only the first book
 is normalized eagerly; the rest carry `.bridge/lazy-import.json` and
 normalize on first open (this is why a 66-book import is ~5s, not minutes).
 
+The dashboard's **Collection QA** panel (`collection.runChecks`, Benz, 2026-09-24,
+documented in #215) checks every book of a collection in turn, unattended, with the
+ordinary check job: local tN/tW/alignment, Greek Room and Language QA. It is never
+started automatically, and the app is read-only while it runs. Each finished book is
+upserted into `.bridge/collection.json` `qaRuns[]` with a sha256 of its chapter files,
+so an unchanged book is skipped on the next run and a cancelled or crashed run resumes;
+the whole-collection stage's summary lands in `qaFinalStage`. Engine:
+`engine/collection_jobs.py`; UI: `CollectionQaPanel.svelte`.
+
 ## Hard invariants
 
 These are the things that cost real people real work if they break. Every one of

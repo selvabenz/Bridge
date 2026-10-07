@@ -14327,3 +14327,27 @@ the maintainer decided: the 15 s import smoke budget.
 
 **Verified.** Export and parser tests; full engine suite, `npm run check`/`test`/
 `build` and the frozen smoke in the commit.
+
+## 2026-10-07 — The Collection QA runner gets an issue and a place in the docs (#215)
+
+The "Run QA on all N books" panel at the top of the dashboard was asked about and
+turned out to have no issue of its own and no entry in ARCHITECTURE. It is Benz's
+`46e0e3d` (2026-09-24, layered-rules Phases 4.4 and 4.5), tracked only as one line
+in #169's checklist and QA matrix row A70. #215 now records the feature as
+shipped, verified against the code today: the ordinary check job per book (local,
+greekroom, languageQa) in a private project handle, never automatic, read-only
+app while active, resumable through `collection.json` `qaRuns[]` keyed by a sha256
+of the chapter files, pause between books, cancel keeps nothing half-written, one
+final whole-collection stage (termbase coverage, cross-book names; house-style
+propagation reported unavailable), and the measured whole-Bible runs (1 h 41 min on
+2026-09-24, 62 min on 2026-09-28).
+
+**Docs changed.** ARCHITECTURE §3 now says `collection.json` carries `qaRuns[]` and
+`qaFinalStage`; §5 adds `CollectionQaPanel` to the dashboard node. CLAUDE.md's
+multi-book section gains a paragraph on the runner. DEVELOPER_GUIDE's roadmap
+table had no Language QA row at all, so the whole of #169 was invisible there; it
+now has one, pointing at LANGUAGE_QA_PLAN. Not touched, already stale and noted on
+#215: ARCHITECTURE §5 still lists the Semantic and Passage tabs retired by #129.
+
+**Verified.** The six engine test files `affected_tests.py` selects for a docs-only
+change (165 tests) pass. No code changed.

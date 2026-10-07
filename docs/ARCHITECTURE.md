@@ -118,7 +118,7 @@ flowchart TB
       TX["transactions/ (pre-write journal), backups/, paratextNotes/"]
     end
     subgraph Bdir[".bridge/ (plain JSON, read before any database exists)"]
-      BJ["project.json, import.json, collection.json, lazy-import.json, original-manifest.json"]
+      BJ["project.json, import.json, collection.json (sibling links; qaRuns[] and qaFinalStage: the collection QA runner's per-book last run, keyed by a sha256 of the book's chapter files, #169 / #215), lazy-import.json, original-manifest.json"]
     end
   end
   subgraph Res["engine/resources/ (bundled, read-only, about 170 MB)"]
@@ -244,7 +244,7 @@ re-judges 7; 9B.4 never re-judges 7 and never sets `CORRECTED` on `PASSED` alone
 ```mermaid
 flowchart TB
   Home["home: ImportScreen<br/>project list, import wizard, file drop"] --> Dash
-  Dash["dashboard: ProjectDashboard<br/>book list with progress, per-book project.report panel"] --> Report["report: ProjectReportScreen<br/>collection-wide report.generate, filters, charts, export, triage overlay"]
+  Dash["dashboard: ProjectDashboard<br/>book list with progress, per-book project.report panel,<br/>CollectionQaPanel (multi-book only): collection.runChecks / qaStatus / pauseChecks / cancelChecks, never automatic (#215)"] --> Report["report: ProjectReportScreen<br/>collection-wide report.generate, filters, charts, export, triage overlay"]
   Dash --> Editor["editor: VerseList + ReviewPanel"]
   Editor --> AR["review: AlignmentReview shell<br/>tabs Word, Semantic, Passage, QA"]
   Editor --> AM["AlignmentModal (Align words)<br/>translationCore-compatible word alignment"]
