@@ -16643,3 +16643,43 @@ always the slow one.
 1366×768, and whether WebView2 implements `caretPositionFromPoint` or
 `caretRangeFromPoint`. If it implements neither, the unmarked-word actions
 simply do not appear.
+
+## 2026-10-08 — Checker settings dialog (indic-qa parity, step 4)
+
+Benz asked for the indic-qa web app's settings "at the relevant size and
+design", and collapsible. Step 2 gave the engine side
+(`languageQa.checkerSettings.get/set`); this is the dialog.
+
+**`Fieldset.svelte`** is the web app's `foldable`: the legend is a button
+(`aria-expanded`, `aria-controls`) with ▾/▸ before it; a closed section shows
+only its legend over a top rule. The caller holds the open state.
+
+**`CheckerSettingsDialog.svelte`**, opened from a new row in Settings ›
+Language QA ("N of M rules on · checks … · W/T warnings", then "Checker
+settings…"; no row for a language without an indic-qa checker):
+- the web app's size: `min(92vw, 40rem)`, anchored 1.5rem from the top,
+  head / scrolling body / foot, at z-index 60 above the 640×480 modal. At
+  1366×768 the body has about 620 px before it scrolls;
+- sections in the web app's order: contexts, Sandhi leads (Tamil layer only),
+  the pack's own legend (rules with their count in this book and the rule id
+  as tooltip, spelling-style selects, the two numbers), warnings,
+  suggestions and compounds, project words;
+- every section starts closed and stays as the reviewer left it
+  (`editorPrefs.checkerSettingsOpen`, localStorage
+  `bridge.checkerSettings.open.v1`);
+- Save sends only the sections that changed (and only the changed keys of
+  `warnings`, `style`, `sandhi`), then `nudgeLanguageQa()`. A refusal from
+  the engine is shown in the foot and the dialog stays open. Cancel, Esc and
+  ✕ send nothing; Tab is trapped inside; focus returns on close;
+- before a pass has loaded the checker, `ready: false` shows "Still being
+  prepared" (the style choices are the checker's own clusters).
+
+**Two departures from the web app, on purpose.**
+- `sandhi.suffix_pct` is shown as the share the engine stores (0.5–1), as
+  its label says, not as a percent: one number, one unit.
+- "Project words" shows the count and points to Language QA › Dictionary in
+  place of the web app's Rebuild button. Bridge never writes the dictionary
+  files that Rebuild re-reads, and a save already runs a pass.
+
+**Verified.** `npm run check` 0/0; `npm run test` 639 passed (15 new:
+11 dialog, 2 Fieldset, 2 Settings); `npm run build` ok. Desktop NOT RUN.

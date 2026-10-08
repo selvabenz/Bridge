@@ -49,3 +49,10 @@ export function bumpTextScale(step: -1 | 1): void {
     return TEXT_SCALES[Math.min(TEXT_SCALES.length - 1, Math.max(0, at + step))];
   });
 }
+
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === "string");
+
+/** Which sections of the Checker settings dialog are open, by section id. As
+ * in the indic-qa web app, every section starts closed and stays as left. */
+export const checkerSettingsOpen = persisted<string[]>("bridge.checkerSettings.open.v1", [], isStringArray);

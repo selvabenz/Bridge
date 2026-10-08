@@ -3,7 +3,7 @@ import type {
   LearnedFix, LearnedFixesResponse, VerseEditLearned,
   BatchUndoResult, LanguageQaScope, ScopeAcceptResult, ScopeFindResult, ScopeIgnoreResult,
   FlagInput, FlagStatus, FlagType, LanguageQaFlag, BookWordsResult, OccurrencesResult,
-  ReferenceChapter, RelatedWordsResult,
+  ReferenceChapter, RelatedWordsResult, CheckerSettings, CheckerSettingsPatch, CheckerSettingsUnavailable,
 } from "../types/languageQa";
 import type { CollectionQaSnapshot } from "../types/collectionQa";
 import type {
@@ -208,6 +208,8 @@ export type EngineMethod =
   | "languageQa.history"
   | "languageQa.verse"
   | "languageQa.setPack"
+  | "languageQa.checkerSettings.get"
+  | "languageQa.checkerSettings.set"
   | "languageQa.learned.list"
   | "languageQa.learned.forget"
   | "languageQa.learned.restore"
@@ -454,6 +456,16 @@ export const bridge = {
     match: "word" | "text" = "word"): Promise<OccurrencesResult> {
     return call("languageQa.occurrences", match === "text"
       ? { projectPath, word, source, limit, match } : { projectPath, word, source, limit });
+  },
+
+  /** The indic-qa checker's settings for this collection (the web app's Settings dialog). */
+  languageQaCheckerSettingsGet(projectPath: string): Promise<CheckerSettings | CheckerSettingsUnavailable> {
+    return call("languageQa.checkerSettings.get", { projectPath });
+  },
+
+  /** Save the changed sections to every book of the collection; a pass follows. */
+  languageQaCheckerSettingsSet(projectPath: string, patch: CheckerSettingsPatch): Promise<CheckerSettings> {
+    return call("languageQa.checkerSettings.set", { projectPath, ...patch });
   },
 
   /** One chapter of the reference Bible; `ready` is false while it loads. */
