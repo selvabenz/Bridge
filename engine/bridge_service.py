@@ -4616,6 +4616,7 @@ class BridgeEngine:
         verse: str,
         checks: list[str],
         reads: Optional[dict[str, Any]] = None,
+        job_reads: Optional[dict[str, Any]] = None,
     ) -> list[QaFinding]:
         """`reads`: a check job's memo for this one verse, shared by its
         stages so the verse's text and decisions are read once, not once per
@@ -4643,6 +4644,7 @@ class BridgeEngine:
                     with timings.step("local.alignment_gap"):
                         issues = [*issues, *alignment_gap_checks.gap_issues(
                             project, chapter, verse, alignment, target_text,
+                            reads=alignment_gap_checks.prefetch(project, job_reads),
                         )]
                 except Exception:
                     # Optional evidence: a problem here must never sink the
@@ -4807,6 +4809,9 @@ class BridgeEngine:
         # the next (#231). Only ever the current verse: a decision recorded on a
         # later verse while the job runs is read when the job gets there.
         verse_reads: dict[str, Any] = {}
+        # Reads kept for the whole job, each guarded by its own validity check
+        # (the gap prefetch by the workbench write generation, #241).
+        job_reads: dict[str, Any] = {}
 
         def run_stage(chapter: str, verse: str, stage_checks: list[str]) -> Any:
             if stage_checks == [LANGUAGE_QA_CHECK]:
@@ -4819,7 +4824,7 @@ class BridgeEngine:
                 return [
                     finding.to_dict()
                     for finding in self._run_verse_checks_for_project(
-                        project, chapter, verse, stage_checks, reads=verse_reads,
+                        project, chapter, verse, stage_checks, reads=verse_reads, job_reads=job_reads,
                     )
                 ]
 

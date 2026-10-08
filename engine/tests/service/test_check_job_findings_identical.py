@@ -39,7 +39,7 @@ def book(tmp_path):
         },
         "2": {
             "1": _aligned("இரண்டாம் அதிகாரம் தொடங்குகிறது", [("δεύτερον", "G12080", "இரண்டாம்")]),
-            "2": unaligned_verse("முடிவு", [("τέλος", "G50560")]),
+            "2": {**unaligned_verse("முடிவு", [("τέλος", "G50560")]), "complete": True},
         },
     })
     invalid = root / ".apps" / "translationCore" / "tools" / "wordAlignment" / "invalid" / "1"
@@ -108,6 +108,7 @@ def test_job_findings_equal_direct_verse_checks_byte_for_byte(book, monkeypatch)
     # Not vacuous: the fixture reaches the alignment and tC branches.
     assert {"ALIGN_UNALIGNED_BOTTOM", "ALIGN_UNALIGNED_TOP", "WA_INVALID"} <= codes, codes
     assert {"pending", "stale", "word", "later", "TC_COMMENTS", "TC_VERSE_EDITS"} <= codes, codes
+    assert {"alignment.possible_omission", "alignment.possible_addition"} <= codes, codes
 
 
 def test_an_edit_while_the_job_runs_is_seen_by_the_later_verse(book, monkeypatch):
@@ -140,3 +141,35 @@ def test_a_job_parses_each_chapter_file_once(book, monkeypatch):
     finished = _book_job(engine)
     # Two chapters, an alignment file and a target file each.
     assert finished["timings"]["project.chapter_parse"]["calls"] <= 4
+
+
+def test_a_null_decision_written_mid_job_is_seen_by_the_later_verse(book, monkeypatch):
+    engine = _engine(book, monkeypatch)
+    project = engine.project
+    original = engine._run_verse_checks_for_project
+    written: list[bool] = []
+
+    def decide_once(proj, chapter, verse, checks, **kwargs):
+        if (chapter, verse) == ("1", "2") and not written:
+            written.append(True)
+            # The job's gap prefetch already holds the book; this write must
+            # make it read again before 2:2 (#241).
+            word = project.load_verse_alignment("2", "2").word_bank[0]
+            project.null_decisions.set("2", "2", "target", word, "EXPLICITATION")
+        return original(proj, chapter, verse, checks, **kwargs)
+
+    monkeypatch.setattr(engine, "_run_verse_checks_for_project", decide_once)
+    finished = _book_job(engine)
+    monkeypatch.setattr(engine, "_run_verse_checks_for_project", original)
+    assert written
+    job_codes = {f["check_type"] for f in finished["results"]["2:2"]["findings"]}
+    assert "alignment.possible_addition" not in job_codes
+    assert "alignment.possible_omission" in job_codes
+    assert _same(finished["results"]["2:2"]["findings"], _direct(engine, "2", "2"))
+    assert finished["timings"]["gap.prefetch"]["calls"] == 2  # once at the start, once after the write
+
+
+def test_without_writes_the_gap_prefetch_is_read_once_per_job(book, monkeypatch):
+    engine = _engine(book, monkeypatch)
+    finished = _book_job(engine)
+    assert finished["timings"]["gap.prefetch"]["calls"] == 1

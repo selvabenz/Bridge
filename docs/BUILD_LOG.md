@@ -17229,3 +17229,63 @@ GEN has few tC checks per verse. A project with more gains in proportion.
   selection, an invalidated word and a comment.
 - Engine `pytest -m "not slow"`: 4901 passed. The 3 failures are #241's
   test file, written during the run.
+
+## 2026-10-09 — The gap check reads a job-owned prefetch (#241)
+
+**Problem.** For every verse, `alignment_gap_checks.gap_issues` read the
+verse's verdict with `workbench.get`. Each read opens a new SQLite connection
+and runs five PRAGMAs, about 3 ms on GEN. An aligned verse also read its links
+(2 connections) and its null decisions (1).
+
+**Change.**
+- `WorkbenchRepository.write_generation` counts committed row writes per
+  database file, in this process. It is bumped after the commit in `_write`,
+  `_delete`, `batch` (not after a rollback) and `import_events`.
+- The count is keyed by the file, not the repository object, because a
+  collection run can open the editor's book through a second project object.
+- `alignment_gap_checks.GapReads` reads every link, null decision and verdict
+  row of the book in three queries.
+- Its per-verse views select and order exactly as the readers they replace:
+  - links by the lifted (chapter, verse) and (target_chapter, target_verse)
+    columns;
+  - decisions by (chapter, verse);
+  - verdicts by row id.
+- It reads all rows, active or not, so the filters in `gap_issues` see what
+  they always saw. It does not use `active_links()`, which filters on a
+  different column.
+- `prefetch()` keeps it in a dict the job holds and reads again when the
+  generation moved. `gap_issues(reads=...)` uses it. `verse.runChecks` passes
+  no prefetch and reads per verse, as before. If the prefetch fails, the
+  per-verse reads are used.
+- The test stubs of `_run_verse_checks_for_project` now take `**_kwargs`, so
+  the next keyword does not break them as `reads=` did (#231).
+
+**Measured.** GEN, after #239 and #240 (run 2):
+
+| | before | after |
+|---|---|---|
+| wall | 21.9 s | 12.8 s |
+| `local.alignment_gap` | 5.8 s | 0.26 s |
+| `workbench.connect` | 3,177 connections | 1,641 connections |
+| `gap.prefetch` | (none) | 1 call, 11 ms |
+
+**Tests.**
+- `tests/persistence/test_workbench_write_generation.py`:
+  - writes and deletes count, and reads do not;
+  - a committed batch counts once, and a rolled-back one not at all;
+  - two repositories on one file share the count.
+- `tests/service/test_alignment_gap_prefetch.py` drives the automatic pass
+  through a fake model. `gap_issues` with and without the prefetch gives the
+  same issues:
+  - after the pass;
+  - after a null decision;
+  - after an edit that makes the verdict stale;
+  - after a revert.
+
+  `prefetch()` reads again after a write.
+- Two additions to the byte-identical job test:
+  - a null decision written mid-job is seen by the later verse, with the
+    prefetch read exactly twice;
+  - without writes it is read once.
+- Engine `pytest -m "not slow"`: 4910 passed, 1 failed. The failure was
+  #239's directory-listing test, a real race fixed in the next entry.
