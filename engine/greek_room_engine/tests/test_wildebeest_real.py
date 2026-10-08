@@ -72,6 +72,9 @@ def test_real_engine_failure_degrades_to_no_findings_not_a_crash(monkeypatch):
         raise RuntimeError("simulated real-engine failure")
 
     monkeypatch.setattr(wildebeest_adapter.wb_ana, "process", broken_process)
+    # An earlier test analysed this text; a cache hit (#230) would never reach
+    # the broken process. Start from an empty cache so the failure path runs.
+    monkeypatch.setattr(wildebeest_adapter, "_REPORT_CACHE", type(wildebeest_adapter._REPORT_CACHE)())
 
     engine = GreekRoomEngine()
     findings = engine.check_verse(

@@ -14,11 +14,14 @@ built and tested independently.
 """
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import logging
 import re
 import sys
+import threading
+from collections import OrderedDict
 from typing import Any
 
 from .base import CheckAdapter
@@ -60,6 +63,47 @@ except Exception as exc:
 _LATIN_RE = re.compile(r"[A-Za-z]")
 _TAMIL_RE = re.compile(r"[\u0B80-\u0BFF]")
 _DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]")
+
+
+# The parts of a Wildebeest report this adapter reads, per (language, text).
+# wb_ana.process is a pure function of its input for the package version this
+# process loaded, and it was 58-68% of a whole-book check job, run again on
+# every verse of every job and every verse selection (#230). Held for the life
+# of the sidecar, not persisted: the project's check_cache rows are written
+# through the workbench journal, and a row per verse would flood change_log.
+# Keyed by a digest, so the cache never holds verse text; bounded, oldest out.
+_REPORT_CACHE: "OrderedDict[tuple[str, bytes], dict[str, Any]]" = OrderedDict()
+_REPORT_CACHE_MAX = 50_000
+_REPORT_CACHE_LOCK = threading.Lock()
+
+
+def _report_key(lang_code: str, text: str) -> tuple[str, bytes]:
+    return (lang_code, hashlib.sha1(text.encode("utf-8", errors="surrogatepass")).digest())
+
+
+def _cached_report(lang_code: str, text: str) -> dict[str, Any]:
+    """The used part of wb_ana.process's report for this text. Raises what
+    process raises; a failure is not cached, so the next call tries again."""
+    key = _report_key(lang_code, text)
+    with _REPORT_CACHE_LOCK:
+        report = _REPORT_CACHE.get(key)
+        if report is not None:
+            _REPORT_CACHE.move_to_end(key)
+            return report
+    buf = io.StringIO()
+    wb_ana.process(string=text, lang_code=lang_code, json_output=buf)  # type: ignore[union-attr]
+    data = json.loads(buf.getvalue())
+    report = {
+        "notable-token": data.get("notable-token") or {},
+        "non-canonical": data.get("non-canonical") or {},
+        "zero-width": ((data.get("block") or {}).get("ZERO_WIDTH")) or {},
+    }
+    with _REPORT_CACHE_LOCK:
+        _REPORT_CACHE[key] = report
+        _REPORT_CACHE.move_to_end(key)
+        while len(_REPORT_CACHE) > _REPORT_CACHE_MAX:
+            _REPORT_CACHE.popitem(last=False)
+    return report
 
 
 class WildebeestAdapter(CheckAdapter):
@@ -127,10 +171,8 @@ class WildebeestAdapter(CheckAdapter):
         """
         findings: list[QaFinding] = []
         book = ref.split()[0] if " " in ref else ""
-        buf = io.StringIO()
         try:
-            wb_ana.process(string=text, lang_code=lang_code, json_output=buf)  # type: ignore[union-attr]
-            data = json.loads(buf.getvalue())
+            data = _cached_report(lang_code, text)
         except Exception:
             # Wildebeest is explicitly Alpha (doc §31) — a bad verse must
             # degrade to "no wildebeest findings for this verse", never take
@@ -139,7 +181,7 @@ class WildebeestAdapter(CheckAdapter):
             log.exception("Real Wildebeest analysis failed for %s; skipping wildebeest findings for this verse.", ref)
             return findings
 
-        for category_name, tokens in (data.get("notable-token") or {}).items():
+        for category_name, tokens in data["notable-token"].items():
             if not isinstance(tokens, dict):
                 continue
             for token_text in tokens:
@@ -151,7 +193,7 @@ class WildebeestAdapter(CheckAdapter):
                     evidence=[EvidenceItem(label="Category", value=category_name)],
                 ))
 
-        for orig, details in (data.get("non-canonical") or {}).items():
+        for orig, details in data["non-canonical"].items():
             if not isinstance(details, dict):
                 continue
             norm = str(details.get("norm") or "") or None
@@ -165,8 +207,7 @@ class WildebeestAdapter(CheckAdapter):
                 suggested_replacement=norm,
             ))
 
-        zero_width = ((data.get("block") or {}).get("ZERO_WIDTH")) or {}
-        for char, details in zero_width.items():
+        for char, details in data["zero-width"].items():
             if not isinstance(details, dict):
                 continue
             name = str(details.get("name") or "unknown character")
