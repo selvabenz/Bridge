@@ -11,6 +11,7 @@ import pytest
 from bridge_service import BridgeEngine
 from tests.support.alignment_books import bottom, top, unaligned_verse, write_alignment_book
 from tests.support.projects import call, wait_for_job
+from tests.support.tc_checks import check_entry, state_record, write_index, write_state
 
 
 def _aligned(text: str, pairs: list[tuple[str, str, str]]) -> dict:
@@ -45,6 +46,21 @@ def book(tmp_path):
     invalid.mkdir(parents=True)
     (invalid / "3.json").write_text(json.dumps({"username": "t", "modifiedTimestamp": "2026-01-01T00:00:00.000Z"}),
                                     encoding="utf-8")
+    # translationCore checks (#240): a pending note, a note selected before a
+    # verse edit (stale), an invalidated word, and a comment.
+    tn, tw = "translationNotes", "translationWords"
+    write_index(root, "php", tn, "figs-metaphor", [
+        check_entry("php", "1", "1", tn, "figs-metaphor", "pending"),
+        check_entry("php", "1", "1", tn, "figs-metaphor", "stale", selections=[{"text": "அவன்"}]),
+        check_entry("php", "2", "1", tn, "figs-metaphor", "later"),
+    ])
+    write_index(root, "php", tw, "kt", [check_entry("php", "1", "3", tw, "kt", "word", invalidated=True)])
+    write_state(root, "php", "selections", "1", "1",
+                state_record("php", "1", "1", tn, "figs-metaphor", "stale", modified="2026-01-01T00:00:00Z"), "s1")
+    write_state(root, "php", "verseEdits", "1", "1",
+                {"modifiedTimestamp": "2026-02-01T00:00:00Z", "verseBefore": "a", "verseAfter": "b"}, "e1")
+    write_state(root, "php", "comments", "1", "3",
+                state_record("php", "1", "3", tw, "kt", "word", text="check this"), "c1")
     return root
 
 
@@ -91,6 +107,7 @@ def test_job_findings_equal_direct_verse_checks_byte_for_byte(book, monkeypatch)
         codes |= {f["check_type"] for f in direct}
     # Not vacuous: the fixture reaches the alignment and tC branches.
     assert {"ALIGN_UNALIGNED_BOTTOM", "ALIGN_UNALIGNED_TOP", "WA_INVALID"} <= codes, codes
+    assert {"pending", "stale", "word", "later", "TC_COMMENTS", "TC_VERSE_EDITS"} <= codes, codes
 
 
 def test_an_edit_while_the_job_runs_is_seen_by_the_later_verse(book, monkeypatch):

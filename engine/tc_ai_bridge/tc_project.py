@@ -485,13 +485,15 @@ class TranslationCoreProject:
         """
         if self._checks_by_verse_cache is not None:
             return self._checks_by_verse_cache
-        by: dict[tuple[str, str], list[dict[str, Any]]] = {}
-        for tool in ('translationNotes', 'translationWords'):
-            for entry in self._load_index_tool(tool):
-                ref = entry.get('contextId', {}).get('reference', {}) if isinstance(entry, dict) else {}
-                key = (str(ref.get('chapter')), str(ref.get('verse')))
-                by.setdefault(key, []).append(entry)
-        self._checks_by_verse_cache = by
+        # Timed: `calls` on a check job is how often the index was rebuilt.
+        with check_timing.current().step("tc.index_build"):
+            by: dict[tuple[str, str], list[dict[str, Any]]] = {}
+            for tool in ('translationNotes', 'translationWords'):
+                for entry in self._load_index_tool(tool):
+                    ref = entry.get('contextId', {}).get('reference', {}) if isinstance(entry, dict) else {}
+                    key = (str(ref.get('chapter')), str(ref.get('verse')))
+                    by.setdefault(key, []).append(entry)
+            self._checks_by_verse_cache = by
         return by
 
     def checks_for_verse(self, chapter: str | int, verse: str | int) -> list[dict[str, Any]]:
@@ -2209,13 +2211,23 @@ class TranslationCoreProject:
         self, state_type: str, chapter: str | int, verse: str | int, check_id: str,
         tool: str = '', group_id: str = '',
     ) -> dict[str, Any] | None:
-        latest = None
-        latest_ts = ''
+        records = []
         for path in self._state_files_for_verse(state_type, chapter, verse):
             try:
-                d = _read_json(path)
+                records.append((path.name, _read_json(path)))
             except Exception:
                 continue
+        return self._latest_matching(records, check_id, tool, group_id)
+
+    @staticmethod
+    def _latest_matching(
+        records: Iterable[tuple[str, Any]], check_id: str, tool: str = '', group_id: str = '',
+    ) -> dict[str, Any] | None:
+        """The latest of (file name, parsed record) pairs, in file-name order,
+        for one check: the newest timestamp, and of equal ones the later file."""
+        latest = None
+        latest_ts = ''
+        for name, d in records:
             ctx = d.get('contextId', {}) if isinstance(d, dict) else {}
             if str(ctx.get('checkId', '')) != str(check_id):
                 continue
@@ -2223,7 +2235,7 @@ class TranslationCoreProject:
                 continue
             if group_id and str(ctx.get('groupId', '')) != str(group_id):
                 continue
-            ts = str(d.get('modifiedTimestamp') or d.get('timestamp') or path.name)
+            ts = str(d.get('modifiedTimestamp') or d.get('timestamp') or name)
             if ts >= latest_ts:
                 latest, latest_ts = d, ts
         return latest
@@ -2231,13 +2243,26 @@ class TranslationCoreProject:
     def check_staleness(
         self, chapter: str | int, verse: str | int, check_id: str,
         tool: str = '', group_id: str = '',
+        *, state: dict[str, list[dict[str, Any]]] | None = None,
     ) -> str:
-        """current | stale | pending using actual tC selection vs verse-edit timestamps."""
-        sel = self._latest_state_for_check('selections', chapter, verse, check_id, tool, group_id)
+        """current | stale | pending using actual tC selection vs verse-edit timestamps.
+
+        `state` is the verse's check_state_for_verse(), read once by a caller
+        asking about many checks: the answer is the same, without globbing and
+        parsing the selections and verse edits again for every check (#240)."""
+        if state is None:
+            sel = self._latest_state_for_check('selections', chapter, verse, check_id, tool, group_id)
+        else:
+            sel = self._latest_matching(
+                ((Path(str(d.get('_file', ''))).name, d) for d in state.get('selections', [])),
+                check_id, tool, group_id)
         if not sel:
             return 'pending'
         sel_ts = str(sel.get('modifiedTimestamp', ''))
-        edit_ts = self._latest_verse_edit_timestamp(chapter, verse)
+        if state is None:
+            edit_ts = self._latest_verse_edit_timestamp(chapter, verse)
+        else:
+            edit_ts = max((str(d.get('modifiedTimestamp', '')) for d in state.get('verseEdits', [])), default='')
         return 'stale' if edit_ts and sel_ts <= edit_ts else 'current'
 
     def _latest_verse_edit_timestamp(self, chapter: str | int, verse: str | int) -> str:

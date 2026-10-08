@@ -17186,3 +17186,46 @@ cursor polls every 750 ms. Before is `main` at 5adc914.
 - Engine `pytest -m "not slow"`: 4890 passed, 3 xfailed. The 11 failures in
   that run were #240's test file, which was written during the run and fails
   until #240 lands, as intended.
+
+## 2026-10-09 — tC check state read once per verse (#240)
+
+**Problem.** `translationcore_check_issues` called `check_staleness` once per
+tN/tW entry on the verse. Each call globbed and parsed every
+`checkData/selections/<book>/<ch>/<v>/*.json`, and the verse edits as well.
+`check_state_for_verse` then parsed all four state directories again. With N
+entries on a verse, its selections were parsed N+1 times.
+
+**Change.**
+- `check_staleness(..., state=...)` answers from the records that
+  `check_state_for_verse` already read.
+- The selection rule is now one helper, `_latest_matching`, used by both
+  paths. It covers the same order, the `modifiedTimestamp or timestamp or
+  file name` fallback, the `>=` tie-break, and tool/group matched only when
+  given.
+- `translationcore_check_issues` reads the state once and passes it in.
+- `_checks_by_verse` is timed as `tc.index_build`. That measures follow-up
+  issue B (index rebuilds forced by `check.listForVerse`); in the scripted
+  runs it built once per job.
+
+**Measured.** GEN, after #239 (run 2):
+- `local.tc_checks`: 1.86 s → 0.85 s.
+- Wall: 23.4 s → 21.9 s.
+
+GEN has few tC checks per verse. A project with more gains in proportion.
+
+**Tests.**
+- `tests/jobs/test_local_checks_tc_reads.py` compares `check_staleness`
+  with and without `state=` over current, stale and pending checks, a
+  timestamp-only record, a tie between two files, blank tool/group, and a
+  verse with no edits. It also checks that each state directory is listed
+  once per verse, and compares the issue list against a recording of the
+  pre-#240 code.
+  - That recording corrected my own expectation: a selection with only
+    `timestamp` counts as stale, because its blank `modifiedTimestamp`
+    sorts first.
+- New builders in `tests/support/tc_checks.py`. The private ones in
+  test_qa_report.py stay there.
+- The byte-identical job test's fixture now has tN/tW entries, a stale
+  selection, an invalidated word and a comment.
+- Engine `pytest -m "not slow"`: 4901 passed. The 3 failures are #241's
+  test file, written during the run.
