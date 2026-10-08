@@ -14656,3 +14656,42 @@ Follow-ups filed:
 - the desktop app at 1366×768;
 - a real-provider pass (#131). The precision of two-pass agreement on IRV is
   unmeasured until someone runs it with a key.
+
+## 2026-10-08 — Fix: "no such table: alignment_null_decisions" in the desktop app (workbench v6 → v7)
+
+**What Benz saw.** Opening Align Words or Cross-verse alignment on IRV Tamil GEN
+1:10 failed with `no such table: alignment_null_decisions`. The verse recheck
+failed the same way, and so did "Align chapter with AI" in the toolbar.
+
+**Cause.** This is the schema collision the part 1 entry warned about.
+`indic-qa-editor` took workbench v6 for its Language QA batch tables, and the
+real projects were already migrated to it on 2026-10-07. A read-only scan of all
+five materialised project databases found four at that v6 and one at v5. This
+branch also called its alignment tables "v6". So a database already at "v6"
+skipped them: the ladder trusts the number. No database had this branch's v6, so
+renumbering is safe for every one of them.
+
+**Fix.**
+- `indic-qa-editor`'s v6 block is carried **verbatim**. The v1–v6 migration
+  strings were compared programmatically and are byte-identical, so both
+  branches build the same ladder and merge without a renumber.
+- The alignment tables are **v7**. The three Language QA tables are registered
+  in `MUTABLE_TABLES` as they are on that branch.
+- `test_workbench_v7_upgrade.py` pins two paths: a database at the other
+  branch's v6 gains the alignment tables, and a v5 database climbs both rungs.
+
+**Verified on real data**, on a scratch copy, so the user's project was
+untouched:
+- A copy of GEN's workbench database upgrades to 7, gaining both tables and
+  keeping the Language QA ones.
+- A copy of the whole GEN project, opened through the engine, serves
+  `alignment.get` 1:10 (0.16 s), `getRange` 9–11 (0.24 s) and
+  `verse.runChecks alignment` (4.6 s, cold).
+- The chapter 1 estimate comes back as 15 windows, 30 requests, ~123k input
+  tokens and about $1.97, in 1.6 s.
+- A keyless pass answers `unavailable`.
+
+**Not explained here.** The two 30 s timeouts in the diagnostics
+(`ai.review.status`, `navigation.poll`). The sidecar answers one request at a
+time, so a long request at that moment would delay both. Nothing in this fix
+targets them; if they recur after the fix, that needs its own look.

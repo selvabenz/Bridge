@@ -137,7 +137,7 @@ translationCore can say "this source word has these target words" or nothing.
 An empty group and a word left in the word bank both mean *not aligned yet*.
 Bridge records a third statement, the spec's NULL_ALIGNED: this word has no
 counterpart, and that is correct. It is stored in `alignment_null_decisions`
-(workbench v6), beside the link table, and never in `alignmentData/`.
+(workbench v7), beside the link table, and never in `alignmentData/`.
 
 ```text
 alignment.null.set    {chapter, verse, side: "source"|"target", id, reason, note?}

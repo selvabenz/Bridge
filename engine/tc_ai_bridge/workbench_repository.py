@@ -29,7 +29,7 @@ from typing import Any, Iterator
 import uuid
 
 
-WORKBENCH_SCHEMA_VERSION = 6
+WORKBENCH_SCHEMA_VERSION = 7
 WORKBENCH_SCHEMA_ID = "bridge-workbench-v1"
 
 _IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -60,6 +60,9 @@ MUTABLE_TABLES: tuple[str, ...] = (
     "file_backups",
     "alignment_cross_verse_links",
     "language_qa_cache",
+    "language_qa_batches",
+    "language_qa_learned_fixes",
+    "language_qa_flags",
     "alignment_null_decisions",
     "alignment_verdicts",
 )
@@ -550,7 +553,80 @@ ALTER TABLE human_decisions_v5 RENAME TO human_decisions;
 CREATE INDEX ix_human_decisions_scope ON human_decisions(project_id, book_id, kind);
 """
 
-# v6 (#216, automatic cross-verse alignment part 1): two siblings of v3's
+# v6 is indic-qa-editor's block, carried here verbatim (2026-10-08): that branch
+# took v6 first and real project databases are already at it, so this branch's
+# own tables are v7 and both branches build the same v1..v6 ladder. When the two
+# merge, v6 is byte-identical on both sides.
+# v6 (indic-qa editor features, 2026-10-07): three Bridge-private stores,
+# designed together so the schema moves once.
+#
+# - language_qa_batches: one row per scoped correction ("this chapter", "this
+#   book") and one per undo of it. Scripture is still written only by
+#   apply_scripture_edit, once per verse; a batch row only groups those journalled
+#   edits so they can be listed and undone together. Undo writes a new row and
+#   moves the original's state; nothing is deleted.
+# - language_qa_learned_fixes: a reviewer's single-word replacement (old -> new),
+#   offered again wherever the old word recurs. A row per (book, old, new);
+#   count, forget and restore re-write it (revision++), never delete it.
+# - language_qa_flags: a reviewer's question on a passage. Delete is a status,
+#   so change_log keeps every image.
+#
+# Lifted columns are nullable, as in v3/v4, so the generic per-table tests that
+# write rows without them still pass.
+_MIGRATION_V6 = r"""
+CREATE TABLE language_qa_batches (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    book_id TEXT,
+    revision INTEGER NOT NULL DEFAULT 1 CHECK(revision >= 1),
+    actor_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    chapter TEXT,
+    kind TEXT,
+    state TEXT
+);
+CREATE INDEX ix_language_qa_batches_scope
+    ON language_qa_batches(project_id, book_id, created_at);
+
+CREATE TABLE language_qa_learned_fixes (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    book_id TEXT,
+    revision INTEGER NOT NULL DEFAULT 1 CHECK(revision >= 1),
+    actor_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    old_word TEXT,
+    new_word TEXT,
+    enabled INTEGER
+);
+CREATE UNIQUE INDEX ux_language_qa_learned_fixes_pair
+    ON language_qa_learned_fixes(project_id, book_id, old_word, new_word);
+
+CREATE TABLE language_qa_flags (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    book_id TEXT,
+    revision INTEGER NOT NULL DEFAULT 1 CHECK(revision >= 1),
+    actor_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    chapter TEXT,
+    verse TEXT,
+    status TEXT
+);
+CREATE INDEX ix_language_qa_flags_scope
+    ON language_qa_flags(project_id, book_id, chapter, status);
+"""
+
+# v7 (#216, automatic cross-verse alignment part 1): two siblings of v3's
 # links table. `alignment_null_decisions` records that a token has no
 # counterpart *for a named reason* (a Greek article, a Tamil resumptive
 # pronoun) -- a positive assertion, never "unaligned", which is the absence of
@@ -560,7 +636,7 @@ CREATE INDEX ix_human_decisions_scope ON human_decisions(project_id, book_id, ki
 # `side` nor `reason` carries a CHECK: v5 shows that widening one costs a table
 # rebuild, and both sets are validated in Python. Lifted columns are nullable,
 # as in v3/v4, so the generic per-table tests can write rows without them.
-_MIGRATION_V6 = r"""
+_MIGRATION_V7 = r"""
 CREATE TABLE alignment_null_decisions (
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL,
@@ -606,6 +682,7 @@ _MIGRATIONS: tuple[tuple[int, str], ...] = (
     (4, _MIGRATION_V4),
     (5, _MIGRATION_V5),
     (6, _MIGRATION_V6),
+    (7, _MIGRATION_V7),
 )
 
 
