@@ -14403,3 +14403,41 @@ the N:M link groups.
 `tests/service/test_alignment_null_rpc.py`) pass. Full engine suite with
 `-n auto`: 4735 passed, 1 skipped, 3 xfailed. `npm run check` is clean. Neither
 golden moved. Frozen sidecars not rebuilt for this part.
+
+## 2026-10-08 — Automatic cross-verse alignment, part 2: one token one home, N:M link groups (#217)
+
+**The hole it closes.** The #117 link store refused only an exact duplicate pair.
+One Greek word could be linked into two different verses with nothing tying the
+links together, and after part 1 a word could also be "grammatical" and aligned
+at the same time.
+
+**Groups.** `groupId` lives in the link payload. It is a sha1 of the members'
+chapter:verse:signature, prefixed `xvg_`. The unique pair index, the per-verse
+reads and the Stage 6B reader are unchanged. No column was added and there is
+no schema bump; grouping is done in Python over the rows of one source verse.
+A group is written and removed as a unit: N×M rows and events, one history row.
+Membership never changes in place. A single-pair drop onto a word already
+grouped between the same two verses extends the group by unlinking it and
+linking the union, because refusing it would make dragging a second word
+useless. A text edit that removes any target member invalidates the whole
+group. Unlinking any pair removes the whole group. This is visible in today's
+UI: × on one card of a 1:N group removes them all. The part 7 UI draws the
+group.
+
+**One home.** Each of these refuses a token that already has a home elsewhere:
+`link_cross_verse`, `alignment.null.set`, and the new
+`_refuse_if_homed_elsewhere` in `_save_alignment`. In `_save_alignment` only
+tokens that *gain* a group in that save are checked. A token that was already
+double-homed before this change is not repaired silently; I don't know of any.
+The AI review's auto-align path also goes through `_save_alignment`; a refusal
+there is caught by its existing "must not sink the review" handler.
+
+**History id collision**, noted in part 1, is fixed in the link store too: the
+record id is now part of the history id.
+
+**Verified.** 8 new tests (`tests/service/test_alignment_one_home.py`). The
+existing `test_alignment_cross_verse.py` passes unchanged once the
+exact-duplicate case refuses instead of "extending" into itself, which was the
+one bug the existing tests caught. Full engine suite with `-n auto`, run on this
+part alone (later parts stashed): 4743 passed, 1 skipped, 3 xfailed.
+`npm run check` is clean.

@@ -232,6 +232,9 @@ export interface CrossVerseLinkEnd {
 export interface CrossVerseLink {
   id: string;
   bookId: string;
+  /** #217: absent on a link written before groups, which is a group of one. */
+  groupId?: string;
+  relation?: CrossVerseRelation;
   source: CrossVerseLinkEnd;
   target: CrossVerseLinkEnd;
   state: "active" | "invalid";
@@ -249,6 +252,29 @@ export interface CrossVerseLinkResult {
   link: CrossVerseLink;
   source: AlignmentContext;
   target: AlignmentContext;
+  /** #217: the composite group the call wrote. `extended` when a single pair
+   *  was dropped onto a word already in a group between the same two verses. */
+  group?: { groupId: string; relation: CrossVerseRelation; linkIds: string[]; extended: boolean };
+}
+
+export type CrossVerseRelation = "one-to-one" | "one-to-many" | "many-to-one" | "many-to-many";
+
+/** #217: one cross-verse realization -- every pair row sharing a groupId,
+ *  written and removed as a unit. Sources are all in one verse and targets all
+ *  in one other verse. Ids are set only on the side this context describes. */
+export interface CrossVerseGroup {
+  groupId: string;
+  state: "active" | "invalid";
+  relation: CrossVerseRelation;
+  sourceChapter: string;
+  sourceVerse: string;
+  targetChapter: string;
+  targetVerse: string;
+  sources: { word: string; topId: string | null }[];
+  targets: { word: string; bottomId: string | null }[];
+  sourceTopIds: string[];
+  targetBottomIds: string[];
+  linkIds: string[];
 }
 
 /** One scored component behind a cross-verse proposal (#138). `rawScore` and
@@ -335,6 +361,8 @@ export interface AlignmentContext {
   /** Gaps net of cross-verse links: a linked word is no longer a gap. */
   gaps: AlignmentGaps;
   crossVerseLinks: CrossVerseLink[];
+  /** The same links folded into their composite groups (#217). */
+  crossVerseGroups: CrossVerseGroup[];
   /** Bottom ids of this verse whose word is the target of an active link. */
   crossVerseAccountedIds: string[];
   /** Top ids of this verse whose token is realized in another verse. */

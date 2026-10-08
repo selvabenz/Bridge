@@ -252,6 +252,9 @@ verify repository reality against this document before relying on it
 - Never treat embeddings or translation helps as proof.
 - Never manufacture same-verse translationCore alignment for cross-verse
   meaning.
+- One token, one home: a tC group, a cross-verse link group or a null decision,
+  never two (#217). A cross-verse 1:N/N:1/N:M realization is one group, written
+  and removed as a unit.
 - Persistent spans remain half-open Unicode code-point offsets over raw text.
 - Correction Apply requires exact reference, span, current text,
   revision/hash, CAS, and explicit human action; normalized text is never an

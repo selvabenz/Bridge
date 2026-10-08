@@ -72,6 +72,7 @@ function context(verse: string, sources: string[], targets: string[], aligned: n
       targetUnmatched: targets.length - aligned,
     },
     crossVerseLinks: [],
+    crossVerseGroups: [],
     crossVerseAccountedIds: [],
     crossVerseRealizedIds: [],
     crossVerseAccounted: 0,

@@ -645,8 +645,23 @@ export const bridge = {
     return call("alignment.crossVerse.link", { source, target, origin });
   },
 
+  /** #217: one composite group -- 1:N, N:1 or N:M -- between one source verse
+   *  and one other verse, written as a unit. */
+  crossVerseLinkGroup(
+    sources: { chapter: string; verse: string; topId: string }[],
+    targets: { chapter: string; verse: string; bottomId: string }[],
+    origin = "",
+  ): Promise<CrossVerseLinkResult> {
+    return call("alignment.crossVerse.link", { sources, targets, origin });
+  },
+
+  /** Removes the link's whole group (#217): a composite group is one decision. */
   crossVerseUnlink(linkId: string): Promise<CrossVerseLinkResult> {
     return call("alignment.crossVerse.unlink", { linkId });
+  },
+
+  crossVerseUnlinkGroup(groupId: string): Promise<CrossVerseLinkResult> {
+    return call("alignment.crossVerse.unlink", { groupId });
   },
 
   /** #216: record that a word has no counterpart, for a reason. Refused when

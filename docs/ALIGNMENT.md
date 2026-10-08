@@ -99,6 +99,38 @@ alignment.crossVerse.unlink              {linkId}
   weight as completed same-verse alignment, and a link change stales the
   downstream Stage 6B/7/8 records (#119).
 
+### Groups, and one token one home (#217)
+
+The spec's lexical ownership rule (section 5) applies across verses too. A 1:N,
+N:1 or N:M realization is **one** composite group, not several overlapping
+pairs, and every token has at most one home: a tC group, a cross-verse group
+or a null decision.
+
+- A row is still one (source, target) pair, so the unique pair index and every
+  reader are unchanged. `groupId` in the payload ties a group's rows together.
+  It is derived from the members, so the same group gets the same id
+  everywhere. A row written before groups existed is a group of one.
+- `alignment.crossVerse.link` also takes `{sources: [...], targets: [...]}`.
+  All sources must be in one verse and all targets in one other verse. N×M rows
+  and events are written, plus **one** history row (`crossVerseLinkGroup`).
+- Dropping a single word onto a word that is already in a group between the
+  same two verses **extends** that group: it unlinks the group and links the
+  union, under a new `groupId`. A word already linked into a *different* verse
+  is refused, and so is an exact duplicate.
+- `alignment.crossVerse.unlink` takes `{linkId}` or `{groupId}` and removes the
+  whole group either way. Removing one pair would leave a claim nobody made.
+- A text edit that removes any target word of a group invalidates the whole
+  group.
+- `_save_alignment` (realign, unalign, save, aiApplyProposal) refuses to put a
+  token into a tC group when the token is at an end of an active link or
+  carries an active null decision. Tokens leaving a group never conflict. A
+  token that was already double-homed before this rule is left as it is, not
+  repaired silently.
+- The verse context adds `crossVerseGroups`
+  (`{groupId, relation, sources, targets, sourceTopIds, targetBottomIds, linkIds, state}`)
+  beside the flat `crossVerseLinks`. `relation` uses the labels
+  `compile_link_proposal` gives tC groups.
+
 ## Null decisions: a word with no counterpart, for a reason (#216)
 
 translationCore can say "this source word has these target words" or nothing.
