@@ -17001,3 +17001,97 @@ A visit is a chapter job with `local+greekroom+languageQa`.
   The fixed test also passes serially.
 - Full engine suite before the test fix: 4865 passed, 1 failed (this test).
 - Desktop not run.
+
+## 2026-10-08 — One owner for zero-width and double spaces (#234); no lock during the completion hook (#235); names cache (#233)
+
+**#234, ownership decided by Benz.**
+- `local_checks.target_editorial_checks` no longer emits
+  `{TA|LANG}_DOUBLE_SPACE` or `{TA|LANG}_HIDDEN_CHAR`.
+- Language QA owns both, as `spacing.extra` and `unicode.invisible`.
+  Measured on the edited GEN verse: one U+200B used to produce three
+  findings, from local, Wildebeest and Language QA.
+- Wildebeest's three checks stay. Repeated word stays local.
+- `_categorize_qaissue` and the triage family table still know the two codes,
+  because snapshots and reports written before this change carry them.
+- A decision recorded on one of these findings now matches nothing.
+- Test: `tests/jobs/test_local_checks_ownership.py`.
+
+**#235.**
+- `_fire_on_complete` used to write the rollup and every chapter's findings
+  snapshot inside `job.lock`. On GEN the next status poll, and the dispatcher
+  behind it, waited 4.5-5 s.
+- `_finish` now sets a non-terminal `finalizing` state ("Saving results"),
+  runs the hook without the lock, then sets the outcome.
+  - The guarantee holds: no poll sees "succeeded" before the writes.
+  - `cancel` during finalizing changes nothing.
+  - The hook reads `job.outcome`.
+- Frontend: `CheckJobState` and the progress store include `finalizing`, and
+  Cancel is disabled during it.
+- GEN whole book, cursor polls every 750 ms:
+  - slowest poll 5.0 s -> 0.53 s; that poll now falls in "Preparing checks",
+    and the final poll no longer waits;
+  - dispatcher blocked by polls 6.4 s -> 1.4 s;
+  - job wall time 95.5 s.
+- Test: `tests/jobs/test_check_job_finalizing.py`.
+
+**#233.** Measured first, with `names.*` phases. The dispatcher records them
+from the adapter's `last_phases`, so `greek_room_engine` still imports nothing
+from `tc_ai_bridge`. GEN:
+
+| phase | first open | after an edit, before | after an edit, with the cache |
+|---|---|---|---|
+| load uroman + SED (once per process) | 8.0-8.4 s | 0 | 0 |
+| romanize 7,279 tokens | 3.9-4.2 s | 4.2 s | 0.008 s |
+| SED over 38,577 candidate pairs | 8.0-8.6 s | 8.6 s | 0.05 s |
+| candidate pairs + text map | ~1.0 s | ~1.1 s | ~1.0 s |
+| total | 21.6 s | 14.1 s | 1.37 s |
+
+- Romanizations are cached per (language, token), and SED results per
+  (language, romanized pair).
+- The caches last for the sidecar's life and are bounded at 300k and 400k
+  entries, oldest dropped first.
+- They are not persisted, for the reason given under #230.
+- The adapter's docstring says the uroman load takes about 2 s. Measured here,
+  the load is 8.0-8.4 s, uroman and SED together. That is still once per
+  process.
+- Moving the load off the first open would mean preloading at startup. That
+  is a product question and is left open.
+- Test: `greek_room_engine/tests/test_names_cache.py`, against the real
+  dependencies. It checks that unchanged words are not romanized or compared
+  again, and that a new word is romanized once.
+
+**Suite.**
+- One full run on the combined #234 + #235 tree: 4870 passed.
+- With #233, one run had 1 failure that I did not capture by name. The
+  rerun, with failures printed, had 4872 passed and 3 xfailed. Recorded as
+  unexplained, not cleared.
+
+**Frozen smoke: a regression in the harness, exposed by the traces.**
+- After #233 the rebuilt pair failed `smoke_sidecars.py` 3/3 with
+  `Request open-tamil timed out`. That is the step right after the Hindi
+  pack.
+- `scripts/smoke_sidecars.py` starts the engine with `stderr=PIPE`. It reads
+  stdout on a thread but never reads stderr.
+- Today's `[trace] timing ...` lines filled that pipe, which holds a few KB
+  on Windows, and the engine blocked on its next stderr write in the middle
+  of a request.
+- From source, in-process, the same open took 0.8 s.
+- `sidecar.rs` reads stderr continuously and records every line as a
+  diagnostics entry, so the desktop app does not block.
+- Fixes:
+  - the harness now drains stderr into a 200-line tail, and a timeout prints
+    the last 5 lines;
+  - `verse.runChecks` traces only when it took 100 ms or more, as RPCs
+    already did;
+  - trace summaries are capped at the 12 slowest steps. The full set stays
+    on the job's or pass's `timings`.
+- With the harness fix the smoke test passed: Hindi 2.45 s, ta-irv layer
+  3.55 s.
+- Final gate on the final tree, after the trace reduction:
+  - `build-sidecars.ps1` rebuilt both exes;
+  - `smoke_sidecars.py` passed: Hindi 2.08 s, ta-irv layer 3.20 s;
+  - engine `pytest -m "not slow"`: 4872 passed, 3 xfailed.
+- Frontend for #235: `npm run check` 0/0, `npm run test` 639 passed,
+  `npm run build` ok.
+- Rust is untouched; neither `cargo check` nor `cargo test` was run.
+- The desktop app was not run.
