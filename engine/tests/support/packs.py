@@ -32,3 +32,13 @@ def switch_off_ta_lexicon(monkeypatch) -> None:
     and no known splits."""
     from tc_ai_bridge.language_packs import lexicon
     monkeypatch.setitem(lexicon._LOADED, ta_lexicon_path(), None)
+
+
+def switch_off_ta_unknown_words(monkeypatch) -> None:
+    """Run without the indic-qa layer's unknown-word findings
+    (indicqa.lex.unknown, DECISIONS 2026-10-08): every out-of-OV word counts as
+    house practice. For tests whose synthetic Tamil words are not in the OV and
+    are about something else (the wordlist audit, persistence, benchmark
+    counting); the rule itself is tested in tests/language_packs."""
+    from tc_ai_bridge.language_packs import indic_qa_tamil
+    monkeypatch.setattr(indic_qa_tamil, "IRV_ACCEPT_MIN", 0)

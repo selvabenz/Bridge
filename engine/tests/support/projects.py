@@ -109,3 +109,14 @@ def wait_for_job(engine, job_id, timeout=5.0):
             return snapshot
         time.sleep(0.01)
     raise AssertionError(f"check job {job_id} did not finish")
+
+
+def link_collection(books: dict[str, Path]) -> None:
+    """Link book folders as one collection: `.bridge/collection.json` on every
+    book, as a multi-book import writes it (schema 2: sibling directory names).
+    `books` maps each book id to its folder; the folders share a parent."""
+    entries = [{"directoryName": Path(root).name, "bookId": name, "bookName": name.upper()}
+               for name, root in books.items()]
+    for root in books.values():
+        (Path(root) / ".bridge").mkdir(parents=True, exist_ok=True)
+        (Path(root) / ".bridge" / "collection.json").write_text(json.dumps({"projects": entries}), encoding="utf-8")

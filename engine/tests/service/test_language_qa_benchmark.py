@@ -29,10 +29,12 @@ SFM = "\n".join([
 
 @pytest.fixture(autouse=True)
 def without_corpus_lexicon(monkeypatch):
-    """The harness is tested on a synthetic book; the real corpus lexicon would
-    add findings on its made-up words that these counts do not expect."""
-    from tests.support.packs import switch_off_ta_lexicon
+    """The harness is tested on a synthetic book; the real corpus lexicon, and
+    the indic-qa layer's unknown words, would add findings on its made-up words
+    that these counts do not expect."""
+    from tests.support.packs import switch_off_ta_lexicon, switch_off_ta_unknown_words
     switch_off_ta_lexicon(monkeypatch)
+    switch_off_ta_unknown_words(monkeypatch)
 
 
 def review_rows():

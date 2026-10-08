@@ -241,6 +241,13 @@ A raw Scripture import becomes a translationCore-compatible book project:
 <project>/.apps/translationCore/alignmentData/<book>/<chapter>.json
 <project>/.apps/translationCore/index/{translationNotes,translationWords}/<book>/
 <project>/.bridge/import.json                   SHA-256 provenance + per-tool capability status
+<project>/.apps/translationCoreAI/language-packs/<pack>/overrides.json
+                                                a project's narrowing of one Language QA pack (`rules`:
+                                                enabled=false, inline=false, abstains) and its indic-qa
+                                                checker settings (`checker`, sparse), written to every
+                                                materialized book of a collection by the Checker settings
+                                                dialog (2026-10-08). An indic-qa rule may be switched back
+                                                on there; inline never.
 <project>/.apps/translationCoreAI/bridge-workbench.sqlite3
                                                 schema v7. Every Bridge-private store lives here:
                                                 the human-owned ones (#76), the derived ones

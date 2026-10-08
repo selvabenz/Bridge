@@ -85,7 +85,7 @@ def test_check_job_leaves_a_finding_snapshot_the_report_reads(fixture_project, m
     engine = BridgeEngine()
     call(engine, "project.open", {"path": str(fixture_project)})
 
-    def fake_checks(project, chapter, verse, checks):
+    def fake_checks(project, chapter, verse, checks, reads=None):
         return [QaFinding(
             id=_stable_finding_id(chapter=chapter, verse=verse, engine="wildebeest",
                                   check_type="wildebeest.script.mixed", disambiguator="0:3:ஆதி"),

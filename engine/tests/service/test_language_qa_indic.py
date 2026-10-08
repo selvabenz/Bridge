@@ -211,3 +211,40 @@ def test_status_narrows_by_chapter_and_category_and_counts_every_kind(hindi_engi
     assert other["result"]["totalFindings"] == 0
     bad = call(engine, "languageQa.status", {"projectPath": str(project), "categories": "typo"})
     assert not bad["success"]
+
+
+# A vowel-length slip of मनुष्य: not in the dictionary and rare in the IRV, so
+# hi.lex.unknown (DECISIONS 2026-10-08), drawn under the slider.
+UNKNOWN_VERSES = {"1": "वह मनूष्य गया।", "2": "यह वचन ठीक है।"}
+
+
+@pytest.fixture
+def unknown_engine(tmp_path):
+    project = write_project(tmp_path / "gen", "gen", {"1": UNKNOWN_VERSES}, lang_id="hin", lang_name="Hindi")
+    engine = BridgeEngine(settings=AppSettings(path=tmp_path / "settings" / "settings.json"))
+    engine._language_qa = LanguageQaManager(debounce=0, yield_seconds=0)
+    engine._configure_language_qa()
+    response = call(engine, "project.open", {"path": str(project)})
+    assert response["success"], response
+    wait(engine._language_qa)
+    yield engine, project
+    engine._language_qa.unbind()
+
+
+def test_unknown_findings_are_drawn_by_default_and_hidden_by_the_confidence_floor(unknown_engine):
+    engine, project = unknown_engine
+    unknown = [f for f in drawn(engine, project)["findings"] if f["rule"] == "hi.lex.unknown"]
+    assert [f["originalText"] for f in unknown] == ["मनूष्य"]
+    assert unknown[0]["drawn"] and not unknown[0]["inline"], "drawn by the slider, never the reviewed flag"
+    assert unknown[0]["suggestions"][0]["text"] == "मनुष्य"
+    set_threshold(engine, languageQaInlineConfidence="medium")
+    assert not [f for f in drawn(engine, project)["findings"] if f["rule"] == "hi.lex.unknown"]
+    assert [f for f in status(engine, project)["findings"] if f["rule"] == "hi.lex.unknown"], "still listed"
+
+
+def test_a_project_word_suppresses_an_unknown_finding(unknown_engine):
+    engine, project = unknown_engine
+    response = call(engine, "languageQa.words.add", {"projectPath": str(project), "words": ["मनूष्य"], "scope": "book"})
+    assert response["success"], response
+    wait(engine._language_qa)
+    assert not [f for f in status(engine, project)["findings"] if f["rule"] == "hi.lex.unknown"]

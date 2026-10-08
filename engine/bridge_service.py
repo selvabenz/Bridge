@@ -78,7 +78,10 @@ from tc_ai_bridge.analysis_jobs import (
 )
 from tc_ai_bridge.local_checks import run_local_qa
 from tc_ai_bridge.language_qa import FINDING_SOURCE as LANGUAGE_QA_SOURCE, UNSPECIFIED_DECISION_SOURCE
-from tc_ai_bridge.language_qa_jobs import LanguageQaManager, project_pack_name
+from tc_ai_bridge.language_qa_jobs import LanguageQaManager, project_pack_name, project_rule_pack
+from tc_ai_bridge import check_timing
+from tc_ai_bridge import language_qa_checker_settings as checker_settings_rpc
+from tc_ai_bridge.language_packs import indic_qa_adapter
 from tc_ai_bridge.language_qa_learned import learned_pair
 from tc_ai_bridge import language_qa_scope
 from tc_ai_bridge.language_qa import text_hash as language_qa_text_hash
@@ -395,6 +398,8 @@ class Methods:
     LANGUAGE_QA_HISTORY = "languageQa.history"
     LANGUAGE_QA_VERSE = "languageQa.verse"
     LANGUAGE_QA_SET_PACK = "languageQa.setPack"
+    LANGUAGE_QA_CHECKER_SETTINGS_GET = "languageQa.checkerSettings.get"
+    LANGUAGE_QA_CHECKER_SETTINGS_SET = "languageQa.checkerSettings.set"
     LANGUAGE_QA_LEARNED_LIST = "languageQa.learned.list"
     LANGUAGE_QA_LEARNED_FORGET = "languageQa.learned.forget"
     LANGUAGE_QA_LEARNED_RESTORE = "languageQa.learned.restore"
@@ -4407,7 +4412,8 @@ class BridgeEngine:
         if cached_error is not None:
             raise NamesCheckError(cached_error)
 
-        text_map = self._book_verse_text_map(project)
+        with check_timing.current().step("names.text_map"):
+            text_map = self._book_verse_text_map(project)
         # "|spans-v1" forces a one-time cache invalidation for on-disk
         # checkCache.json sections written before findings carried
         # start_offset/end_offset — otherwise a content-hash match on
@@ -4441,6 +4447,10 @@ class BridgeEngine:
         except NamesCheckError as exc:
             self._names_errors_by_book[book_key] = str(exc)
             raise
+        finally:
+            adapter = self.greek_room._adapters.get("names")
+            for name, (seconds, count) in (getattr(adapter, "last_phases", None) or {}).items():
+                check_timing.current().add(name, seconds, count)
         for f in findings:
             # Same stabilization reason as USFM findings above: a stable id
             # keyed on the two spellings being compared (sorted, so it
@@ -4583,12 +4593,21 @@ class BridgeEngine:
             name in {"local", "tN", "tW", "alignment", "usfm", "names", "consistency"}
             for name in checks
         )
-        if not needs_checker_lock:
-            return self._run_verse_checks_for_project(project, chapter, verse, checks)
-        with self._checker_lock:
-            if any(name in checks for name in ("local", "tN", "tW")):
-                self._ensure_resource_indexes(project)
-            return self._run_verse_checks_for_project(project, chapter, verse, checks)
+        timings = check_timing.Timings()
+        with check_timing.activate(timings):
+            if not needs_checker_lock:
+                findings = self._run_verse_checks_for_project(project, chapter, verse, checks)
+            else:
+                with self._checker_lock:
+                    if any(name in checks for name in ("local", "tN", "tW")):
+                        with timings.step("preflight.resource_indexes"):
+                            self._ensure_resource_indexes(project)
+                    findings = self._run_verse_checks_for_project(project, chapter, verse, checks)
+        # Every verse selection runs this: trace only a slow one, as for RPCs,
+        # so the diagnostics log is not one line per click.
+        if timings.elapsed() >= 0.1:
+            check_timing.trace(f"verse.runChecks {chapter}:{verse} {list(checks)}", timings)
+        return findings
 
     def _run_verse_checks_for_project(
         self,
@@ -4596,24 +4615,35 @@ class BridgeEngine:
         chapter: str,
         verse: str,
         checks: list[str],
+        reads: Optional[dict[str, Any]] = None,
     ) -> list[QaFinding]:
+        """`reads`: a check job's memo for this one verse, shared by its
+        stages so the verse's text and decisions are read once, not once per
+        stage (#231). Each read costs a workbench connection."""
         findings: list[QaFinding] = []
         project_id = str(project.summary.path)
         book = project.summary.book_id
+        timings = check_timing.current()
+        reads = {} if reads is None else reads
 
-        target_text = project.target_verse_text(chapter, verse)
+        if "text" not in reads:
+            with timings.step("verse.read_text"):
+                reads["text"] = project.target_verse_text(chapter, verse)
+        target_text = reads["text"]
 
         if "local" in checks or "tN" in checks or "tW" in checks or "alignment" in checks:
-            alignment = project.load_verse_alignment(chapter, verse)
+            with timings.step("local.alignment_load"):
+                alignment = project.load_verse_alignment(chapter, verse)
             issues = run_local_qa(project, chapter, verse, alignment)
             if "local" in checks or "alignment" in checks:
                 # #220: what the automatic pass could not place, as findings the
                 # editor shows. Quiet on a verse no pass has run on; a live gap
                 # only, so a reviewer's link or decision silences it at once.
                 try:
-                    issues = [*issues, *alignment_gap_checks.gap_issues(
-                        project, chapter, verse, alignment, target_text,
-                    )]
+                    with timings.step("local.alignment_gap"):
+                        issues = [*issues, *alignment_gap_checks.gap_issues(
+                            project, chapter, verse, alignment, target_text,
+                        )]
                 except Exception:
                     # Optional evidence: a problem here must never sink the
                     # verse's ordinary checks.
@@ -4634,7 +4664,9 @@ class BridgeEngine:
             book_verses = project.verses(chapter) if chapter in project.chapters() else []
             existing_verses = {str(value) for value in book_verses}
             first_verse = book_verses[0] if book_verses else None
-            for f in self._usfm_findings_for_book(project):
+            with timings.step("usfm.book"):
+                usfm_findings = self._usfm_findings_for_book(project)
+            for f in usfm_findings:
                 if str(f.chapter) != str(chapter):
                     continue
                 if str(f.verse) == str(verse):
@@ -4652,7 +4684,9 @@ class BridgeEngine:
             # first location — see NamesAdapter._build_finding), never a
             # placeholder chapter-level slot, so no first-verse fallback is
             # needed here.
-            for f in self._names_findings_for_book(project):
+            with timings.step("names.book"):
+                names_findings = self._names_findings_for_book(project)
+            for f in names_findings:
                 if str(f.chapter) == str(chapter) and str(f.verse) == str(verse):
                     findings.append(f)
 
@@ -4666,7 +4700,9 @@ class BridgeEngine:
             book_verses = project.verses(chapter) if chapter in project.chapters() else []
             existing_verses = {str(value) for value in book_verses}
             first_verse = book_verses[0] if book_verses else None
-            for f in self._consistency_findings_for_book(project):
+            with timings.step("consistency.book"):
+                consistency_findings = self._consistency_findings_for_book(project)
+            for f in consistency_findings:
                 if str(f.chapter) != str(chapter):
                     continue
                 if str(f.verse) == str(verse):
@@ -4681,13 +4717,14 @@ class BridgeEngine:
         if "greekroom" in checks or "wildebeest" in checks:
             target_language = project.manifest.get("target_language", {})
             language_id = str(target_language.get("id") or "") if isinstance(target_language, dict) else ""
-            gr_findings = self.greek_room.check_verse(
-                project_id=project_id,
-                lang_code=language_id,
-                ref=f"{book} {chapter}:{verse}",
-                text=target_text,
-                checks=["wildebeest"],
-            )
+            with timings.step("greekroom.wildebeest"):
+                gr_findings = self.greek_room.check_verse(
+                    project_id=project_id,
+                    lang_code=language_id,
+                    ref=f"{book} {chapter}:{verse}",
+                    text=target_text,
+                    checks=["wildebeest"],
+                )
             for f in gr_findings:
                 # Greek Room findings default to a random uuid4 id from
                 # QaFinding's dataclass default — override with a stable
@@ -4702,7 +4739,10 @@ class BridgeEngine:
 
         # Re-apply any prior human decision so re-running checks (or
         # reopening the project) doesn't silently forget review state.
-        prior_decisions = project.qa_decisions_for_verse(chapter, verse)
+        if "decisions" not in reads:
+            with timings.step("decisions.reapply"):
+                reads["decisions"] = project.qa_decisions_for_verse(chapter, verse)
+        prior_decisions = reads["decisions"]
         for finding in findings:
             record = prior_decisions.get(finding.id)
             if record:
@@ -4763,15 +4803,23 @@ class BridgeEngine:
         language_qa = language_qa or self._language_qa
         check_jobs = check_jobs or self._check_jobs
 
+        # One verse's text and decisions, read by its first stage and reused by
+        # the next (#231). Only ever the current verse: a decision recorded on a
+        # later verse while the job runs is read when the job gets there.
+        verse_reads: dict[str, Any] = {}
+
         def run_stage(chapter: str, verse: str, stage_checks: list[str]) -> Any:
             if stage_checks == [LANGUAGE_QA_CHECK]:
                 # The book pass ran in the preflight; this verse's share of it.
                 return language_qa.verse_results(chapter, verse)
+            if verse_reads.get("key") != (chapter, verse):
+                verse_reads.clear()
+                verse_reads["key"] = (chapter, verse)
             with self._checker_lock:
                 return [
                     finding.to_dict()
                     for finding in self._run_verse_checks_for_project(
-                        project, chapter, verse, stage_checks,
+                        project, chapter, verse, stage_checks, reads=verse_reads,
                     )
                 ]
 
@@ -4786,17 +4834,21 @@ class BridgeEngine:
                     # with the background worker by Language QA's own pass lock,
                     # not _checker_lock: the dispatcher takes _checker_lock for
                     # verse.runChecks, and must not wait on a book pass.
-                    if language_qa.run_pass(cancel_event) is None and not cancel_event.is_set():
+                    with check_timing.current().step("preflight.language_qa"):
+                        passed = language_qa.run_pass(cancel_event)
+                    if passed is None and not cancel_event.is_set():
                         raise CheckJobError("Language QA could not check this book.")
                     if cancel_event.is_set():
                         return
                 with self._checker_lock:
                     if any(name in spec.checks for name in ("local", "tN", "tW")):
-                        self._ensure_resource_indexes(project)
+                        with check_timing.current().step("preflight.resource_indexes"):
+                            self._ensure_resource_indexes(project)
                     if cancel_event.is_set():
                         return
                     if any(name in spec.checks for name in ("local", "usfm")):
-                        self._usfm_findings_for_book(project, cancel_event=cancel_event)
+                        with check_timing.current().step("preflight.usfm"):
+                            self._usfm_findings_for_book(project, cancel_event=cancel_event)
                     if cancel_event.is_set():
                         return
                     if any(name in spec.checks for name in ("local", "names")):
@@ -4808,7 +4860,8 @@ class BridgeEngine:
                         # docs/BUILD_LOG.md's Phase 5 section) shows
                         # this needs the same cooperative-cancel treatment
                         # USFM's subprocess has.
-                        self._names_findings_for_book(project)
+                        with check_timing.current().step("preflight.names"):
+                            self._names_findings_for_book(project)
             preflight = run_preflight
 
         return check_jobs.start(
@@ -4869,12 +4922,15 @@ class BridgeEngine:
             if language_qa is not None:
                 language_qa.bind(project, autostart=False)
             snapshot = self._start_check_job_from_spec(spec, project, language_qa=language_qa, check_jobs=manager)
+            # Progress polls ask for no results at all (a cursor past every
+            # verse); the full set is read once, after the job ends (#229).
+            unbounded = sum(len(v) for v in spec.chapter_verses.values())
             while snapshot["state"] not in {"succeeded", "failed", "cancelled"}:
                 if cancel_event.is_set():
                     manager.cancel(snapshot["jobId"])
-                # A snapshot deep-copies every verse's results; poll gently.
                 time.sleep(0.2)
-                snapshot = manager.status(snapshot["jobId"])
+                snapshot = manager.status(snapshot["jobId"], since=unbounded)
+            snapshot = manager.status(snapshot["jobId"])
         finally:
             if language_qa is not None:
                 language_qa.unbind()
@@ -4988,8 +5044,9 @@ class BridgeEngine:
         succeeded job (no failed verses) updates anything; a failed/cancelled
         job must not claim a chapter is AI-checked when it isn't. Best-effort,
         same reasoning as _apply_decision_to_progress: never let this surface
-        as a check-job failure to the UI."""
-        if job.state != "succeeded":
+        as a check-job failure to the UI. Runs while the job is "finalizing";
+        `job.outcome` is how it ended (#235)."""
+        if (getattr(job, "outcome", None) or job.state) != "succeeded":
             return
         try:
             by_chapter: dict[str, dict[str, dict[str, str]]] = {}
@@ -5048,8 +5105,10 @@ class BridgeEngine:
         except Exception:
             pass
 
-    def check_job_status(self, job_id: str = "") -> dict[str, Any]:
-        snapshot = self._check_jobs.status(job_id)
+    def check_job_status(self, job_id: str = "", since: Optional[int] = None) -> dict[str, Any]:
+        """checks.status. `since`: only the verses finished after that many
+        (the previous snapshot's `resultsCursor`); omitted, every verse (#229)."""
+        snapshot = self._check_jobs.status(job_id, since)
         if LANGUAGE_QA_CHECK in snapshot.get("checks", []):
             # The main progress bar's view of the Language QA stage; the panel
             # keeps languageQa.status for its book-level lists.
@@ -5142,6 +5201,30 @@ class BridgeEngine:
                 entry, username=self.settings.reviewer_name or "Bridge Reviewer")
         except Exception:
             return None
+
+    def language_qa_checker_settings(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
+        """languageQa.checkerSettings.get | .set: the indic-qa checker's own
+        settings (the web app's Settings dialog), per collection
+        (language_qa_checker_settings.py, DECISIONS 2026-10-08). A save is
+        written into every materialized book's overrides file, then the open
+        book is rebound so a pass runs with them."""
+        self._require_project()
+        name = project_pack_name(self.project, self._language_qa)
+        pack, _notes = project_rule_pack(self.project.path, name) if name else (None, [])
+        if pack is None or indic_qa_adapter.indic_config(pack.meta) is None:
+            return {"pack": None, "available": False, "reason": "This project's language has no indic-qa checker."}
+        books = sorted({self.project.book_id, *(book for book, _path in self.project.collection_sibling_paths())})
+        if action == "set":
+            patch = {key: params[key] for key in params if key != "projectPath"}
+            try:
+                checker_settings_rpc.save(pack, patch, [Path(self.project.path), *(
+                    path for _book, path in self.project.collection_sibling_paths())])
+            except checker_settings_rpc.CheckerSettingsError as exc:
+                raise ProjectError(str(exc)) from exc
+            self._language_qa.bind(self.project)
+            pack, _notes = project_rule_pack(self.project.path, name)
+        counts = self._language_qa.rule_counts()
+        return checker_settings_rpc.describe(pack, counts=counts, books=books)
 
     def _collection_book_projects(self) -> list[TranslationCoreProject]:
         """The open book and every materialized sibling (a lazy one has no
@@ -5460,17 +5543,23 @@ class BridgeEngine:
     def language_qa_occurrences(self, params: dict[str, Any]) -> dict[str, Any]:
         """Every place a word occurs in this book's verse text (source "irv"),
         with raw offsets and a snippet of the text a reader sees. Same tokenizer
-        as Language QA, so "a word" means what it means everywhere else."""
+        as Language QA, so "a word" means what it means everywhere else.
+        `match: "text"` is the word menu's "Search in this book": any run of
+        the visible text equal to `word` (a phrase, part of a word), not only a
+        whole word."""
         self._require_project()
         word, source, limit = params.get("word"), params.get("source", "irv"), params.get("limit", 50)
+        match = params.get("match", "word")
         if not isinstance(word, str) or not word.strip():
             raise ProjectError("word must be a non-empty string")
         if not isinstance(limit, int) or not 1 <= limit <= 1000:
             raise ProjectError("limit must be an integer from 1 to 1000")
-        if source == "ov":
+        if match not in {"word", "text"}:
+            raise ProjectError("match must be word or text")
+        if source == "ov" and match == "word":
             return self._reference_occurrences(word, limit)
         if source != "irv":
-            raise ProjectError("source must be irv or ov")
+            raise ProjectError("source must be irv (or ov, for a word)")
         wanted = unicodedata.normalize("NFC", word.strip())
         hits, total, scanned = [], 0, 0
         for chapter in self.project.chapters():
@@ -5483,7 +5572,14 @@ class BridgeEngine:
                 lifted, _ = language_qa_lift(raw)
                 if lifted is None:
                     continue
-                for token, start, end in language_qa_word_occurrences(lifted.visible):
+                if match == "text":
+                    found, at = [], lifted.visible.find(wanted)
+                    while at >= 0:
+                        found.append((wanted, at, at + len(wanted)))
+                        at = lifted.visible.find(wanted, at + len(wanted))
+                else:
+                    found = language_qa_word_occurrences(lifted.visible)
+                for token, start, end in found:
                     if token != wanted:
                         continue
                     total += 1
@@ -5494,8 +5590,8 @@ class BridgeEngine:
                                      "start": span[0], "end": span[1],
                                      "snippet": before + lifted.visible[start:end + 40],
                                      "snippetStart": len(before), "snippetEnd": len(before) + end - start})
-        return {"word": wanted, "source": "irv", "ready": True, "total": total, "truncated": total > len(hits),
-                "hits": hits}
+        return {"word": wanted, "source": "irv", "match": match, "ready": True, "total": total,
+                "truncated": total > len(hits), "hits": hits}
 
     def _reference_occurrences(self, word: str, limit: int) -> dict[str, Any]:
         """The reference text's occurrences of a word (OV occurrences)."""
@@ -6315,6 +6411,17 @@ class BridgeEngine:
     # -- protocol dispatch --------------------------------------------------
 
     def handle_request(self, request: EngineRequest) -> EngineResponse:
+        started = time.perf_counter()
+        try:
+            return self._handle_request(request)
+        finally:
+            # One line per RPC that held the dispatcher for 100ms or more, so the
+            # engine log says which request made the UI wait (check_timing).
+            elapsed = time.perf_counter() - started
+            if elapsed >= 0.1:
+                _trace(f"rpc {request.method} took {elapsed * 1000:.0f}ms")
+
+    def _handle_request(self, request: EngineRequest) -> EngineResponse:
         self._language_qa.touch()
         try:
             m, p = request.method, request.params
@@ -6327,7 +6434,8 @@ class BridgeEngine:
                      Methods.LANGUAGE_QA_FLAGS_LIST, Methods.LANGUAGE_QA_FLAGS_ADD, Methods.LANGUAGE_QA_FLAGS_UPDATE,
                      Methods.LANGUAGE_QA_FLAGS_DELETE, Methods.LANGUAGE_QA_WORDS_ADD, Methods.LANGUAGE_QA_WORDS_LIST,
                      Methods.LANGUAGE_QA_BOOK_WORDS, Methods.LANGUAGE_QA_OCCURRENCES, Methods.LANGUAGE_QA_REFERENCE,
-                     Methods.LANGUAGE_QA_RELATED}:
+                     Methods.LANGUAGE_QA_RELATED, Methods.LANGUAGE_QA_CHECKER_SETTINGS_GET,
+                     Methods.LANGUAGE_QA_CHECKER_SETTINGS_SET}:
                 self._require_project()
                 # Compared canonically, not as strings. `project.open` resolves
                 # the path it is given, so a caller echoing back the path *it*
@@ -6366,6 +6474,8 @@ class BridgeEngine:
                     if not isinstance(limit, int) or limit < 1:
                         raise ProjectError("limit must be a positive integer when given")
                     result = {"batches": self.project.language_qa_batches()[:min(limit, 200)]}
+                elif m in {Methods.LANGUAGE_QA_CHECKER_SETTINGS_GET, Methods.LANGUAGE_QA_CHECKER_SETTINGS_SET}:
+                    result = self.language_qa_checker_settings(m.rsplit(".", 1)[1], p)
                 elif m == Methods.LANGUAGE_QA_SET_PACK:
                     # The project's Language QA setting (Settings > Language QA):
                     # "auto", "off", or a registered pack. Rebinding starts a pass
@@ -6516,8 +6626,11 @@ class BridgeEngine:
                     checks=p.get("checks"),
                 ))
             if m == Methods.CHECKS_STATUS:
+                since = p.get("since")
+                if since is not None and (isinstance(since, bool) or not isinstance(since, int) or since < 0):
+                    raise ValueError("since must be a non-negative integer")
                 return EngineResponse.ok(
-                    request.id, result=self.check_job_status(p.get("jobId", "")),
+                    request.id, result=self.check_job_status(p.get("jobId", ""), since),
                 )
             if m == Methods.CHECKS_CANCEL:
                 return EngineResponse.ok(

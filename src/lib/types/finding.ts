@@ -1119,8 +1119,10 @@ export interface IssueResolutionHandoffResult {
   };
 }
 
+/** "finalizing": every verse is done and the results are being saved; not
+ *  terminal, so a monitor keeps polling (#235). */
 export type CheckJobState =
-  | "queued" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled";
+  | "queued" | "running" | "cancelling" | "finalizing" | "succeeded" | "failed" | "cancelled";
 
 export interface CheckJobVerseResult {
   chapter: string;
@@ -1160,11 +1162,21 @@ export interface CheckJobSnapshot {
   currentChapter: string | null;
   currentVerse: string | null;
   currentStage: string;
+  /** Every verse finished so far, or with checks.status `since`, only those
+   *  finished after it (#229). */
   results: Record<string, CheckJobVerseResult>;
+  /** Where `results` starts and ends in the job's finish order: pass
+   *  `resultsCursor` back as `since` to get only what is new. */
+  resultsSince?: number;
+  resultsCursor?: number;
   error: string | null;
   createdAt: string;
   finishedAt: string | null;
   languageQa?: CheckJobLanguageQa;
+  /** Wall clock per stage ("stage:QA") and per engine ("greekroom.wildebeest"),
+   *  slowest first; measurement only (engine check_timing, 2026-10-08). */
+  timings?: Record<string, { ms: number; calls: number }>;
+  elapsedSeconds?: number;
 }
 
 export interface AIReviewJobVerseResult {

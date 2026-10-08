@@ -6,7 +6,8 @@
   import { forgetLearnedFix, isLearnedFinding, learnedPairOf } from "../learnedFixes";
   import { openScopeDialog } from "../scopedApply";
   import { addFlag } from "../flags";
-  import { addProjectWords, isKnownMisspellingRule } from "../projectWords";
+  import { addProjectWords, canAddProjectWord } from "../projectWords";
+  import { orderedSuggestions, suggestionTag } from "../languageQaSuggestions";
   import FlagDialog from "./FlagDialog.svelte";
   import RelatedWords from "./RelatedWords.svelte";
   import OccurrencesPopup from "./OccurrencesPopup.svelte";
@@ -116,10 +117,15 @@
     }
   }
 
+  /** The same suggestions, in the same order, as the verse menu offers. */
   function lqaSuggestions(finding: LanguageQaFinding): LanguageQaSuggestion[] {
-    if (finding.suggestions?.length) return finding.suggestions.slice(0, 5);
-    return finding.suggestedReplacement
-      ? [{ text: finding.suggestedReplacement, rank: 1, source: "rule", rationale: "" }] : [];
+    return orderedSuggestions(finding);
+  }
+
+  function copyWord(word: string): void {
+    const write = typeof navigator !== "undefined" ? navigator.clipboard?.writeText(word) : undefined;
+    lqaNotice = write ? `Copied “${word}”.` : "The clipboard is not available here.";
+    write?.catch(() => { lqaNotice = "Could not copy to the clipboard."; });
   }
 
   function restoreLqa(finding: LanguageQaFinding): void {
@@ -170,7 +176,7 @@
 
   // Related words are offered for the first single-word finding of the verse.
   $: relatedWord = lqaFindings.map((f) => f.originalText.trim()).find((w) => w && !/\s/.test(w)) ?? "";
-  let occurrences: { word: string; source: "irv" | "ov" } | null = null;
+  let occurrences: { word: string; source: "irv" | "ov"; match?: "word" | "text" } | null = null;
   /** Opens a verse anywhere in the book (an IRV occurrence). */
   export let onNavigate: (book: string, chapter: string, verse: string) => void = () => {};
 
@@ -798,7 +804,7 @@
                   {#each lqaSuggestions(f) as s (s.rank)}
                     <button class="edit-inline" disabled={lqaBusy || $checkingProgress.running || Boolean($editingChapter)}
                       title={s.rationale || "Replace the flagged text with this form and re-check the verse"}
-                      on:click={() => useLqa(f, s)}>Use “{s.text}”</button>
+                      on:click={() => useLqa(f, s)}>{s.source === "learned" ? "Change to" : "Use"} “{s.text}”{#if suggestionTag(s)}<small class="sugg-tag">{suggestionTag(s)}</small>{/if}</button>
                   {/each}
                   <button class="ignore" on:click={() => decideLqa(f, "ignored")}>⊘ Ignore</button>
                   <button class="ignore" on:click={() => decideLqa(f, "rejected")}>False positive</button>
@@ -808,13 +814,13 @@
                   {/if}
                   <button class="flag" title="Ask the team about this text; nothing in the verse changes"
                     on:click={() => (lqaFlagDraft = f)}>⚑ Flag…</button>
-                  {#if ["typo", "name", "consistency"].includes(f.category) && !/\s/.test(f.originalText.trim())}
-                    <button class="ignore" disabled={isKnownMisspellingRule(f.ruleId)}
-                      title={isKnownMisspellingRule(f.ruleId)
-                        ? "This rule flags a spelling reviewers already corrected; ignore or flag it instead."
-                        : "This word is spelt right in this project: stop reporting it anywhere in the book"}
+                  {#if canAddProjectWord(f)}
+                    <button class="ignore" title="This word is spelt right in this project: stop reporting it anywhere in the book"
                       on:click={() => addLqaWord(f)}>Add to word list</button>
                   {/if}
+                  <button class="ignore" title="Copy the flagged text" on:click={() => copyWord(f.originalText.trim())}>Copy</button>
+                  <button class="ignore" title="Every place this text occurs in the book"
+                    on:click={() => (occurrences = { word: f.originalText.trim(), source: "irv", match: "text" })}>Search</button>
                 </div>
                 {#if lqaSuggestions(f).length && !f.context}
                   <div class="scope-row" role="radiogroup" aria-label="Apply a suggestion to">
@@ -981,7 +987,7 @@
 
 {#if occurrences && $project}
   <OccurrencesPopup projectPath={$project.path} word={occurrences.word} source={occurrences.source}
-    {onNavigate} onClose={() => (occurrences = null)} />
+    match={occurrences.match ?? "word"} {onNavigate} onClose={() => (occurrences = null)} />
 {/if}
 {#if lqaFlagDraft}
   <FlagDialog
@@ -1109,4 +1115,5 @@
   .ai-job-actions { margin-top: 6px; }
   .ai-job-background { margin-top: 9px; padding: 8px; border-radius: 7px; font-size: var(--fs-3xs); line-height: 1.4; color: var(--text-2); background: var(--surface-2); }
   .ai-control-error { margin: 8px 0 0; font-size: var(--fs-2xs); line-height: 1.4; color: var(--danger); overflow-wrap: anywhere; }
+  .sugg-tag { margin-left: 0.4em; color: var(--text-3); font-size: var(--fs-2xs); font-weight: 400; }
 </style>

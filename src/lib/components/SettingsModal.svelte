@@ -5,6 +5,8 @@
   import { manualOverrideMode, navigationStatus, project, reviewerMode } from "../stores";
   import type { InlineConfidence, NavigationSyncState, SettingsData, TerminologyRule } from "../types/finding";
   import type { HouseStyleEntry, HouseStyleListResponse, HouseStyleProposal } from "../types/houseStyle";
+  import type { CheckerSettings } from "../types/languageQa";
+  import CheckerSettingsDialog from "./CheckerSettingsDialog.svelte";
 
   type Pane = "ai" | "quality" | "connections" | "resources" | "terminology" | "languageQa" | "security";
 
@@ -323,6 +325,40 @@
     } catch {
       lqaPacks = [];
     }
+    void loadCheckerSummary(path);
+  }
+
+  // The indic-qa checker's own settings: a one-line summary here, the full
+  // set in CheckerSettingsDialog (the web app's Settings dialog).
+  let checkerSummary = "";
+  let checkerAvailable = false;
+  let checkerDialogOpen = false;
+
+  function summarizeChecker(s: CheckerSettings): string {
+    const on = s.rules.filter((r) => r.enabled).length;
+    const warnings = Object.values(s.warnings.values);
+    const contexts = s.contexts.checked.map((c) => s.contexts.labels[c] ?? c).join(", ") || "none";
+    return `${on} of ${s.rules.length} rules on · checks ${contexts}`
+      + (warnings.length ? ` · ${warnings.filter(Boolean).length}/${warnings.length} warnings` : "");
+  }
+
+  async function loadCheckerSummary(path: string): Promise<void> {
+    try {
+      const got = await bridge.languageQaCheckerSettingsGet(path);
+      checkerAvailable = got.pack !== null;
+      checkerSummary = got.pack !== null ? summarizeChecker(got as CheckerSettings) : "";
+    } catch {
+      checkerAvailable = false;
+      checkerSummary = "";
+    }
+  }
+
+  function closeCheckerDialog(path: string, saved: boolean): void {
+    checkerDialogOpen = false;
+    if (saved) {
+      lqaMessage = "Checker settings saved for every book; Language QA is checking again.";
+      void loadCheckerSummary(path);
+    }
   }
 
   async function setLanguageQaPack(path: string, pack: string): Promise<void> {
@@ -335,6 +371,7 @@
         : pack === "auto" ? "Language QA chooses the pack from the project language."
         : `Language QA now runs ${lqaPacks.find((p) => p.pack === pack)?.name ?? pack} rules.`;
       nudgeLanguageQa();
+      void loadCheckerSummary(path);
     } catch (e) {
       lqaMessage = e instanceof Error ? e.message : String(e);
     } finally {
@@ -682,7 +719,19 @@
                 <option value="off">Common checks only</option>
               </select>
             </div>
+            {#if checkerAvailable}
+              <div class="kv checker-row">
+                <span>Checker</span>
+                <span>{checkerSummary}
+                  <button class="btn link" type="button" on:click={() => (checkerDialogOpen = true)}>Checker settings…</button>
+                  <small class="hint">Saved with the project, for every book.</small>
+                </span>
+              </div>
+            {/if}
             {#if lqaMessage}<p class="save-msg" role="status">{lqaMessage}</p>{/if}
+            {#if checkerDialogOpen}
+              <CheckerSettingsDialog {projectPath} onClose={(saved) => closeCheckerDialog(projectPath, saved)} />
+            {/if}
           {/if}
           <h3 class="sub">House style</h3>
           <p class="desc">What this project has decided is not a problem. Learned entries come from your Ignores ({houseStyle?.thresholds.learnIgnores ?? 3} of the same word, none Used); every entry only hides or ranks, never adds a check.</p>

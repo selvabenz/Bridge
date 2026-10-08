@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 
-const { getSettings, getNavigationStatus, setSettings, engineInfo, terminologyList, terminologyRecord, housestyleList, housestyleRecord, housestyleSetState, housestyleNameSuggestions, languageQaStatus, languageQaSetPack, pickFolder } = vi.hoisted(() => ({
+const { getSettings, getNavigationStatus, setSettings, engineInfo, terminologyList, terminologyRecord, housestyleList, housestyleRecord, housestyleSetState, housestyleNameSuggestions, languageQaStatus, languageQaSetPack, pickFolder, checkerGet, checkerSet, wordsList } = vi.hoisted(() => ({
+  checkerGet: vi.fn(),
+  checkerSet: vi.fn(),
+  wordsList: vi.fn(),
   pickFolder: vi.fn(),
   languageQaStatus: vi.fn(),
   languageQaSetPack: vi.fn(),
@@ -31,6 +34,9 @@ vi.mock("../../api/bridgeClient", () => ({
     housestyleNameSuggestions,
     languageQaStatus,
     languageQaSetPack,
+    languageQaCheckerSettingsGet: checkerGet,
+    languageQaCheckerSettingsSet: checkerSet,
+    languageQaWordsList: wordsList,
     pickFolder,
   },
 }));
@@ -285,6 +291,41 @@ describe("SettingsModal terminology (#171)", () => {
     await fireEvent.change(select, { target: { value: "off" } });
     await waitFor(() => expect(languageQaSetPack).toHaveBeenCalledWith(minimalProject().path, "off"));
     expect(await screen.findByText(/common checks only/)).toBeInTheDocument();
+  });
+
+  it("summarises the checker's settings and opens the Checker settings dialog", async () => {
+    project.set(minimalProject());
+    terminologyList.mockResolvedValue({ rules: [] });
+    const packs = [{ language: "hi", name: "Hindi", pack: "hi-irv" }];
+    languageQaStatus.mockResolvedValue({ setting: "auto", packs });
+    wordsList.mockResolvedValue({ added: [] });
+    const settings = {
+      pack: "hi-irv", language: "Hindi", layer: false, ready: true, books: ["php"], legend: "Hindi checks",
+      contexts: { checkable: ["verse"], checked: ["verse"], labels: { verse: "verse text" } },
+      warnings: { values: { a: true, b: false }, labels: { a: "A", b: "B" } },
+      suggest: { max: 9, limit: 9 }, compound: { enabled: false },
+      rules: [{ id: "r1", label: "R1", default: true, enabled: true, count: 0 },
+        { id: "r2", label: "R2", default: false, enabled: false, count: 0 }],
+    };
+    checkerGet.mockResolvedValue(settings);
+    render(SettingsModal, { props: { initialPane: "languageQa", onClose: vi.fn() } });
+
+    expect(await screen.findByText(/1 of 2 rules on · checks verse text · 1\/2 warnings/)).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole("button", { name: "Checker settings…" }));
+    expect(await screen.findByRole("dialog", { name: "Checker settings — Hindi" })).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog", { name: /Checker settings/ })).toBeNull();
+  });
+
+  it("offers no checker row for a language without an indic-qa checker", async () => {
+    project.set(minimalProject());
+    terminologyList.mockResolvedValue({ rules: [] });
+    languageQaStatus.mockResolvedValue({ setting: "auto", packs: [{ language: "ta", name: "Tamil", pack: "ta-irv" }] });
+    checkerGet.mockResolvedValue({ pack: null, available: false, reason: "none" });
+    render(SettingsModal, { props: { initialPane: "languageQa", onClose: vi.fn() } });
+    await screen.findByLabelText("Rules");
+    await waitFor(() => expect(checkerGet).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Checker settings…" })).toBeNull();
   });
 
   it("leaves the Language QA choice out when its status cannot be read", async () => {

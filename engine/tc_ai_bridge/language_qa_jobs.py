@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from . import check_timing
 from . import terminology
 from .housestyle import bundled_seed, house_style, name_findings, preferences_from, with_seed
 from .language_packs import PackError, default_pack, load_project_overrides, loaded_pack
@@ -77,17 +78,29 @@ def _read_headings(path: Path, limitations: list[str]) -> dict[str, list[dict[st
             for verse, items in data.items() if isinstance(items, list)}
 
 
-def _already_flagged(finding: dict[str, Any], flagged: dict[str, list[tuple[int, int, str]]]) -> bool:
+def _already_flagged(finding: dict[str, Any], flagged: dict[str, list[tuple[int, int, str, bool]]]) -> bool:
     """Whether a pack layer's finding repeats one the pack's own or the common
-    rules raised on this verse: the same category on an overlapping span. The
-    verse's raw findings count, before decisions, so ignoring the original
-    never lets its repeat through. A heading's offsets index the heading, not
-    the verse, so it is never compared."""
+    rules raised on this verse: the same category on an overlapping span, from
+    a finding that is drawn in the text (reviewed inline). One that is only
+    listed does not count: dropping the layer's finding for it would leave the
+    word with no mark at all. The verse's raw findings count, before
+    decisions, so ignoring the original never lets its repeat through. A
+    heading's offsets index the heading, not the verse, so it is never
+    compared."""
     if finding.get("context") == "heading":
         return False
     start, end, category = int(finding["start"]), int(finding["end"]), str(finding.get("category") or "")
-    return any(c == category and s < end and start < e
-               for s, e, c in flagged.get(f"{finding['chapter']}:{finding['verse']}", ()))
+    return any(inline and c == category and s < end and start < e
+               for s, e, c, inline in flagged.get(f"{finding['chapter']}:{finding['verse']}", ()))
+
+
+def _cap_order(findings: list[dict[str, Any]]) -> list[int]:
+    """Indexes of book-stage findings, most certain first (confidence, then
+    severity), reading order within a rank: who keeps a place when the book
+    finding limit is reached. A low-confidence unknown word goes first."""
+    rank = {"high": 2, "medium": 1, "low": 0}
+    return sorted(range(len(findings)), key=lambda i: (-rank.get(str(findings[i].get("confidence")), 0),
+                                                      -rank.get(str(findings[i].get("severity")), 0), i))
 
 
 def project_rule_pack(project_path: str | Path, name: str | None) -> tuple[Any, list[str]]:
@@ -297,6 +310,8 @@ def scan_verse(book: str, chapter: str, verse: str, text: Any, *, pack: Any,
         # Same visible text scan_text read; every span below is translated
         # back to raw code points, and one that would cross lifted markup is
         # dropped, as scan_text does.
+        verse_words = check_timing.current().step("rule.words+terminology")
+        verse_words.__enter__()
         lifted, _ = lift_inline_usfm(text)
         assert lifted is not None  # scan_text checked this verse
         crossing = 0
@@ -351,6 +366,7 @@ def scan_verse(book: str, chapter: str, verse: str, text: Any, *, pack: Any,
             })
         if crossing:
             limitations.append(f"{crossing} terminology {CROSSING_LIMITATION}")
+        verse_words.__exit__(None, None, None)
     entry.update(findings=verse_findings + result["findings"], limitations=limitations, words=words)
     return entry
 
@@ -617,6 +633,17 @@ class LanguageQaManager:
         result["findings"] = [{**copy.deepcopy(f), "drawn": True} for f in findings]
         return result
 
+    def rule_counts(self) -> dict[str, int]:
+        """rule -> findings of the last pass (before the page), for the
+        Checker settings dialog's per-rule counts."""
+        with self._lock:
+            findings = list(self._summary.get("findings") or ())
+        counts: dict[str, int] = {}
+        for finding in findings:
+            rule = str(finding.get("rule") or "")
+            counts[rule] = counts.get(rule, 0) + 1
+        return counts
+
     def status(self, *, offset: int = 0, limit: int = 0, view: str = "findings",
                chapter: str | None = None, categories: Iterable[str] | None = None) -> dict[str, Any]:
         """One page of one list. `view`: "findings" (every open finding),
@@ -723,14 +750,28 @@ class LanguageQaManager:
         return data, signature, hashlib.sha256(raw).hexdigest()
 
     def _scan(self, generation: int, context: tuple[str, str, str, Path, str], *,
-              cancelled: Callable[[], bool] | None = None, yielding: bool = True) -> dict[str, Any] | None:
+              cancelled: Callable[[], bool] | None = None, yielding: bool = True,
+              reuse: Callable[[], dict[str, Any] | None] | None = None) -> dict[str, Any] | None:
         """One book pass. `cancelled`/`yielding` let the check-job stage run the
-        same pass on its own thread without the background worker's pauses."""
+        same pass on its own thread without the background worker's pauses.
+        `reuse` is asked once the pass lock is held: a summary it returns comes
+        back as {"_reused": summary} and nothing is scanned (#232)."""
         with self._pass_lock:
+            if reuse is not None:
+                current = reuse()
+                if current is not None:
+                    return {"_reused": current}
             pending: dict[str, tuple[str, dict[str, Any]]] = {}
+            timings = check_timing.Timings()
             try:
-                return self._scan_locked(generation, context, pending,
-                                         cancelled=cancelled, yielding=yielding)
+                with check_timing.activate(timings):
+                    result = self._scan_locked(generation, context, pending,
+                                               cancelled=cancelled, yielding=yielding)
+                if result is not None:
+                    result["timings"] = timings.as_dict()
+                check_timing.trace(f"language qa pass {context[1]} "
+                                   f"{'cancelled' if result is None else result.get('state')}", timings)
+                return result
             finally:
                 # A cancelled pass still keeps what it computed: every entry is
                 # keyed by its own text hash, so it is valid for the next pass.
@@ -759,6 +800,9 @@ class LanguageQaManager:
         if not paths:
             raise ValueError("No target chapter JSON files available for Language QA.")
         # Bounded sample across current target chapters, never original USFM.
+        timings = check_timing.current()
+        phase = timings.step("lqa.sample_detect")
+        phase.__enter__()
         sample = ""
         for path in paths:
             if not proceed():
@@ -777,6 +821,9 @@ class LanguageQaManager:
             if len(sample) >= 20_000:
                 break
         detection = resolve_language(detect_language(sample, declared), setting)
+        phase.__exit__(None, None, None)
+        phase = timings.step("lqa.loaders")  # terminology, decisions, learned fixes, house style
+        phase.__enter__()
         if registry_problem():
             # Never a silent fallback: a build without its packs says so.
             limitations.append(registry_problem())
@@ -854,9 +901,11 @@ class LanguageQaManager:
             return kept, _hidden(raw, {k: v for k, v in decided.items()
                                        if k not in {f["id"] for f in by_style}}) + by_style
 
+        phase.__exit__(None, None, None)
         # The rule pack, narrowed by this project's overrides (only narrowing is
         # accepted; refusals become coverage notes).
-        rule_pack, pack_problems = project_rule_pack(context[0], pack_name)
+        with timings.step("lqa.pack_resolve"):
+            rule_pack, pack_problems = project_rule_pack(context[0], pack_name)
         limitations.extend(pack_problems)
         # A profile pack does carry a dictionary; say what it checks instead of
         # detect_language's "no dictionaries" line. A pack chosen in Settings
@@ -864,8 +913,8 @@ class LanguageQaManager:
         if (rule_pack is not None and indic_qa_adapter.is_profile_pack(rule_pack.meta)
                 and detection.get("basis") != "setting"):
             detection = {**detection, "message": f"{language_name(rule_pack.language)} spelling, encoding, "
-                         f"punctuation and consistency checks from the IRV dictionary; agreement leads are listed, "
-                         f"never drawn. Not a grammar or publication review."}
+                         f"punctuation and consistency checks from the IRV dictionary; what is drawn in the text "
+                         f"follows the threshold in Settings. Not a grammar or publication review."}
         if pack_name and rule_pack is None:
             detection = {**detection, "pack": "common", "message": pack_problems[0] if pack_problems else
                          detection["message"]}
@@ -889,14 +938,16 @@ class LanguageQaManager:
             self._summary["coverageCategories"] = coverage_categories
         # The pack's lexicon, loaded on this first pass that needs it (never at
         # startup); its known splits run in the verse scan, so it keys the cache.
-        lexicon = rule_pack.lexicon() if rule_pack is not None else None
+        with timings.step("lqa.lexicon_load"):
+            lexicon = rule_pack.lexicon() if rule_pack is not None else None
         # A verse's cached result is valid while its text hash and this chapter
         # key are unchanged: the engine's rule version, the resolved pack
         # (fingerprint includes project overrides), the termbase, the lists.
         key = chapter_cache_key(detection["pack"], rule_pack.fingerprint() if rule_pack is not None else "",
                                 raw_terms, style.list_fingerprint(),
                                 lexicon_fingerprint(lexicon) if rule_pack is not None else "")
-        cache = self._load_cache(store, limitations)
+        with timings.step("lqa.cache_load"):
+            cache = self._load_cache(store, limitations)
         findings: list[dict[str, Any]] = []
         false_positives: list[dict[str, Any]] = []
         by_verse: dict[str, dict[str, Any]] = {}
@@ -921,13 +972,14 @@ class LanguageQaManager:
             chapter = path.stem
             chapter_limitations: list[str] = []
             try:
-                data, signature, _ = self._read(path)
-                if book_checker or learned:
-                    book_text[chapter] = data
-                if layer:
-                    headings = _read_headings(path.with_name(f"{chapter}.headings.json"), chapter_limitations)
-                    if headings:
-                        book_headings[chapter] = headings
+                with timings.step("lqa.chapter_read"):
+                    data, signature, _ = self._read(path)
+                    if book_checker or learned:
+                        book_text[chapter] = data
+                    if layer:
+                        headings = _read_headings(path.with_name(f"{chapter}.headings.json"), chapter_limitations)
+                        if headings:
+                            book_headings[chapter] = headings
                 cached = cache.get(chapter)
                 cached_verses = cached["verses"] if cached and cached.get("key") == key else {}
                 verses: dict[str, Any] = {}
@@ -939,8 +991,9 @@ class LanguageQaManager:
                     if entry is None or entry.get("hash") != verse_hash(text):
                         if not proceed():
                             return None
-                        entry = scan_verse(book, chapter, verse, text, pack=rule_pack,
-                                           lists=lists, term_index=term_index)
+                        with timings.step("lqa.scan_verse"):
+                            entry = scan_verse(book, chapter, verse, text, pack=rule_pack,
+                                               lists=lists, term_index=term_index)
                         fresh += 1
                     verses[verse] = entry
                 final = path.stat()
@@ -960,6 +1013,8 @@ class LanguageQaManager:
             chapter_findings: list[dict[str, Any]] = []
             chapter_skipped = 0
             omitted = False
+            assemble = timings.step("lqa.chapter_assemble")  # decisions, house style, word counts
+            assemble.__enter__()
             for verse, entry in verses.items():
                 if entry.get("limitations") and len(chapter_limitations) < 20:
                     chapter_limitations.extend(f"{verse}: {message}" for message in entry["limitations"])
@@ -969,7 +1024,8 @@ class LanguageQaManager:
                 checked += 1
                 if layer:
                     flagged[f"{chapter}:{verse}"] = [
-                        (int(f.get("start", 0)), int(f.get("end", 0)), str(f.get("category") or ""))
+                        (int(f.get("start", 0)), int(f.get("end", 0)), str(f.get("category") or ""),
+                         bool(f.get("inline")))
                         for f in entry.get("findings", [])]
                 text = data.get(verse)
                 for word, (count, start, end) in entry.get("words", {}).items():
@@ -989,6 +1045,7 @@ class LanguageQaManager:
                 if len(shown) > room:
                     chapter_limitations.append("Book finding limit reached; remaining verses omitted.")
                     omitted = True
+            assemble.__exit__(None, None, None)
             del false_positives[MAX_FALSE_POSITIVES:]
             findings.extend(chapter_findings)
             skipped += chapter_skipped
@@ -1018,11 +1075,12 @@ class LanguageQaManager:
         elif wordlist is not None and len(book_counts) > wordlist.params["maxTerms"]:
             limitations.append("Wordlist audit skipped: too many distinct words to compare.")
         else:
-            audit = (lexicon_findings(book, book_counts, book_first_seen, lexicon, pack=rule_pack,
-                                      rule_fields=rule_fields, suggestion=suggestion)
-                     if lexicon is not None else
-                     wordlist_findings(book, book_counts, book_first_seen, pack=rule_pack, rule=wordlist)
-                     if wordlist is not None else [])
+            with timings.step("lqa.book.lexicon_audit" if lexicon is not None else "lqa.book.wordlist_audit"):
+                audit = (lexicon_findings(book, book_counts, book_first_seen, lexicon, pack=rule_pack,
+                                          rule_fields=rule_fields, suggestion=suggestion)
+                         if lexicon is not None else
+                         wordlist_findings(book, book_counts, book_first_seen, pack=rule_pack, rule=wordlist)
+                         if wordlist is not None else [])
             checked_book: tuple[list[dict[str, Any]], list[str]] | None = ([], [])
             if book_checker:
                 try:
@@ -1041,19 +1099,35 @@ class LanguageQaManager:
             if profile:
                 audit += checked_book[0]
             if rule_pack is not None:
-                audit += name_findings(book, book_counts, book_first_seen,
-                                       style.lists.get("housestyle.properNouns", frozenset()),
-                                       rule_fields=rule_fields, suggestion=suggestion, rule_version=RULE_VERSION,
-                                       corpus_count=lexicon.count if lexicon is not None else None,
-                                       distance=(rule_pack.confusion() or PLAIN_DISTANCE).distance)
+                with timings.step("lqa.book.names"):
+                    audit += name_findings(book, book_counts, book_first_seen,
+                                           style.lists.get("housestyle.properNouns", frozenset()),
+                                           rule_fields=rule_fields, suggestion=suggestion, rule_version=RULE_VERSION,
+                                           corpus_count=lexicon.count if lexicon is not None else None,
+                                           distance=(rule_pack.confusion() or PLAIN_DISTANCE).distance)
             if layer:
-                for finding in audit:
-                    flagged.setdefault(f"{finding['chapter']}:{finding['verse']}", []).append(
-                        (int(finding["start"]), int(finding["end"]), str(finding.get("category") or "")))
-                audit += [f for f in checked_book[0] if not _already_flagged(f, flagged)]
-            audit += learned_findings(book, book_text, learned, fixes=learned_fixes, max_verse_chars=MAX_VERSE_CHARS,
-                                      finding_id=stable_finding_id, rule_fields=rule_fields, suggestion=suggestion,
-                                      text_hash=text_hash, rule_version=RULE_VERSION)
+                with timings.step("lqa.book.layer_dedupe"):
+                    for finding in audit:
+                        flagged.setdefault(f"{finding['chapter']}:{finding['verse']}", []).append(
+                            (int(finding["start"]), int(finding["end"]), str(finding.get("category") or ""),
+                             bool(finding.get("inline"))))
+                    kept = [f for f in checked_book[0] if not _already_flagged(f, flagged)]
+                    audit += kept
+                    # Count-only entry (ms stays 0): `calls` is how many layer
+                    # findings the pack or common rules had already raised.
+                    for _ in range(len(checked_book[0]) - len(kept)):
+                        timings.add("lqa.book.layer_dropped_as_duplicate", 0.0)
+            with timings.step("lqa.book.learned"):
+                audit += learned_findings(book, book_text, learned, fixes=learned_fixes, max_verse_chars=MAX_VERSE_CHARS,
+                                          finding_id=stable_finding_id, rule_fields=rule_fields, suggestion=suggestion,
+                                          text_hash=text_hash, rule_version=RULE_VERSION)
+            # Decisions and house style first, then the room: when the book's
+            # findings would pass the limit, the least certain book-stage
+            # findings give way (low-confidence unknown words before a typo
+            # lead), and the kept ones stay in reading order.
+            settled: list[tuple[dict[str, Any], dict[str, Any]]] = []
+            book_settle = timings.step("lqa.book.settle")
+            book_settle.__enter__()
             for finding in audit:
                 decided = {}
                 shown, hidden = settle([finding], decided)
@@ -1061,15 +1135,23 @@ class LanguageQaManager:
                                            {"findings": [], "decided": {}, "hidden": []})
                 slot["decided"].update(decided)
                 slot["hidden"].extend(hidden)
-                if not shown:
+                settled.extend((item, slot) for item in shown)
+            room = max(0, MAX_BOOK_FINDINGS - len(findings))
+            keep = set(_cap_order([item for item, _slot in settled])[:room])
+            omitted_by_rule: dict[str, int] = {}
+            for index, (item, slot) in enumerate(settled):
+                if index not in keep:
+                    rule_id = str(item.get("ruleId") or item.get("rule") or "")
+                    omitted_by_rule[rule_id] = omitted_by_rule.get(rule_id, 0) + 1
                     continue
-                if len(findings) >= MAX_BOOK_FINDINGS:
-                    limitations.append("Book finding limit reached; wordlist audit findings omitted.")
-                    break
-                findings.extend(shown)
-                slot["findings"].extend(shown)
+                findings.append(item)
+                slot["findings"].append(item)
+            for rule_id, count in sorted(omitted_by_rule.items()):
+                limitations.append(f"Book finding limit reached: {count} {rule_id} finding(s) omitted.")
             del false_positives[MAX_FALSE_POSITIVES:]
-        self._flush(store, pending, limitations)
+            book_settle.__exit__(None, None, None)
+        with timings.step("lqa.flush"):
+            self._flush(store, pending, limitations)
         with self._lock:
             if cancelled is None and self._cancelled(generation):
                 return None
@@ -1136,11 +1218,17 @@ class LanguageQaManager:
                 return copy.deepcopy(self._summary)
         if context is None:
             return None
+        current = self._current(context, generation)
+        if current is not None:
+            return current
         started = time.monotonic()
         result = self._scan(generation, context, yielding=False, cancelled=lambda: (
-            (cancel_event is not None and cancel_event.is_set()) or self._context != context))
+            (cancel_event is not None and cancel_event.is_set()) or self._context != context),
+            reuse=lambda: self._current(context, generation))
         if result is None:
             return None
+        if "_reused" in result:
+            return result["_reused"]
         source_signature = result.pop("_sourceSignature", None)
         result["elapsedSeconds"] = round(time.monotonic() - started, 3)
         with self._lock:
@@ -1152,6 +1240,26 @@ class LanguageQaManager:
                     self._source_signature = source_signature
                 self._last_scan = time.monotonic()
         return result
+
+    def _current(self, context: tuple[str, str, str, Path, str], generation: int) -> dict[str, Any] | None:
+        """The published summary, when it is still what a pass would produce
+        (#232). Every input change -- an edit, a decision, the termbase, house
+        style, learned fixes, the pack -- goes through _schedule, which bumps
+        the generation and resets the summary to "queued"; a "completed" summary
+        at the caller's generation has had none since. A chapter file changed
+        outside Bridge shows in the signature."""
+        with self._lock:
+            if not (context == self._context and generation == self._generation and not self._paused
+                    and self._summary.get("state") == "completed" and self._source_signature is not None):
+                return None
+            signature = self._source_signature
+        if self._chapter_signature(context[3]) != signature:
+            return None
+        with self._lock:
+            if (context == self._context and generation == self._generation
+                    and self._summary.get("state") == "completed"):
+                return copy.copy(self._summary)
+        return None
 
     def verse(self, chapter: str, verse: str) -> dict[str, Any]:
         """languageQa.verse: one verse's findings from the last completed pass,
@@ -1219,6 +1327,13 @@ class LanguageQaManager:
         while True:
             with self._lock:
                 if self._paused or self._context is None:
+                    self._thread = None
+                    return
+                if self._summary.get("state") == "completed":
+                    # A check job's run_pass published a pass after this worker
+                    # was scheduled, and nothing was scheduled since (_schedule
+                    # would have reset the state). Another full pass here would
+                    # only repeat it (#232).
                     self._thread = None
                     return
                 generation, context = self._generation, self._context

@@ -10,6 +10,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.support.waits import job_timeout
+
 
 def issue_for(finding):
     """What the frontend sends with a Language QA verse.decide."""
@@ -31,7 +33,10 @@ def project_at(root, text="தமிழ் தமிழ்  ", book="php", verse
 
 
 def wait(manager, state="completed"):
-    deadline = time.monotonic() + 8
+    # A scaled budget, not a literal (tests/support/waits.py, #85): under
+    # pytest -n auto the first Tamil pass also loads the indic-qa layer's OV
+    # dictionary and IRV snapshot, and starved past 8 s it failed a run.
+    deadline = time.monotonic() + job_timeout(8)
     while time.monotonic() < deadline:
         status = manager.status(limit=100)
         if status["state"] == state:

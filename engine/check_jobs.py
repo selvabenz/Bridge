@@ -13,8 +13,14 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
+from tc_ai_bridge import check_timing
+
 
 TERMINAL_STATES = {"succeeded", "failed", "cancelled"}
+# Every verse is checked and the completion hook is writing the rollup and the
+# findings snapshots. Not terminal: a poll keeps polling, and never sees the
+# outcome before those writes land (#235).
+FINALIZING = "finalizing"
 LANGUAGE_QA_CHECK = "languageQa"
 
 
@@ -54,14 +60,35 @@ class _CheckJob:
         self.completed_steps = 0
         self.total_steps = 0
         self.results: dict[str, dict[str, Any]] = {}
+        # Keys of `results` in the order they were written: the cursor a
+        # status poll passes back (`since`) indexes this list, so a poll copies
+        # only the verses finished since the last one (#229).
+        self.result_order: list[str] = []
         self.error: Optional[str] = None
+        # "succeeded" or "failed", set when every verse is done; `state` only
+        # becomes it after the completion hook has run (#235).
+        self.outcome: Optional[str] = None
         self.created_at = _now()
         self.finished_at: Optional[str] = None
         self.cancel_event = threading.Event()
         self.lock = threading.RLock()
+        # Wall-clock per stage and per engine (check_timing): "stage:<label>"
+        # from the loop below, "preflight.*"/"local.*"/"greekroom.*" from the
+        # code the stages call. Reported as `timings` on the snapshot.
+        self.timings = check_timing.Timings()
 
-    def snapshot(self) -> dict[str, Any]:
+    def snapshot(self, since: Optional[int] = None) -> dict[str, Any]:
+        """The job as JSON. `results` holds every verse finished so far, or
+        with `since`, only those finished after the first `since` (the
+        `resultsCursor` of an earlier snapshot). Copying every verse's findings
+        on every poll held this lock -- which the job writes results under --
+        for seconds on a whole book (#229)."""
         with self.lock:
+            if since is None:
+                results = copy.deepcopy(self.results)
+            else:
+                start = max(0, min(int(since), len(self.result_order)))
+                results = {key: copy.deepcopy(self.results[key]) for key in self.result_order[start:]}
             total_verses = sum(len(v) for v in self.spec.chapter_verses.values())
             completed_verses = sum(
                 1 for item in self.results.values()
@@ -88,10 +115,14 @@ class _CheckJob:
                 "currentChapter": self.current_chapter,
                 "currentVerse": self.current_verse,
                 "currentStage": self.current_stage,
-                "results": copy.deepcopy(self.results),
+                "results": results,
+                "resultsSince": 0 if since is None else start,
+                "resultsCursor": len(self.result_order),
                 "error": self.error,
                 "createdAt": self.created_at,
                 "finishedAt": self.finished_at,
+                "timings": self.timings.as_dict(),
+                "elapsedSeconds": round(self.timings.elapsed(), 3),
             }
 
 
@@ -138,13 +169,13 @@ class CheckJobManager:
             job = self._jobs.get(self._active_job_id or "")
             return job is not None and job.state not in TERMINAL_STATES
 
-    def status(self, job_id: str = "") -> dict[str, Any]:
+    def status(self, job_id: str = "", since: Optional[int] = None) -> dict[str, Any]:
         with self._lock:
             resolved_id = job_id or self._active_job_id or ""
             job = self._jobs.get(resolved_id)
         if job is None:
             raise CheckJobNotFound(f"Unknown check job '{resolved_id}'.")
-        return job.snapshot()
+        return job.snapshot(since)
 
     def cancel(self, job_id: str = "") -> dict[str, Any]:
         with self._lock:
@@ -153,7 +184,9 @@ class CheckJobManager:
         if job is None:
             raise CheckJobNotFound(f"Unknown check job '{resolved_id}'.")
         with job.lock:
-            if job.state not in TERMINAL_STATES:
+            # Finalizing: every verse is done and its results are being saved;
+            # there is nothing left to cancel.
+            if job.state not in TERMINAL_STATES and job.state != FINALIZING:
                 job.cancel_event.set()
                 job.state = "cancelling"
                 job.current_stage = "Cancelling after current check"
@@ -185,19 +218,40 @@ class CheckJobManager:
             stages.append(("Language QA", [LANGUAGE_QA_CHECK]))
         return stages
 
+    def _finish(
+        self, job: _CheckJob, outcome: str, error: Optional[str], stage: str,
+        on_complete: Optional[Callable[["_CheckJob"], None]],
+    ) -> None:
+        """End the job as `outcome` ("succeeded" or "failed"). The completion
+        hook runs first, behind the non-terminal FINALIZING state and WITHOUT
+        job.lock: a poll can never observe the outcome before the hook has run,
+        and no longer waits on the lock while it writes. That wait was 4.5-5 s
+        on a whole book, with the stdio dispatcher waiting behind it (#235)."""
+        with job.lock:
+            job.outcome = outcome
+            job.state = FINALIZING
+            job.current_stage = "Saving results"
+            job.current_chapter = None
+            job.current_verse = None
+        self._fire_on_complete(job, on_complete)
+        with job.lock:
+            job.state = outcome
+            job.error = error
+            job.current_stage = stage
+            job.finished_at = _now()
+
     @staticmethod
     def _fire_on_complete(job: _CheckJob, on_complete: Optional[Callable[["_CheckJob"], None]]) -> None:
-        # Called for the succeeded/failed terminal states, with job.lock
-        # already held, in the same critical section that sets job.state —
-        # snapshot()/status() also take job.lock, so this ordering is what
-        # guarantees a status poll can never observe "succeeded" before this
-        # has actually run. (Not called on cancellation: on_complete's own
-        # logic only ever acts on job.state == "succeeded", so there's
-        # nothing to do there.) Never let a rollup-write failure surface as
-        # a check-job failure.
+        # Called by _finish for the succeeded/failed outcomes, without
+        # job.lock, while job.state is FINALIZING; job.outcome says which.
+        # Every verse is done, so job.results is no longer written. (Not called
+        # on cancellation: on_complete's own logic only ever acts on a
+        # succeeded outcome.) Never let a rollup-write failure surface as a
+        # check-job failure.
         if on_complete is not None:
             try:
-                on_complete(job)
+                with job.timings.step("on_complete"):
+                    on_complete(job)
             except Exception:
                 pass
 
@@ -205,7 +259,9 @@ class CheckJobManager:
         self, job: _CheckJob, run_stage: RunStage, preflight: Optional[Preflight],
         on_complete: Optional[Callable[["_CheckJob"], None]] = None,
     ) -> None:
-        self._run_impl(job, run_stage, preflight, on_complete)
+        with check_timing.activate(job.timings):
+            self._run_impl(job, run_stage, preflight, on_complete)
+        check_timing.trace(f"check job {job.spec.scope} {job.state} {len(job.results)} verse(s)", job.timings)
 
     def _run_impl(
         self, job: _CheckJob, run_stage: RunStage, preflight: Optional[Preflight],
@@ -223,7 +279,8 @@ class CheckJobManager:
                     return
                 with job.lock:
                     job.current_stage = "Preparing checks"
-                preflight(job.cancel_event)
+                with job.timings.step("preflight"):
+                    preflight(job.cancel_event)
                 with job.lock:
                     job.completed_steps += 1
 
@@ -243,7 +300,8 @@ class CheckJobManager:
                             job.current_verse = verse
                             job.current_stage = label
                         try:
-                            produced = run_stage(chapter, verse, stage_checks)
+                            with job.timings.step(f"stage:{label}"):
+                                produced = run_stage(chapter, verse, stage_checks)
                             if stage_checks == [LANGUAGE_QA_CHECK]:
                                 language_qa = produced  # type: ignore[assignment]
                             else:
@@ -258,6 +316,8 @@ class CheckJobManager:
                         if verse_error:
                             break
                     with job.lock:
+                        if key not in job.results:
+                            job.result_order.append(key)
                         job.results[key] = {
                             "chapter": chapter,
                             "verse": verse,
@@ -270,22 +330,15 @@ class CheckJobManager:
 
             with job.lock:
                 failed = [r for r in job.results.values() if r.get("status") == "failed"]
-                job.state = "failed" if failed else "succeeded"
-                job.error = f"{len(failed)} verse(s) failed checking." if failed else None
-                job.current_stage = "Checking failed" if failed else "Complete"
-                job.current_chapter = None
-                job.current_verse = None
-                job.finished_at = _now()
-                self._fire_on_complete(job, on_complete)
+            self._finish(
+                job, "failed" if failed else "succeeded",
+                f"{len(failed)} verse(s) failed checking." if failed else None,
+                "Checking failed" if failed else "Complete", on_complete,
+            )
         except Exception as exc:
             if self._cancelled(job):
                 return
-            with job.lock:
-                job.state = "failed"
-                job.error = str(exc)
-                job.current_stage = "Checking failed"
-                job.finished_at = _now()
-                self._fire_on_complete(job, on_complete)
+            self._finish(job, "failed", str(exc), "Checking failed", on_complete)
 
     @staticmethod
     def _cancelled(job: _CheckJob) -> bool:

@@ -9,7 +9,7 @@ const { languageQaWordsAdd, languageQaOccurrences } = vi.hoisted(() => ({
 vi.mock("../../api/bridgeClient", () => ({ bridge: { languageQaWordsAdd, languageQaOccurrences } }));
 
 import OccurrencesPopup from "../OccurrencesPopup.svelte";
-import { addProjectWords, isKnownMisspellingRule } from "../../projectWords";
+import { addProjectWords, canAddProjectWord, isKnownMisspellingRule } from "../../projectWords";
 import { languageQaFindingsByVerse, project } from "../../stores";
 import { lqaFinding } from "./languageQaFixture";
 
@@ -58,5 +58,32 @@ describe("OccurrencesPopup", () => {
     await fireEvent.click(screen.getByRole("button", { name: "GEN 2:1" }));
     expect(onNavigate).toHaveBeenCalledWith("gen", "2", "1");
     await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+});
+
+describe("canAddProjectWord: where Add would silence the finding", () => {
+  it.each([
+    [{ category: "typo", ruleId: "hi-irv/hi.lex.unknown", originalText: "मनूष्य" }, true],
+    [{ category: "consistency", ruleId: "ml-irv/ml.lex.consistency", originalText: "x" }, true],
+    [{ category: "learned", ruleId: "project/learned.replacement", originalText: "x" }, false],
+    [{ category: "unicode", ruleId: "ta-irv/indicqa.shape.malformed", originalText: "x" }, false],
+    [{ category: "word-joining", ruleId: "ta-irv/indicqa.lex.compound", originalText: "x" }, false],
+    [{ category: "typo", ruleId: "hi-irv/hi.lex.known-misspelling", originalText: "x" }, false],
+    [{ category: "typo", ruleId: "hi-irv/hi.lex.unknown", originalText: "two words" }, false],
+  ])("%o -> %s", (finding, expected) => {
+    expect(canAddProjectWord(finding as Parameters<typeof canAddProjectWord>[0])).toBe(expected);
+  });
+});
+
+describe("OccurrencesPopup, Search in this book", () => {
+  it("searches any run of the text and says so", async () => {
+    languageQaOccurrences.mockResolvedValue({
+      word: "सताईस दिन", source: "irv", match: "text", ready: true, total: 1, truncated: false,
+      hits: [{ book: "gen", chapter: "1", verse: "2", start: 3, end: 12, snippet: "वे सताईस दिन रहे।", snippetStart: 3, snippetEnd: 12 }],
+    });
+    render(OccurrencesPopup, { props: { projectPath: "/p", word: "सताईस दिन", match: "text",
+      onNavigate: vi.fn(), onClose: vi.fn() } });
+    expect(await screen.findByRole("heading", { name: /सताईस दिन anywhere in this book/ })).toBeTruthy();
+    expect(languageQaOccurrences).toHaveBeenCalledWith("/p", "सताईस दिन", "irv", 200, "text");
   });
 });

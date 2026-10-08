@@ -51,6 +51,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import indic_qa_tamil, indic_qa_vendor, ov_reference
+from .. import check_timing
 from ..usfm_verse import lift_verse
 from .loader import PackError, RulePack, Rule
 
@@ -125,13 +126,17 @@ def default_entry(rule_id: str, group: str, on_by_default: bool) -> dict[str, An
         category = "punctuation"
     if tail in {"lex.known-misspelling", "style.divine-names", "style.rejected-names"}:
         confidence = "high"
+    if tail == "lex.unknown":
+        # Not verifiable is not an error (the Hindi review found 22 of 25 such
+        # words correct), but it is the web app's main mark, and a word with no
+        # mark has no menu: no suggestions, no "Add". So it is on as upstream
+        # has it, at the lowest severity and confidence, which the Settings
+        # slider's confidence floor hides (DECISIONS 2026-10-08).
+        severity, confidence = "low", "low"
     entry = {"revision": 1, "category": category, "layer": layer, "severity": severity,
              "confidence": confidence, "enabled": bool(on_by_default), "inline": False}
     if tail == "lex.unknown":
-        # Not verifiable is not an error: indic-qa itself shows these grey (the
-        # Hindi review found 22 of 25 correct). Off until counts say otherwise.
-        entry["enabled"] = False
-        entry["note"] = "off in Bridge: a word missing from the dictionary is not a finding"
+        entry["note"] = "not verifiable from the dictionary; drawn under the Settings slider (confidence low)"
     return entry
 
 
@@ -363,14 +368,30 @@ def word_statuses(pack_name: str, words: list[str]) -> dict[str, tuple[str, int,
 
 
 def _settings(pack: RulePack) -> dict[str, Any]:
-    """indic-qa's own per-rule switches follow the pack (and its overrides),
-    so a rule Bridge disabled does not run inside the checker either. A layer
-    adds its own switches (indic_qa_tamil.SETTINGS)."""
-    settings: dict[str, Any] = {"rules": {r.id: r.enabled for r in pack.rules}}
+    """What the checker runs with, over its language defaults (the checker
+    merges one level deep): the project's own settings (pack.checker_settings,
+    the Checker settings dialog), then indic-qa's per-rule switches, which
+    follow the pack and its overrides so a rule Bridge disabled does not run
+    inside the checker either, then a layer's forced switches
+    (indic_qa_tamil.SETTINGS), which a project cannot change."""
+    settings: dict[str, Any] = json.loads(json.dumps(pack.checker_settings))
+    settings["rules"] = {r.id: r.enabled for r in pack.rules}
     config = indic_config(pack.meta)
     if config is not None and config["layer"]:
-        settings.update(json.loads(json.dumps(indic_qa_tamil.SETTINGS)))
+        for section, values in indic_qa_tamil.SETTINGS.items():
+            settings[section] = {**settings.get(section, {}), **values}
     return settings
+
+
+def with_resident(pack_name: str, read: Callable[[Any, Any], Any]) -> Any:
+    """read(checker, profile) on the resident checker of `pack_name`, under the
+    adapter's lock since a pass mutates it; None when no checker of that pack
+    is resident (no pass has loaded it yet)."""
+    with _LOCK:
+        loaded = _RESIDENT
+        if loaded is None or loaded.key[0] != pack_name:
+            return None
+        return read(loaded.checker, loaded.profile)
 
 
 # A checker is rebuilt from the snapshot whenever a pass moves to another book
@@ -624,8 +645,13 @@ def build_book(book: str, chapters: dict[str, dict[str, Any]], *, lift: Callable
 
 # -- mapping ------------------------------------------------------------------------
 
-def _suggestion(text: str, source: str, rationale: str) -> dict[str, Any]:
-    return {"text": text, "rank": 1, "source": source, "rationale": rationale}
+def _suggestion(text: str, source: str, rationale: str, *, kind: str = "", freq: int | None = None) -> dict[str, Any]:
+    out: dict[str, Any] = {"text": text, "rank": 1, "source": source, "rationale": rationale}
+    if kind:
+        out["kind"] = kind
+    if freq is not None:
+        out["freq"] = int(freq)
+    return out
 
 
 def _items(block: dict[str, Any], profile: Any) -> list[indic_qa_tamil.Item]:
@@ -649,7 +675,9 @@ def _items(block: dict[str, Any], profile: Any) -> list[indic_qa_tamil.Item]:
                 continue
             detail = token.get("rule") or status_rule.get(token["status"], "")
             suggestions = [_suggestion(s["w"], "lexicon", f"{s.get('cls') or s.get('op') or ''}"
-                                       + (f" · {s['freq']}× in the IRV" if s.get("freq") else ""))
+                                       + (f" · {s['freq']}× in the IRV" if s.get("freq") else ""),
+                                       kind=str(s.get("cls") or s.get("op") or ""),
+                                       freq=s.get("freq") if isinstance(s.get("freq"), int) else None)
                            for s in token.get("sugg", ()) if s.get("w")]
             why = "; ".join(token.get("why") or ())
             out.append(item(switch.get(detail, detail), at + token["s"], at + token["e"], suggestions, why, detail))
@@ -691,8 +719,10 @@ def profile_findings(pack: RulePack, book: str, chapters: dict[str, dict[str, An
     stored verse, so its fix goes through the one verse writer as usual."""
     config = indic_config(pack.meta) or {"layer": "", "dictionary": "dictionary"}
     layer = bool(config["layer"])
-    synthetic, refs, notes = build_book(book, chapters, lift=lift, max_verse_chars=max_verse_chars,
-                                        headings=headings if layer else None, footnotes=layer)
+    timings = check_timing.current()
+    with timings.step("lqa.indicqa.build_book"):
+        synthetic, refs, notes = build_book(book, chapters, lift=lift, max_verse_chars=max_verse_chars,
+                                            headings=headings if layer else None, footnotes=layer)
     dictionary = pack.directory / config["dictionary"] if pack.directory else None
     findings: list[dict[str, Any]] = []
     crossing = unmapped = 0
@@ -700,24 +730,31 @@ def profile_findings(pack: RulePack, book: str, chapters: dict[str, dict[str, An
         # The snapshot keys books by Bridge's book id, lower case ("1ch"); the
         # same key here replaces that book's share instead of adding a 67th.
         key = book_key(book)
-        loaded = _resident(pack, key)
+        with timings.step("lqa.indicqa.checker_load"):
+            loaded = _resident(pack, key)
         loaded.live_book = key
         checker = loaded.checker
-        checker.index_book(key, synthetic)
+        with timings.step("lqa.indicqa.index_book"):
+            checker.index_book(key, synthetic)
         counts = checker.book_count.get(key, Counter())
         if loaded.built_for.get(key) != counts:
             # A new or changed word can start or join a consistency cluster, and
             # build_index is where clusters are made; it also clears classify()'s
             # cache, which is keyed by generation, not by counts. Unchanged text
             # (a decision, a status refresh) needs neither.
-            checker.build_index()
+            with timings.step("lqa.indicqa.build_index"):
+                checker.build_index()
             loaded.built_for = {key: Counter(counts)}
         occurrences: Counter = Counter()
         for n in range(1, len(synthetic.chapters)):
             if not proceed():
                 return None
             lo, _hi = synthetic.chapters[n]
-            for offset, block in enumerate(checker.check_chapter(synthetic, n)):
+            with timings.step("lqa.indicqa.check_chapter"):
+                blocks = list(checker.check_chapter(synthetic, n))
+            map_items = timings.step("lqa.indicqa.map_findings")
+            map_items.__enter__()
+            for offset, block in enumerate(blocks):
                 ref = refs.get(lo + offset)
                 if ref is None:
                     continue
@@ -769,6 +806,7 @@ def profile_findings(pack: RulePack, book: str, chapters: dict[str, dict[str, An
                         if reference is not None:
                             finding["reference"] = reference
                     findings.append(finding)
+            map_items.__exit__(None, None, None)
     if crossing:
         notes.append(f"{crossing} {pack.name} {crossing_note}")
     if unmapped:

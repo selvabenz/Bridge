@@ -779,7 +779,13 @@
     }
   }
 
-  function applyJobSnapshot(snapshot: CheckJobSnapshot): void {
+  /** `seen`: every verse status this job has reported so far. monitorJob polls
+   *  checks.status with a cursor, so each snapshot carries only the verses
+   *  finished since the previous poll (#229) and the end-of-job bookkeeping
+   *  below reads the tally instead. A caller holding a full snapshot omits it. */
+  function applyJobSnapshot(
+    snapshot: CheckJobSnapshot, seen: Record<string, "succeeded" | "failed"> = {},
+  ): void {
     chapterVerseNums.update((existing) => ({ ...existing, ...snapshot.chapterVerses }));
 
     const findingUpdates: Record<string, QaFinding[]> = {};
@@ -787,6 +793,7 @@
     for (const [key, result] of Object.entries(snapshot.results)) {
       findingUpdates[key] = result.findings;
       statusUpdates[key] = result.status;
+      seen[key] = result.status;
     }
     if (Object.keys(findingUpdates).length > 0) {
       findingsByVerse.update((existing) => ({ ...existing, ...findingUpdates }));
@@ -803,7 +810,7 @@
         for (const [chapter, verses] of Object.entries(snapshot.chapterVerses)) {
           for (const verse of verses) {
             const key = verseKey(chapter, verse);
-            if (!snapshot.results[key]) next[key] = snapshot.state === "cancelled" ? "cancelled" : "failed";
+            if (!seen[key]) next[key] = snapshot.state === "cancelled" ? "cancelled" : "failed";
           }
         }
         return next;
@@ -812,7 +819,7 @@
         const next = { ...existing };
         for (const [chapter, verses] of Object.entries(snapshot.chapterVerses)) {
           next[chapter] = verses.length > 0 && verses.every(
-            (verse) => snapshot.results[verseKey(chapter, verse)]?.status === "succeeded",
+            (verse) => seen[verseKey(chapter, verse)] === "succeeded",
           );
         }
         return next;
@@ -835,13 +842,17 @@
 
   async function monitorJob(initial: CheckJobSnapshot, generation: number): Promise<void> {
     let snapshot = initial;
+    const seen: Record<string, "succeeded" | "failed"> = {};
+    for (const [key, result] of Object.entries(initial.results)) seen[key] = result.status;
+    let cursor = initial.resultsCursor ?? 0;
     try {
       while (!["succeeded", "failed", "cancelled"].includes(snapshot.state)) {
         await new Promise((resolve) => setTimeout(resolve, 750));
         if (generation !== monitorGeneration) return;
-        snapshot = await bridge.checkStatus(snapshot.jobId);
+        snapshot = await bridge.checkStatus(snapshot.jobId, cursor);
         if (generation !== monitorGeneration) return;
-        applyJobSnapshot(snapshot);
+        cursor = snapshot.resultsCursor ?? cursor;
+        applyJobSnapshot(snapshot, seen);
       }
     } catch (error) {
       if (generation !== monitorGeneration) return;
@@ -918,11 +929,13 @@
     const jobId = activeJobId;
     if (!jobId) return;
     await bridge.cancelChecks(jobId);
-    let snapshot = await bridge.checkStatus(jobId);
+    // Wait without copying any results (#229), then read them all once.
+    let snapshot = await bridge.checkStatus(jobId, Number.MAX_SAFE_INTEGER);
     while (!["succeeded", "failed", "cancelled"].includes(snapshot.state)) {
       await new Promise((resolve) => setTimeout(resolve, 400));
-      snapshot = await bridge.checkStatus(jobId);
+      snapshot = await bridge.checkStatus(jobId, Number.MAX_SAFE_INTEGER);
     }
+    snapshot = await bridge.checkStatus(jobId);
     monitorGeneration++;
     activeJobId = "";
     applyJobSnapshot(snapshot);
@@ -1074,7 +1087,7 @@
         {$checkingProgress.label} — {$checkingProgress.percent}%
       </span>
       <div class="track"><div class="fill" style="width:{$checkingProgress.percent}%" /></div>
-      <button class="progress-action cancel-action" on:click={cancelChecks} disabled={$checkingProgress.state === "cancelling"}>
+      <button class="progress-action cancel-action" on:click={cancelChecks} disabled={$checkingProgress.state === "cancelling" || $checkingProgress.state === "finalizing"}>
         {$checkingProgress.state === "cancelling" ? "Cancelling…" : "Cancel"}
       </button>
     </div>

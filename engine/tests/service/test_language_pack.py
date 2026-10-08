@@ -6,6 +6,7 @@ import shutil
 import pytest
 
 from tc_ai_bridge.language_packs import PackError, load_pack
+from tc_ai_bridge.language_packs import default_pack as bundled_pack
 from tc_ai_bridge.language_packs.loader import apply_overrides
 from tc_ai_bridge.language_packs.registry import packs_dir
 from tc_ai_bridge.language_qa import scan_text, stable_finding_id
@@ -271,6 +272,25 @@ def test_a_wrong_fix_in_an_example_stops_the_pack_loading(tmp_path):
 
 
 # ---- project overrides may only narrow -----------------------------------------
+
+def test_overrides_may_enable_an_indic_qa_rule_but_never_inline_or_a_json_rule():
+    """The Checker settings dialog switches the indic-qa checker's own rules
+    (DECISIONS 2026-10-08): one off by default may be switched on. Drawing
+    stays the runtime threshold and inline the reviewed flag; a pack's own JSON
+    rules still only narrow."""
+    hindi = bundled_pack("hi-irv")
+    assert not hindi.by_id("hi.lex.archaic-form").enabled
+    switched = apply_overrides(hindi, {"rules": {"hi.lex.archaic-form": {"enabled": True},
+                                                 "hi.lex.unknown": {"inline": True}}})
+    assert switched.by_id("hi.lex.archaic-form").enabled
+    assert not switched.by_id("hi.lex.unknown").inline
+    assert any("hi.lex.unknown.inline refused" in p for p in switched.problems)
+    tamil = default_pack()
+    json_rule = next(r for r in tamil.rules if r.match_type != "indic-qa" and not r.enabled)
+    refused = apply_overrides(tamil, {"rules": {json_rule.id: {"enabled": True}}})
+    assert not refused.by_id(json_rule.id).enabled
+    assert any(f"{json_rule.id}.enabled refused" in p for p in refused.problems)
+
 
 def test_overrides_narrow_and_refuse_to_widen():
     base = default_pack()

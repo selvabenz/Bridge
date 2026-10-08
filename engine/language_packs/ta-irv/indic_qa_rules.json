@@ -25,9 +25,9 @@
    "layer": "lexicon",
    "severity": "low",
    "confidence": "low",
-   "enabled": false,
+   "enabled": true,
    "inline": false,
-   "note": "off in Bridge: on the IRV, 2,000+ per book are valid modern Tamil the 1957 OV lacks"
+   "note": "not in the OV and used fewer than 5 times in the IRV; drawn under the Settings slider (confidence low)"
   },
   "indicqa.shape.malformed": {
    "revision": 1,

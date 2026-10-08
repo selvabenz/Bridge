@@ -84,8 +84,12 @@ def test_a_default_entry_is_never_inline_and_never_blocks_export(group):
     assert entry["category"] in adapter.CATEGORIES and entry["layer"] in adapter.LAYERS
 
 
-def test_unknown_words_are_off_by_default():
-    assert adapter.default_entry("ml.lex.unknown", "Lexicon", True)["enabled"] is False
+def test_unknown_default_entry_is_low_confidence_and_follows_upstream():
+    """DECISIONS 2026-10-08: an unknown word is drawn as the web app draws it,
+    at the lowest severity and confidence, never inline (the human gate)."""
+    on = adapter.default_entry("ml.lex.unknown", "Lexicon", True)
+    assert (on["enabled"], on["inline"], on["severity"], on["confidence"]) == (True, False, "low", "low")
+    assert adapter.default_entry("hi.lex.unknown", "Lexicon", False)["enabled"] is False, "upstream decides"
 
 
 def _profile(rules):

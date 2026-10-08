@@ -14,6 +14,10 @@ export interface LanguageQaSuggestion {
   source: "rule" | "lexicon" | "termbase" | "majority-form" | "housestyle" | "learned";
   /** Why this fix; shown as the menu item's tooltip. */
   rationale: string;
+  /** The checker's edit class ("vowel_length", "split", ...) and how often the
+   * form is used: shown beside the suggestion, as the indic-qa editor does. */
+  kind?: string;
+  freq?: number;
 }
 
 export interface LanguageQaFinding {
@@ -423,4 +427,39 @@ export interface LanguageQaVerse {
   verse: string;
   findings: LanguageQaFinding[];
   hidden: Array<LanguageQaFinding & { decision: string }>;
+}
+
+/** languageQa.checkerSettings.get: the indic-qa checker's own settings (the
+ * web app's Settings dialog), per collection. `available: false` for a
+ * project whose language has no indic-qa checker. */
+export interface CheckerSettingsUnavailable {
+  pack: null;
+  available: false;
+  reason: string;
+}
+
+export interface CheckerSettings {
+  pack: string;
+  language: string;
+  /** The Tamil layer (sandhi leads, three contexts) rather than a profile pack. */
+  layer: boolean;
+  /** False until a pass has loaded the checker: the style choices need it. */
+  ready: boolean;
+  /** The books a save is written to (every materialized book of the collection). */
+  books: string[];
+  legend: string;
+  contexts: { checkable: string[]; checked: string[]; labels: Record<string, string> };
+  warnings: { values: Record<string, boolean>; labels: Record<string, string> };
+  suggest: { max: number; limit: number };
+  compound: { enabled: boolean };
+  rules: { id: string; label: string; default: boolean; enabled: boolean; count: number }[];
+  sandhi?: { values: Record<string, number | boolean>; labels: Record<string, string> };
+  numbers?: { group: string; key: string; label: string; min: number; default: number; value: number }[];
+  style?: { id: string; label: string; close: boolean; options: { value: string; label: string }[]; value: string }[];
+}
+
+/** languageQa.checkerSettings.set: only the sections that changed. */
+export interface CheckerSettingsPatch {
+  checker?: Record<string, unknown>;
+  rules?: Record<string, { enabled: boolean }>;
 }

@@ -16459,3 +16459,673 @@ marked grammatical. Full engine suite with `-n auto`: 5019 passed, 1 skipped,
 3 xfailed. A first run in a fresh worktree failed 12 tests because the gitignored
 Stage 3 database and `src-tauri/resources/` were absent; with both linked in
 from the main checkout, nothing fails.
+
+## 2026-10-08 — Unknown words are drawn under the slider (indic-qa parity, step 1)
+
+Benz compared `main` with the indic-qa web app and found that "not all the
+typos are visible" and that the menu offered no suggestions or "Add to
+dictionary". Three read-only investigations traced both complaints to one
+cause: the web app's main mark, a word not in the dictionary, was off in
+every Bridge pack. With no mark there is no menu. Benz chose to draw unknown
+words under the slider, and to keep the grey accepted-word marks undrawn.
+See DECISIONS 2026-10-08.
+
+**Engine.**
+- `indic_qa_adapter.default_entry`: `lex.unknown` is low/low and follows
+  upstream (on). The four `rule_versions.json` entries were edited by hand
+  (the build script never rewrites an entry); `revision` stays 1, because
+  nothing was decided under the disabled rule.
+- `indic_qa_tamil`:
+  - `IRV_ACCEPT_MIN = 5`: an unknown word the IRV uses that often is house
+    practice;
+  - a compound the IRV uses more than twice is accepted;
+  - `indicqa.lex.unknown` is on in `indic_qa_rules.json`.
+- `language_qa.suggestion()` gains `kind` and `freq`, set from the
+  checker's `cls`/`op` and `freq` in both adapters (a split is kind
+  `split`). `MAX_SUGGESTIONS` goes from 5 to 9, as in the web app's menu.
+- `language_qa_jobs`:
+  - book-stage findings are settled, then kept by `_cap_order` (confidence,
+    then severity, reading order within a rank), with a per-rule "omitted"
+    note;
+  - `_already_flagged` defers only to an inline overlap;
+  - the profile pack message no longer says agreement leads are never
+    drawn.
+
+**Tests.**
+- New:
+  - `test_unknown_default_entry_is_low_confidence_and_follows_upstream`;
+  - `test_unknown_words_are_on_low_confidence_and_never_inline` (4 packs);
+  - `test_unknown_words_are_findings_with_suggestions_and_low_confidence`
+    (मनूष्य → मनुष्य, vowel_length);
+  - `tests/language_packs/test_indic_qa_tamil_unknown.py` (3);
+  - `tests/jobs/test_language_qa_cap_and_dedupe.py` (2);
+  - `tests/jobs/test_language_qa_suggestion_fields.py` (2);
+  - two dispatcher tests in `test_language_qa_indic.py`: drawn by default
+    and hidden by the floor, and silenced by a project word.
+- Changed: the three that pinned "unknown is off". `test_a_disabled_rule_reports_nothing`
+  now disables the rule with a project override.
+- Isolated: `test_language_qa.py` and `test_language_qa_benchmark.py` use
+  made-up Tamil words that are not in the OV, so their autouse fixtures
+  also call the new `tests/support/packs.switch_off_ta_unknown_words`.
+  - Without it, seven tests failed on unexpected `indicqa.lex.unknown`
+    findings.
+  - One of those was the benchmark harness's synthetic typo முழவதும். The
+    new rule does find it, which is correct, but that test is about the
+    harness's counting.
+- `scripts/benchmark_language_qa.py`'s Tamil sanity check pinned "exactly
+  one finding". It now checks that the corruption in verse 3-4 is reported
+  and is gone after the edit.
+
+**Measured** (one book through the adapter):
+
+| Book | Verses | Unknown words | All indic-qa findings |
+|---|---|---|---|
+| Tamil Ruth | 85 | 129 | 159 |
+| Tamil Genesis | 1,533 | 1,152 | 1,447 |
+| Tamil Luke | 1,140 | 1,140 | 1,266 |
+| Malayalam Genesis | 1,533 | 658 | 1,645 |
+| Hindi Genesis | 1,533 | 4 | 24 |
+
+All are under the 3,000 cap.
+
+**Verified.**
+- Human gates (ta, hi, ml): pass. `ml.lex.unknown` has 27 labelled, 27 TP,
+  0 lost.
+- Latency gates: Tamil passed twice, Hindi passed.
+- `tests/language_packs` and the Language QA service tests pass; the full
+  suite result is in the commit message.
+
+**Not verified.** The desktop app: whether a reviewer finds the Tamil
+density (about one unknown word per verse) useful at the default threshold.
+
+## 2026-10-08 — Checker settings, engine side (indic-qa parity, step 2)
+
+These are the web app's Settings dialog values, per collection (DECISIONS
+2026-10-08). The frontend dialog comes in step 4.
+
+**Engine.**
+- New `language_packs/indic_qa_settings.py`:
+  - `validate(raw, pack)` keeps what the pack's checker understands, drops
+    defaults, and lists refusals;
+  - `merged(pack)` is what the checker runs with;
+  - also the label tables for Tamil's 11 sandhi controls and the profile
+    packs' two numbers.
+- `loader`:
+  - `RulePack.checker_settings`;
+  - `apply_overrides` reads `overrides["checker"]`, and a file may hold
+    only that;
+  - `enabled: true` is accepted for an indic-qa rule; inline stays refused.
+- `indic_qa_adapter`:
+  - `_settings` layers the project's sections, the pack's rule switches,
+    then the layer's forced switches;
+  - `with_resident(pack, read)` reads the resident checker under `_LOCK`.
+- `LanguageQaManager.rule_counts()` returns the last pass's findings per
+  rule.
+- New `language_qa_checker_settings.py`:
+  - `describe` builds the dialog's model, with labels from the vendored
+    profiles: `settings_warn`, `RULES`, `style_toggles`;
+  - `save` validates the whole patch first, then writes each book's
+    overrides atomically, keeping other keys, and removes a file that ends
+    up empty.
+- `bridge_service`:
+  - `languageQa.checkerSettings.get` and `.set`, project-guarded like every
+    `languageQa.*`;
+  - `.set` rebinds the open book.
+- `languageQa.occurrences` takes `match: "text"` for the menu's "Search in
+  this book". This is instead of the separate `languageQa.search` the plan
+  named: same shape and less new surface.
+- `tests/support/projects.link_collection`.
+
+**Verified.**
+- `tests/service/test_language_qa_checker_settings.py`, 13 tests:
+  - the Hindi model after a pass, and before it (`ready: false`);
+  - a save changes the findings and writes both books;
+  - a book's abstains are kept;
+  - six refusals, with nothing written;
+  - the project guard;
+  - the Tamil layer's model;
+  - a pack with no checker.
+- `tests/language_packs/test_indic_qa_settings.py`, 13 tests.
+- `test_overrides_may_enable_an_indic_qa_rule_but_never_inline_or_a_json_rule`.
+- `test_search_in_this_book_finds_any_run_of_text_not_only_whole_words`.
+- The full suite result is in the commit message.
+
+**Found while verifying.** `tests/support/language_qa.wait` still had a literal
+8 s budget, the pattern `tests/support/waits.py` exists to replace (#85).
+- Under `pytest -n auto`, a first Tamil pass that also loads the indic-qa
+  layer's OV dictionary and IRV snapshot outran it: one full run failed
+  `test_vallinam_ignored_decision_suppresses_the_finding` with the pass still
+  `running` on chapter 0. That test passes 3/3 on its own.
+- This is the likely cause of the 2026-10-07 "1 failed, not recurred" subset
+  run as well.
+- It now uses `job_timeout(8)`. The 442 tests that use it pass in parallel.
+
+**Not verified.** The dialog, which comes in step 4.
+
+## 2026-10-08 — The word menu, as the indic-qa editor's (indic-qa parity, step 3)
+
+Benz's second complaint was that the context menu did not show the relevant
+suggestions and had no "add to dictionary".
+
+**`FindingContextMenu.svelte`** gains four fields on an action:
+- `header`: a line of text (the word and what was found), not an item.
+- `tag`: a right-aligned, muted label such as "vowel length · 412". It is
+  `aria-hidden`, and the item's `aria-label` is "label, tag", so a screen
+  reader hears it as its own phrase.
+- `target`: the label is set in the target-script font.
+- `scopes`: small buttons on the item's row (the editor's
+  Here/Chapter/Book). Each dispatches `${id}:${scope}`; Right/Left move
+  across them, and Up/Down skip them.
+
+The menu is now up to 34rem wide and scrolls when it is tall.
+
+**The Language QA menu** (`VerseList.buildLangQaActions`), in the editor's
+order:
+- the header;
+- up to nine suggestions (`languageQaSuggestions.orderedSuggestions`):
+  learned first, then the cut to nine, so a learned fix is never the one
+  dropped. Each shows `suggestionTag` (kind · frequency, "split", "learned
+  fix"; nothing for a rule's fix) and has Chapter/Book on its row, which
+  replace "Use in more places ▸";
+- Forget a learned fix;
+- Add, shown only where `projectWords.canAddProjectWord` says it would
+  silence the finding (one word, a typo/name/consistency category, not
+  learned, not a reviewed misspelling). The review panel uses the same
+  function;
+- Ignore, with Book/Project on its row (house style), plus "Ignore this
+  rule ▸";
+- False positive, Flag, Copy, Search in this book (`occurrences` `match:
+  text`), IRV/OV occurrences, Edit;
+- related words, fetched after the menu opens and never on the click path.
+
+**Other menus and the review panel.**
+- A Greek Room mark adds Flag, Copy and Search.
+- The mixed menu is one flat list with a header per finding. As flyouts,
+  its "Use in more places" and "Ignore more widely" dispatched ids that no
+  handler recognised.
+- Right-clicking an unmarked word (`utils/wordAt.wordAtPoint`, from the
+  browser's caret API) adds Add, Copy, Search, occurrences and "Flag “word”
+  for review…" to the verse menu.
+- The review panel shows the same suggestions, learned first with their
+  tags, plus Copy and Search, and Add through the shared rule.
+
+**A test fix found on the way.** The click-budget test cleared
+`document.body.innerHTML` between its actions without destroying the
+component, so each round left a live VerseList subscribed to the stores.
+Each later click re-rendered every earlier copy, and the second action was
+always the slow one.
+- Measured inside full parallel runs, the old code took 168 ms on "Mark as
+  false positive" as well.
+- The test now calls `cleanup()` and keeps the fastest of three clicks per
+  action. Every click must still change the screen with the engine silent,
+  and the 100 ms budget is unchanged.
+- Measured alone, the new menu costs about 5–10 ms more per click than the
+  old one (Ignore 56–77 ms against 47–59 ms).
+- Three full runs passed after the fix.
+
+**Verified.**
+- `npm run check`: 0 errors, 0 warnings.
+- `npm run test`: 624 passed.
+  - 17 new tests: menu header, tag and scopes; `canAddProjectWord` (7
+    cases); text search; `wordAt` (3); nine suggestions with kind and
+    frequency; a scope from the mixed menu; and word actions on an unmarked
+    word and on a typo mark.
+  - 9 expectations changed to the new menu.
+- `npm run build`: ok.
+
+**Not verified.** The desktop app: the menu's width and scrolling at
+1366×768, and whether WebView2 implements `caretPositionFromPoint` or
+`caretRangeFromPoint`. If it implements neither, the unmarked-word actions
+simply do not appear.
+
+## 2026-10-08 — Checker settings dialog (indic-qa parity, step 4)
+
+Benz asked for the indic-qa web app's settings "at the relevant size and
+design", and collapsible. Step 2 gave the engine side
+(`languageQa.checkerSettings.get/set`); this is the dialog.
+
+**`Fieldset.svelte`** is the web app's `foldable`: the legend is a button
+(`aria-expanded`, `aria-controls`) with ▾/▸ before it; a closed section shows
+only its legend over a top rule. The caller holds the open state.
+
+**`CheckerSettingsDialog.svelte`**, opened from a new row in Settings ›
+Language QA ("N of M rules on · checks … · W/T warnings", then "Checker
+settings…"; no row for a language without an indic-qa checker):
+- the web app's size: `min(92vw, 40rem)`, anchored 1.5rem from the top,
+  head / scrolling body / foot, at z-index 60 above the 640×480 modal. At
+  1366×768 the body has about 620 px before it scrolls;
+- sections in the web app's order: contexts, Sandhi leads (Tamil layer only),
+  the pack's own legend (rules with their count in this book and the rule id
+  as tooltip, spelling-style selects, the two numbers), warnings,
+  suggestions and compounds, project words;
+- every section starts closed and stays as the reviewer left it
+  (`editorPrefs.checkerSettingsOpen`, localStorage
+  `bridge.checkerSettings.open.v1`);
+- Save sends only the sections that changed (and only the changed keys of
+  `warnings`, `style`, `sandhi`), then `nudgeLanguageQa()`. A refusal from
+  the engine is shown in the foot and the dialog stays open. Cancel, Esc and
+  ✕ send nothing; Tab is trapped inside; focus returns on close;
+- before a pass has loaded the checker, `ready: false` shows "Still being
+  prepared" (the style choices are the checker's own clusters).
+
+**Two departures from the web app, on purpose.**
+- `sandhi.suffix_pct` is shown as the share the engine stores (0.5–1), as
+  its label says, not as a percent: one number, one unit.
+- "Project words" shows the count and points to Language QA › Dictionary in
+  place of the web app's Rebuild button. Bridge never writes the dictionary
+  files that Rebuild re-reads, and a save already runs a pass.
+
+**Verified.** `npm run check` 0/0; `npm run test` 639 passed (15 new:
+11 dialog, 2 Fieldset, 2 Settings); `npm run build` ok. Desktop NOT RUN.
+
+## 2026-10-08 — Handoff: indic-qa parity round 2 (steps 1–4)
+
+The four commits on `indic-qa-editor`, on top of `0e8325e`:
+- `93b70ab`: unknown words are findings.
+- `36a7029`: per-collection checker settings.
+- `06c91d9`: the word menu.
+- `ba557b2`: the Checker settings dialog.
+
+**Gates run after the last commit.**
+- `pytest -n auto`: 5055 passed, 1 skipped, 3 xfailed (16m47s).
+- The three human gates passed: Tamil, `hi --language hin`, and
+  `ml --language mal`.
+- Frontend: `npm run check` 0/0, `npm run test` 639 passed, `npm run build`
+  ok.
+- Rust: `cargo check` ok, `cargo test` 11 passed.
+- Frozen pair: rebuilt with `build-sidecars.ps1`; `smoke_sidecars.py`
+  passed. The Hindi pack took 2.02 s and the ta-irv layer 3.42 s.
+- Latency gate (`--gate --cores 2`): passed for Tamil source, Tamil frozen
+  and Hindi frozen.
+  - Hindi source failed once: `verse.decide (languageQa)` p95 was 1035 ms
+    against a 50 ms budget.
+  - It passed on two reruns, with p95 25 ms and 47 ms.
+  - Only 10 samples are timed, so p95 is the maximum and one stall fails it.
+  - The 47 ms rerun is close to the budget. Step 1 added unknown-word
+    findings, so a decided verse can carry more findings than before.
+  - Reported, not tuned. Watch this gate if it fails again.
+
+**Not done.**
+- The desktop check at 1366×768 has not been run. What it should cover is
+  listed in A118–A121.
+- `rule_precision.json` has no entries for the `lex.unknown` rules yet, so
+  the slider treats them as unmeasured and always draws them. Regenerating it
+  with `--write-precision` would be its own commit.
+- Open for the maintainer:
+  - Profile packs check verse text only. Checking headings and footnotes
+    needs their `irv_state.json.gz` rebuilt.
+  - Tamil's `IRV_ACCEPT_MIN = 5` is a Bridge choice.
+  - A lazy sibling materialized after a save has no copy of the checker
+    settings. This is the same gap as project-scope house style.
+
+## 2026-10-08 — Timing instrumentation for the checks; first measurements (open, whole book, edit)
+
+Benz asked which checks the app runs, how often the same work is repeated,
+and for numbers before any of it is changed. This entry adds the
+instrumentation (measurement only; no check behaves differently) and records
+the first measurements on two copies of the IRV Tamil import: PHP (4 chapters,
+104 verses) and GEN (50 chapters, 1,533 verses), real Wildebeest 0.9.2, Python
+3.12, source engine, in-process RPCs under a scratch `LOCALAPPDATA`.
+
+**What was added.**
+- `tc_ai_bridge/check_timing.py`: `Timings`, a thread-safe accumulator of
+  (name -> ms, calls); `activate()`/`current()` so code deep in a check path
+  records against the job or pass that owns it without a new parameter on
+  every signature; `trace()` writes one `[trace] timing ...` line on stderr,
+  the channel `_trace` already uses.
+- `check_jobs.py`: every job owns a `Timings`; `stage:<label>` and `preflight`
+  are timed; the snapshot carries `timings` and `elapsedSeconds`; one trace
+  line per finished job.
+- `bridge_service.py`: `_run_verse_checks_for_project` times each engine
+  (`greekroom.wildebeest`, `usfm.book`, `names.book`, `consistency.book`,
+  `local.*`, `decisions.reapply`, `verse.read_text`); the preflight phases;
+  `verse.runChecks` traces a request-local `Timings`; `handle_request` traces
+  any RPC that held the dispatcher for 100 ms or more.
+- `local_checks.run_local_qa`: one step per sub-check.
+- `language_qa_jobs._scan`: one `Timings` per pass, reported as `timings` on
+  the summary (so `languageQa.status` carries it); phases `lqa.*`; the common
+  rules in `language_qa.scan_text` one step each (`rule.*`); the indic-qa
+  layer's build/load/index/check phases in `indic_qa_adapter.profile_findings`.
+  `lqa.book.layer_dropped_as_duplicate` is count-only: `calls` = layer findings
+  `_already_flagged` removed.
+- `src/lib/types/finding.ts`: `CheckJobSnapshot.timings?`/`elapsedSeconds?`.
+- Tests: `tests/jobs/test_check_timing.py` (the accumulator) and
+  `tests/service/test_check_timing_protocol.py` (the snapshot and the pass).
+
+**Measurements.** Whole-book job = `checks.start scope=book` with
+`["local","greekroom","languageQa"]`, what "Run whole book" sends.
+
+| | PHP 104 v | GEN 1,533 v |
+|---|---|---|
+| project.open RPC | 0.34–0.39 s | 1.4 s |
+| background Language QA pass after open (cold process) | 7.7 s | 8.0 s |
+| whole-book job #1 | 7.4 s | 295 s |
+| whole-book job #2, text unchanged | 7.4 s | 262 s |
+| of which Wildebeest, per verse, no cache | 4.3 s (41 ms/v) | 171–177 s (112 ms/v) |
+| of which `decisions.reapply`, 2 calls per verse | 0.7 s | 25–30 s |
+| of which names preflight (first time / after an edit) | 11.5 s | 18.6 s |
+| of which Language QA (verses cached) | 0.1 s | 1.0 s |
+| verse.edit RPC | 0.55 s | 1.0 s |
+| verse.runChecks after the edit | 0.10–0.14 s | 0.38 s |
+| background pass after one edit | 1.6 s | 5.4–5.7 s |
+| chapter job (a chapter visit) | 1.9–2.3 s | 3.3 s |
+| verse.runChecks ["greekroom"] on selection | 35–55 ms | 32–35 ms |
+
+Where the Language QA pass goes, cold (GEN): checker load 1.4 s, pack
+resolve 0.36 s (the pack's 523 rule examples are scanned at load, once per
+process), build_index 0.23 s, check_chapter 0.69 s/50, build_book 0.29 s,
+learned 0.18 s. Warm, with every verse cached: ~1.0 s on GEN, of which
+build_book 0.27, check_chapter 0.21, learned 0.17, index_book 0.07, names
+0.05. After an edit build_index runs again (0.23–0.30 s).
+
+**The repeats, with numbers.**
+1. `checks.status` blocks the dispatcher for as long as it takes to deep-copy
+   every verse result so far. GEN run #1, polled every 100 ms: 626 polls,
+   183 s blocked in total, 4.6 s for one poll near the end; the polls also
+   slow the job (Wildebeest is 112 ms/verse inside the job on GEN, 33 ms when
+   called alone). The app polls every 500 ms (`App.svelte`). PHP, polled every
+   500 ms: 15 polls, max 184 ms.
+2. Wildebeest is 58–68 % of a whole-book job and runs once per verse with no
+   cache keyed on the text: run #2 cost the same as run #1.
+3. `qa_decisions_for_verse` is read twice per verse (once per stage): 10 % of
+   the GEN job.
+4. The whole-book Language QA pass runs on every chapter job (1.0 s on GEN),
+   and the reopen sequence (project.open, then the first chapter job at once)
+   ran three passes.
+5. Names: cached on a sha256 of the whole book's text, so one verse edit means
+   a full re-run at the next open (11.5 s PHP, 18.6 s GEN). The USFM
+   subprocess cache behaved: 0 ms after the first run.
+6. Local QA: cheap per verse (editorial 0.2 ms, integrity 0.2 ms, usfm 1–2 ms)
+   but `tc_checks` 6–10 s and `alignment_gap` 9–11 s on GEN, every run.
+
+**Overlap on real text.** On unedited IRV text the overlapping checks
+rarely fire together: GEN has 6 `TA_REPEAT_WORD`, 0 double spaces, 0
+zero-width, 0 NFC findings; name spelling is flagged on 258 verses, 2 of them
+by both Greek Room names and Language QA. The indic-qa layer raised 103
+findings on GEN that `_already_flagged` dropped as pack duplicates. On the
+edited verse (one U+200B inserted into the last word, one double space), the
+one zero-width character produced `TA_HIDDEN_CHAR`, `wildebeest.zero_width`,
+`unicode.invisible` and, on GEN, `indicqa.shape.malformed` +
+`tamil.dependent-sign` as well: 3 engines, up to 5 findings, one problem. The
+double space produced `spacing.extra` only (`TA_DOUBLE_SPACE` tests the
+stripped text, where the editor's space handling had already collapsed it).
+
+**Verified.** `pytest` on tests/service/test_language_qa.py,
+test_bridge_service.py, test_stdio_e2e.py and tests/jobs: 421 passed; the two
+new files: 7 passed with the cross-import guard; `npm run check` 0/0. Desktop
+not run. The scripts that produced the numbers (`measure.py`, `show.py`) live
+in the session scratchpad, not the repo; the table above is the record.
+
+**Not done, by design.** No cache, no dedupe, no change to which engine owns
+which check: Benz will decide ownership from these numbers. The fixes are
+listed as candidates in the chat handoff, in order of measured cost: the
+status snapshot, Wildebeest text-hash cache, one decisions read per verse,
+the chapter-job pass, the names cache key.
+
+## 2026-10-08 — checks.status returns only new verses (#229)
+
+**Problem.** Every `checks.status` poll deep-copied every verse result so far
+under the job's lock, and the transport then serialised all of it. On a
+whole book the polls grew to 15.7 MB each, stalled the stdio dispatcher, and
+slowed the job itself, because the job thread writes its results under the
+same lock.
+
+**Change.**
+- `_CheckJob.result_order` records the order verses finish in.
+- `snapshot(since)` copies only the verses after `since` and reports
+  `resultsSince`/`resultsCursor`.
+- Without `since`, a poll returns every verse as before. Tests, retry and the
+  `cancelChecks` reply rely on that.
+- `checks.status` refuses a `since` that is not a non-negative integer, rather
+  than reading it as "everything".
+- `App.svelte` `monitorJob` passes the cursor back and keeps a per-job tally
+  of verse statuses. The end-of-job bookkeeping (failed/cancelled marks,
+  `loadedChapters`) reads the tally, not `snapshot.results`.
+- `stopActiveJob` waits without copying results, then reads them all once.
+- The collection runner polls with a cursor past every verse and reads the
+  full set once, after the job ends.
+- `check_jobs` times the completion hook (`on_complete`).
+
+**Measured.** GEN copy (1,533 verses), one whole-book job,
+`local+greekroom+languageQa`, polled every 750 ms. That is App.svelte's
+real interval; the previous entry's "every 500 ms" was wrong. Each mode ran
+in its own process with nothing else running:
+
+| | full snapshot (before) | cursor (after) |
+|---|---|---|
+| job wall time | 136.5 s | 104.4 s |
+| dispatcher blocked by the 130 polls | 37.9 s | 6.4 s |
+| mean poll | 292 ms | 49 ms |
+| JSON produced by polls | 870 MB | 17 MB |
+| Wildebeest per verse inside the job | 45.9 ms | 32.8 ms |
+
+An earlier pair of runs gave 188 s vs 104 s, but `npm run test` was running
+during the "full" run, so it is not used.
+
+**Found, not fixed (#235).** The last poll of every whole-book job took
+4.5-5.0 s in both modes. That poll was at stage "Complete" and carried
+140 KB. `_fire_on_complete` writes the rollup and every chapter's findings
+snapshot while holding the job lock, by design: a poll must never see
+"succeeded" first. The dispatcher waits on that lock.
+
+**Verified.**
+- Engine: pytest over tests/jobs, test_bridge_service, test_language_qa,
+  test_stdio_e2e, test_qa_report and the timing tests: 445 passed. New:
+  `tests/jobs/test_check_job_cursor.py`, where incremental polls during a
+  held job add up to exactly the full result set in order, and
+  `tests/service/test_check_status_cursor_protocol.py`, covering the
+  protocol and refusals.
+- Frontend: `npm run check` 0/0, `npm run test` 639 passed, `npm run build`
+  ok.
+- The `App.svelte` monitor change has no unit test; App.svelte has none.
+- Desktop not run.
+
+## 2026-10-08 — Wildebeest cache (#230) and one decisions read per verse (#231)
+
+**#230.** `wb_ana.process(text, lang)` is pure for the package the process
+loaded. The adapter now keeps the three parts of the report it reads
+(`notable-token`, `non-canonical`, `block.ZERO_WIDTH`):
+- keyed by language and sha1 of the text;
+- bounded at 50,000 entries, oldest out;
+- for the life of the sidecar.
+
+Findings are still built on every call. A failed analysis is not cached.
+
+The cache is not persisted: `check_cache` rows go through the workbench
+writer, which appends to `change_log`, and a row per verse would flood the
+journal. For the same reason the issue's second half was not done. The
+alignment modals still ask for `greekroom`, which is now a cache hit.
+Dropping it would also have replaced the verse's findings list without its
+Wildebeest findings.
+
+**#231.** `run_stage` keeps a memo for the current verse only (`reads`).
+The verse's two QaFinding stages share one text read and one decisions read.
+The memo is cleared at the next verse, so a decision recorded mid-job on a
+later verse is still read when the job reaches it.
+
+**Measured.** GEN copy. Two whole-book jobs back to back in one process,
+`local+greekroom+languageQa`, cursor polls every 750 ms, #229-#231 all in:
+
+| | run 1 (cold) | run 2 (text unchanged) |
+|---|---|---|
+| wall | 95.8 s | 34.2 s |
+| Wildebeest | 49.5 s | 0.08 s |
+| decisions (1,533 reads) | 4.6 s | 5.3 s |
+| local stage | 23.6 s | 26.5 s |
+| preflight (names first time / cached) | 18.1 s | 1.0 s |
+| completion hook (#235) | 4.3 s | 6.4 s |
+
+Verse selection (`verse.runChecks ["greekroom"]`): 3.4-4.8 ms, was 33-55 ms.
+
+Against the first measurement of the day (295 s and 262 s, polled every
+100 ms) and the clean 750 ms baseline (136.5 s), a whole-book re-run on GEN
+is now 34 s.
+
+**A guess corrected.** I took the decisions cost to be a new workbench
+SQLite connection per read, at about 8 ms. Counting connections
+(`workbench.connect`, new) shows 2 ms each, 65 per 25 verses. The
+connection is most of a decisions read (2.9 ms) but only about 4 s of a GEN
+run, so no issue was filed for it.
+
+What is left in a re-run is the local stage, at about 17 ms per verse:
+`alignment_gap`, `alignment_load` and the tC check reads. Then come the
+completion hook (#235) and the Language QA pass (#232).
+
+**Tests.**
+- New: `greek_room_engine/tests/test_wildebeest_cache.py` (a stand-in
+  `wb_ana`, so no wildebeest-nlp install is needed) and
+  `tests/service/test_check_job_verse_reads.py`. The second checks that a
+  decision reaches both stages and that there is one read per verse.
+- `test_wildebeest_real`'s failure test now starts from an empty cache.
+- Four stubs of `_run_verse_checks_for_project` take the new keyword. The
+  first full run caught two of them failing. `failing_verse_checks` had kept
+  passing only because the TypeError also failed the job.
+- Engine `pytest -m "not slow"` on the committed tree: 4863 passed,
+  3 xfailed.
+
+## 2026-10-08 — A chapter job reuses a current Language QA pass (#232)
+
+**Problem.** Every chapter job ran `language_qa.run_pass()` over the whole
+book, even with nothing changed: about 1 s on GEN. And whenever a job's pass
+published, the background worker took the generation change for new input,
+looped, and ran another full pass (4.6 s on GEN). So reopen or an edit
+followed by a chapter job cost two passes.
+
+**Change** (`language_qa_jobs.py` only).
+- `_current(context, generation)` returns the published summary when it is
+  still what a pass would produce. That means:
+  - its state is "completed" at the caller's generation;
+  - the chapter files' signature equals the one that pass read.
+- Every input change already goes through `_schedule`, which bumps the
+  generation and resets the summary to "queued". That covers an edit, a
+  decision, the termbase, house style, learned fixes and the pack or checker
+  settings (through `bind`). A file changed outside Bridge shows in the
+  signature.
+- `run_pass` asks `_current` before scanning, and again (`_scan(reuse=...)`)
+  once it holds the pass lock. The second check catches a worker pass that
+  published while the job waited for the lock.
+- The worker exits, instead of starting another pass, when it finds a
+  published "completed" summary at the top of its loop.
+
+**Measured.** GEN copy, same script before (the change stashed) and after.
+A visit is a chapter job with `local+greekroom+languageQa`.
+
+| | before | after |
+|---|---|---|
+| chapter visit, Language QA part | 0.98-1.08 s, 1 pass | 1.3 ms, 0 passes |
+| reopen + immediate chapter job | 2 passes (1.07 s + 4.59 s) | 1 pass (1.13 s) |
+| edit 4:1 + chapter 4 job | 2 passes (1.02 s + 4.60 s) | 1 pass (1.06 s) |
+
+**A test changed, and why.**
+- `test_job_path_and_live_path_produce_identical_findings` asserted
+  `status()["scannedVerses"] == 0` after the job. Its comment says the job
+  "rescanned nothing".
+- Since this change the job may reuse the live pass outright. `status()`
+  then reports what the live pass scanned, which was 1 under `-n auto` (the
+  edited verse) and 0 when run alone. So the test failed 3/3 in parallel and
+  passed alone.
+- It now counts `scan_verse` calls during the job and asserts none. That
+  holds before and after #232, in either ordering.
+
+**Verified.**
+- New: `tests/service/test_language_qa_pass_reuse.py`. It covers no pass when
+  nothing changed, one pass after an edit, a pass after a file changed outside
+  Bridge, and one pass at reopen.
+- test_language_qa.py + the new file, `-n auto`, three runs: 300 passed each.
+  The fixed test also passes serially.
+- Full engine suite before the test fix: 4865 passed, 1 failed (this test).
+- Desktop not run.
+
+## 2026-10-08 — One owner for zero-width and double spaces (#234); no lock during the completion hook (#235); names cache (#233)
+
+**#234, ownership decided by Benz.**
+- `local_checks.target_editorial_checks` no longer emits
+  `{TA|LANG}_DOUBLE_SPACE` or `{TA|LANG}_HIDDEN_CHAR`.
+- Language QA owns both, as `spacing.extra` and `unicode.invisible`.
+  Measured on the edited GEN verse: one U+200B used to produce three
+  findings, from local, Wildebeest and Language QA.
+- Wildebeest's three checks stay. Repeated word stays local.
+- `_categorize_qaissue` and the triage family table still know the two codes,
+  because snapshots and reports written before this change carry them.
+- A decision recorded on one of these findings now matches nothing.
+- Test: `tests/jobs/test_local_checks_ownership.py`.
+
+**#235.**
+- `_fire_on_complete` used to write the rollup and every chapter's findings
+  snapshot inside `job.lock`. On GEN the next status poll, and the dispatcher
+  behind it, waited 4.5-5 s.
+- `_finish` now sets a non-terminal `finalizing` state ("Saving results"),
+  runs the hook without the lock, then sets the outcome.
+  - The guarantee holds: no poll sees "succeeded" before the writes.
+  - `cancel` during finalizing changes nothing.
+  - The hook reads `job.outcome`.
+- Frontend: `CheckJobState` and the progress store include `finalizing`, and
+  Cancel is disabled during it.
+- GEN whole book, cursor polls every 750 ms:
+  - slowest poll 5.0 s -> 0.53 s; that poll now falls in "Preparing checks",
+    and the final poll no longer waits;
+  - dispatcher blocked by polls 6.4 s -> 1.4 s;
+  - job wall time 95.5 s.
+- Test: `tests/jobs/test_check_job_finalizing.py`.
+
+**#233.** Measured first, with `names.*` phases. The dispatcher records them
+from the adapter's `last_phases`, so `greek_room_engine` still imports nothing
+from `tc_ai_bridge`. GEN:
+
+| phase | first open | after an edit, before | after an edit, with the cache |
+|---|---|---|---|
+| load uroman + SED (once per process) | 8.0-8.4 s | 0 | 0 |
+| romanize 7,279 tokens | 3.9-4.2 s | 4.2 s | 0.008 s |
+| SED over 38,577 candidate pairs | 8.0-8.6 s | 8.6 s | 0.05 s |
+| candidate pairs + text map | ~1.0 s | ~1.1 s | ~1.0 s |
+| total | 21.6 s | 14.1 s | 1.37 s |
+
+- Romanizations are cached per (language, token), and SED results per
+  (language, romanized pair).
+- The caches last for the sidecar's life and are bounded at 300k and 400k
+  entries, oldest dropped first.
+- They are not persisted, for the reason given under #230.
+- The adapter's docstring says the uroman load takes about 2 s. Measured here,
+  the load is 8.0-8.4 s, uroman and SED together. That is still once per
+  process.
+- Moving the load off the first open would mean preloading at startup. That
+  is a product question and is left open.
+- Test: `greek_room_engine/tests/test_names_cache.py`, against the real
+  dependencies. It checks that unchanged words are not romanized or compared
+  again, and that a new word is romanized once.
+
+**Suite.**
+- One full run on the combined #234 + #235 tree: 4870 passed.
+- With #233, one run had 1 failure that I did not capture by name. The
+  rerun, with failures printed, had 4872 passed and 3 xfailed. Recorded as
+  unexplained, not cleared.
+
+**Frozen smoke: a regression in the harness, exposed by the traces.**
+- After #233 the rebuilt pair failed `smoke_sidecars.py` 3/3 with
+  `Request open-tamil timed out`. That is the step right after the Hindi
+  pack.
+- `scripts/smoke_sidecars.py` starts the engine with `stderr=PIPE`. It reads
+  stdout on a thread but never reads stderr.
+- Today's `[trace] timing ...` lines filled that pipe, which holds a few KB
+  on Windows, and the engine blocked on its next stderr write in the middle
+  of a request.
+- From source, in-process, the same open took 0.8 s.
+- `sidecar.rs` reads stderr continuously and records every line as a
+  diagnostics entry, so the desktop app does not block.
+- Fixes:
+  - the harness now drains stderr into a 200-line tail, and a timeout prints
+    the last 5 lines;
+  - `verse.runChecks` traces only when it took 100 ms or more, as RPCs
+    already did;
+  - trace summaries are capped at the 12 slowest steps. The full set stays
+    on the job's or pass's `timings`.
+- With the harness fix the smoke test passed: Hindi 2.45 s, ta-irv layer
+  3.55 s.
+- Final gate on the final tree, after the trace reduction:
+  - `build-sidecars.ps1` rebuilt both exes;
+  - `smoke_sidecars.py` passed: Hindi 2.08 s, ta-irv layer 3.20 s;
+  - engine `pytest -m "not slow"`: 4872 passed, 3 xfailed.
+- Frontend for #235: `npm run check` 0/0, `npm run test` 639 passed,
+  `npm run build` ok.
+- Rust is untouched; neither `cargo check` nor `cargo test` was run.
+- The desktop app was not run.

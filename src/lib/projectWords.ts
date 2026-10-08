@@ -13,6 +13,19 @@ export function isKnownMisspellingRule(ruleId: string): boolean {
 }
 
 /**
+ * Whether "Add to the project word list" would silence this finding: one
+ * word, in a category a project word hides, not a learned fix (that word is
+ * the reviewer's own correction already, as the indic-qa editor says), and
+ * not a reviewed misspelling. The verse menu and the review panel both ask
+ * this, so they never disagree.
+ */
+export function canAddProjectWord(finding: Pick<LanguageQaFinding, "category" | "ruleId" | "originalText">): boolean {
+  const word = finding.originalText.trim();
+  return Boolean(word) && !/\s/.test(word) && finding.category !== "learned"
+    && WORD_CATEGORIES.has(finding.category) && !isKnownMisspellingRule(finding.ruleId);
+}
+
+/**
  * Add words to the project word list: their spelling findings go from the
  * chapter on screen at once, then the engine records them (a pass follows).
  * Put back if the engine refuses. Returns an error message, or "".

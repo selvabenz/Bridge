@@ -31,12 +31,16 @@ characters, repeated punctuation, a space before punctuation and the known
 footnotes, which nothing else reads. Digits, repeated words and a space before
 a footnote's end are off: the 2026-09-28 review rejected all three.
 
-Bridge policy, not indic-qa's: a word missing from the OV is reported only
-when the IRV itself uses it at most RARE_MAX times (a frequent form is house
-practice, as the dictionary's own REPORT.md says), and only as a near miss when
-its best suggestion is a typing slip or a reviewed correction. Every other
-unknown word is `indicqa.lex.unknown`, which ships disabled: on the IRV it is
-2,000+ per book, mostly valid modern Tamil the 1957 OV does not have.
+Bridge policy, not indic-qa's: a word missing from the OV is a near miss
+(medium confidence) only when the IRV itself uses it at most RARE_MAX times and
+its best suggestion is a typing slip or a reviewed correction. Any other
+unknown word the IRV uses fewer than IRV_ACCEPT_MIN times is
+`indicqa.lex.unknown`, low confidence, drawn under the Settings slider the way
+the web app draws it (DECISIONS 2026-10-08). A word the IRV uses that often is
+house practice, as the dictionary's own REPORT.md says, and the bar is the
+other profiles' own `lex.irv_accept_min`, which the Tamil profile lacks. A
+compound the IRV uses more than RARE_MAX times is accepted, as the web app's
+grey compound mark says.
 """
 from __future__ import annotations
 
@@ -47,8 +51,11 @@ PROFILE = "ta"
 LAYER_KEY = "indicQa"
 RULES_FILE = "indic_qa_rules.json"
 
-# How often the IRV may use an out-of-OV word before it counts as house practice.
+# How often the IRV may use an out-of-OV word and still be a near miss.
 RARE_MAX = 2
+# How often the IRV uses an out-of-OV word before it is house practice and not
+# reported at all: the other profiles' lex.irv_accept_min default.
+IRV_ACCEPT_MIN = 5
 # Suggestion classes (indic-qa's bd.edit_class, plus its "reviewed"/"learned")
 # that make an unknown word a probable typing slip.
 SLIP_CLASSES = frozenset({"reviewed", "learned", "consonant_confusable", "vowel_length", "pulli", "transpose"})
@@ -58,7 +65,7 @@ SLIP_CLASSES = frozenset({"reviewed", "learned", "consonant_confusable", "vowel_
 RULES: dict[str, tuple[str, str, bool, bool]] = {
     "indicqa.lex.near-miss": ("Lexicon", "Not in the OV dictionary, and one typing slip from a known word", False, True),
     "indicqa.lex.compound": ("Lexicon", "Not in the OV dictionary, but splits into two known words", False, True),
-    "indicqa.lex.unknown": ("Lexicon", "Not in the OV dictionary", False, False),
+    "indicqa.lex.unknown": ("Lexicon", "Not in the OV dictionary, and rare in the IRV", False, True),
     "indicqa.shape.malformed": ("Shape", "Malformed Tamil spelling", False, True),
     "indicqa.shape.initial-pulli": ("Shape", "Word starts with a consonant + புள்ளி (broken word?)", False, True),
     "indicqa.shape.unusual-initial": ("Style", "Unusual first letter: no Tamil word starts with ங ண ழ ள ற ன ட", False, True),
@@ -83,8 +90,8 @@ DEFAULT_ENTRIES: dict[str, dict[str, Any]] = {
     "indicqa.lex.near-miss": {"category": "typo", "layer": "lexicon", "severity": "medium", "confidence": "medium"},
     "indicqa.lex.compound": {"category": "word-joining", "layer": "lexicon", "severity": "low", "confidence": "low"},
     "indicqa.lex.unknown": {
-        "category": "typo", "layer": "lexicon", "severity": "low", "confidence": "low", "enabled": False,
-        "note": "off in Bridge: on the IRV, 2,000+ per book are valid modern Tamil the 1957 OV lacks"},
+        "category": "typo", "layer": "lexicon", "severity": "low", "confidence": "low",
+        "note": "not in the OV and used fewer than 5 times in the IRV; drawn under the Settings slider (confidence low)"},
     "indicqa.shape.malformed": {"category": "unicode", "layer": "integrity", "severity": "medium", "confidence": "medium"},
     "indicqa.shape.initial-pulli": {"category": "word-joining", "layer": "pattern", "severity": "medium",
                                     "confidence": "medium"},
@@ -153,8 +160,13 @@ class Item(NamedTuple):
     context: str
 
 
-def _suggestion(text: str, source: str, rationale: str) -> dict[str, Any]:
-    return {"text": text, "rank": 1, "source": source, "rationale": rationale}
+def _suggestion(text: str, source: str, rationale: str, *, kind: str = "", freq: int | None = None) -> dict[str, Any]:
+    out: dict[str, Any] = {"text": text, "rank": 1, "source": source, "rationale": rationale}
+    if kind:
+        out["kind"] = kind
+    if freq is not None:
+        out["freq"] = int(freq)
+    return out
 
 
 def _word_suggestions(token: dict[str, Any]) -> list[dict[str, Any]]:
@@ -164,7 +176,8 @@ def _word_suggestions(token: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         cls = s.get("cls") or s.get("op") or ""
         why = {"reviewed": "the reviewer's correction (corrections.tsv)", "learned": "changed before"}.get(cls, cls)
-        out.append(_suggestion(s["w"], "lexicon", why + (f" · {s['freq']}× in the OV/IRV" if s.get("freq") else "")))
+        out.append(_suggestion(s["w"], "lexicon", why + (f" · {s['freq']}× in the OV/IRV" if s.get("freq") else ""),
+                               kind=cls, freq=s.get("freq") if isinstance(s.get("freq"), int) else None))
     return out
 
 
@@ -186,10 +199,15 @@ def _token_item(token: dict[str, Any]) -> tuple[str, list, str] | None:
     rare = token.get("irv", 0) <= RARE_MAX
     if rare and top.get("w") and top.get("cls") in SLIP_CLASSES:
         return "indicqa.lex.near-miss", suggestions, f"{evidence}; nearest known word {top['w']}"
-    if status == "compound" and rare:
+    if status == "compound":
+        if not rare:
+            return None  # two known words the IRV joins often: accepted (the web app's grey mark)
         first, second, how = (list(token.get("parts") or ()) + ["", "", ""])[:3]
-        split = [_suggestion(f"{first} {second}", "rule", f"two known words ({how} junction)")] if first else []
+        split = [_suggestion(f"{first} {second}", "rule", f"two known words ({how} junction)", kind="split")
+                 ] if first else []
         return "indicqa.lex.compound", split + suggestions, f"{first} + {second}; {evidence}"
+    if token.get("irv", 0) >= IRV_ACCEPT_MIN:
+        return None  # house practice
     return "indicqa.lex.unknown", suggestions, evidence
 
 

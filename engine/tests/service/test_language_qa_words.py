@@ -95,3 +95,19 @@ def test_irv_occurrences_scan_the_open_book_with_raw_offsets(engine):
         assert hit["snippet"][hit["snippetStart"]:hit["snippetEnd"]] == WORD
     capped = rpc(bridge, "languageQa.occurrences", projectPath=str(project), word=WORD, limit=1)
     assert (capped["total"], len(capped["hits"]), capped["truncated"]) == (3, 1, True)
+
+
+def test_search_in_this_book_finds_any_run_of_text_not_only_whole_words(engine):
+    """The word menu's "Search in this book" (match: text): a phrase across
+    two words, or part of a word, with the same raw offsets and snippet."""
+    bridge, project = engine
+    phrase = rpc(bridge, "languageQa.occurrences", projectPath=str(project), word="सताईस दिन", match="text")
+    assert (phrase["match"], phrase["total"]) == ("text", 1)
+    hit = phrase["hits"][0]
+    assert CHAPTERS[hit["chapter"]][hit["verse"]][hit["start"]:hit["end"]] == "सताईस दिन"
+    assert hit["snippet"][hit["snippetStart"]:hit["snippetEnd"]] == "सताईस दिन"
+    part = rpc(bridge, "languageQa.occurrences", projectPath=str(project), word="ताईस", match="text")
+    whole = rpc(bridge, "languageQa.occurrences", projectPath=str(project), word="ताईस")
+    assert (part["total"], whole["total"]) == (3, 0), "part of a word is text, not a word"
+    refused = call(bridge, "languageQa.occurrences", {"projectPath": str(project), "word": "x", "match": "regex"})
+    assert not refused["success"]
