@@ -5,6 +5,8 @@ none of this work touches them."""
 from __future__ import annotations
 
 import json
+import os
+import time
 
 import pytest
 
@@ -61,6 +63,11 @@ def book(tmp_path):
                 {"modifiedTimestamp": "2026-02-01T00:00:00Z", "verseBefore": "a", "verseAfter": "b"}, "e1")
     write_state(root, "php", "comments", "1", "3",
                 state_record("php", "1", "3", tw, "kt", "word", text="check this"), "c1")
+    # Written a minute ago, as a real project's files are: the chapter cache
+    # re-reads anything under two seconds old (#239).
+    old = time.time_ns() - 60_000_000_000
+    for path in [root, *root.rglob("*")]:
+        os.utime(path, ns=(old, old))
     return root
 
 

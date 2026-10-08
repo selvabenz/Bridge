@@ -17289,3 +17289,40 @@ and runs five PRAGMAs, about 3 ms on GEN. An aligned verse also read its links
   - without writes it is read once.
 - Engine `pytest -m "not slow"`: 4910 passed, 1 failed. The failure was
   #239's directory-listing test, a real race fixed in the next entry.
+
+## 2026-10-09 — Fix: the chapter cache trusted a timestamp from the same tick (#239)
+
+**Found by the suite.** After #241, one run of `pytest -n auto` failed
+`test_a_new_or_removed_chapter_shows_in_chapters`. It had passed in the two
+runs before.
+
+**Reproduced.**
+- With 8 processes each adding a chapter and then removing one straight
+  after, `chapters()` returned the stale list 27-47 times in 200 per process
+  after the removal. After the add it never did.
+- Cause: NTFS timestamps tick about every 15 ms. Two changes inside one tick
+  leave the directory's mtime where it was, so the cached listing matched.
+- The file cache had the same hole for a different case: an in-place,
+  same-size rewrite inside one tick keeps the file id, size and mtime. #239's
+  file id only covers atomic replaces.
+
+**Fix.** Git's "racy clean" rule (`_racy`). A cached listing or parse whose
+timestamp is less than 2 s old is read again rather than trusted. Older than
+that, a later change always moves the timestamp.
+
+**Verified.**
+- Stress after the fix: 0 stale in 1,600, after both the add and the
+  removal.
+- Two new tests:
+  - a same-size in-place rewrite with the mtime pinned;
+  - 50 add-then-remove rounds.
+
+  Both fail with `_racy` disabled and pass with it on.
+  - The first version of the tick test passed even with the rule off. Its
+    "same length" text was one code point shorter, so the size gave the
+    change away. It now uses ன → ள (both 3 bytes) and asserts the size.
+- The test fixtures that count parses now age their files by a minute, as
+  real project files are.
+- GEN: no extra parses (run 1: 50, run 2: 0). The local stage is unchanged
+  within noise.
+- Engine `pytest -m "not slow"`: 4913 passed, 3 xfailed.

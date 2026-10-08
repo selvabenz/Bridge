@@ -33,6 +33,19 @@ class ProjectError(RuntimeError):
     pass
 
 
+# A cached chapter file or listing whose timestamp is this recent is read
+# again rather than trusted (git's "racy clean" rule). NTFS timestamps tick
+# about every 15 ms, so two changes inside one tick leave the same mtime: a
+# chapter added and another removed straight after kept the directory's mtime
+# 20-30% of the time under load (2026-10-09). Older than this, a later change
+# always moves the timestamp.
+_RACY_NS = 2_000_000_000
+
+
+def _racy(mtime_ns: int) -> bool:
+    return time.time_ns() - mtime_ns < _RACY_NS
+
+
 def _read_json(path: Path) -> Any:
     with path.open('r', encoding='utf-8-sig') as f:
         return json.load(f)
@@ -304,14 +317,15 @@ class TranslationCoreProject:
 
     def chapters(self) -> list[str]:
         # A file added or removed (or a writer's temp file) changes the
-        # directory's mtime; only then is it listed again (#239).
+        # directory's mtime; only then is it listed again (#239). A listing
+        # from within the last two seconds is never trusted (_racy).
         try:
             stamp = self.alignment_dir.stat().st_mtime_ns
         except FileNotFoundError:
             stamp = -1
         with self._chapter_file_lock:
             cached = self._chapter_list_cache
-            if cached is not None and cached[0] == stamp:
+            if cached is not None and cached[0] == stamp and not _racy(stamp):
                 return list(cached[1])
         chapters = sorted((x.stem for x in self.alignment_dir.glob('*.json') if x.stem.isdigit()), key=int)
         with self._chapter_file_lock:
@@ -346,7 +360,7 @@ class TranslationCoreProject:
             return None
         with self._chapter_file_lock:
             cached = self._chapter_file_cache.get(key)
-            if cached is not None and cached[0] == signature:
+            if cached is not None and cached[0] == signature and not _racy(signature[1]):
                 return cached[1]
         with check_timing.current().step("project.chapter_parse"):
             data = _read_json(path)

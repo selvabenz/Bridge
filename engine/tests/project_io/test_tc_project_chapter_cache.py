@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 
 import pytest
 
@@ -26,7 +27,16 @@ def project(tmp_path):
         },
         "2": {"1": unaligned_verse("இரண்டாம் அதிகாரம்", [("δεύτερον", "G12080")])},
     })
+    _age(root)
     return TranslationCoreProject(root)
+
+
+def _age(root, seconds: int = 60) -> None:
+    """Make every file and directory look written a minute ago, as a real
+    project's are: the cache re-reads anything under two seconds old."""
+    old = time.time_ns() - seconds * 1_000_000_000
+    for path in [root, *root.rglob("*")]:
+        os.utime(path, ns=(old, old))
 
 
 @pytest.fixture
@@ -63,9 +73,10 @@ def test_each_chapter_file_is_parsed_once_while_it_is_unchanged(project, parses)
 def test_a_file_rewritten_by_another_program_is_read_on_the_next_access(project):
     assert project.target_verse_text("1", "1") == "அவன் வந்தான்"
     target = project.book_dir / "1.json"
-    # Same length, so only the file id and the mtime tell it apart.
-    _rewrite(target, {"1": "அவன் போனான்", "2": "அவள் போனாள்", "3": "அவர்கள் இருந்தார்கள்"})
-    assert project.target_verse_text("1", "1") == "அவன் போனான்"
+    # Same size (ன -> ள are both three bytes), so only the file id and the
+    # mtime tell it apart.
+    _rewrite(target, {"1": "அவள் வந்தான்", "2": "அவள் போனாள்", "3": "அவர்கள் இருந்தார்கள்"})
+    assert project.target_verse_text("1", "1") == "அவள் வந்தான்"
 
     alignment = project.chapter_path("1")
     data = json.loads(alignment.read_text(encoding="utf-8"))
@@ -139,3 +150,32 @@ def test_errors_are_unchanged(project):
     with pytest.raises(tc_project.ProjectError, match="Invalid alignment chapter JSON"):
         project.verses("2")
     assert project.target_verse_text("7", "1") == ""
+
+
+def test_a_change_inside_one_timestamp_tick_is_still_read(project, parses):
+    """An in-place, same-size rewrite that also keeps the mtime -- two writes in
+    one NTFS tick -- matches the cached signature exactly. A recently written
+    file is never trusted from the cache, so the change is read (#239)."""
+    target = project.book_dir / "1.json"
+    now = time.time_ns()
+    os.utime(target, ns=(now, now))
+    assert project.target_verse_text("1", "1") == "அவன் வந்தான்"
+    data = json.loads(target.read_text(encoding="utf-8"))
+    before_size = target.stat().st_size
+    data["1"] = "அவள் வந்தான்"  # ன -> ள: both three bytes, so the size is unchanged
+    with target.open("w", encoding="utf-8") as fh:  # in place: the file id is kept
+        json.dump(data, fh, ensure_ascii=False)
+    os.utime(target, ns=(now, now))
+    assert target.stat().st_size == before_size
+    assert project.target_verse_text("1", "1") == "அவள் வந்தான்"
+
+
+def test_a_chapter_removed_straight_after_one_was_added_is_gone(project):
+    for _ in range(50):
+        names = project.chapters()
+        new = str(int(names[-1]) + 1)
+        project.chapter_path(new).write_text(json.dumps({"1": {"alignments": [], "wordBank": []}}),
+                                             encoding="utf-8")
+        assert project.chapters()[-1] == new
+        project.chapter_path(new).unlink()
+        assert project.chapters() == names
