@@ -5036,8 +5036,9 @@ class BridgeEngine:
         succeeded job (no failed verses) updates anything; a failed/cancelled
         job must not claim a chapter is AI-checked when it isn't. Best-effort,
         same reasoning as _apply_decision_to_progress: never let this surface
-        as a check-job failure to the UI."""
-        if job.state != "succeeded":
+        as a check-job failure to the UI. Runs while the job is "finalizing";
+        `job.outcome` is how it ended (#235)."""
+        if (getattr(job, "outcome", None) or job.state) != "succeeded":
             return
         try:
             by_chapter: dict[str, dict[str, dict[str, str]]] = {}

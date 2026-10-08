@@ -105,7 +105,7 @@ export interface CheckingProgress {
   percent: number;
   label: string;
   jobId: string;
-  state: "idle" | "queued" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled";
+  state: "idle" | "queued" | "running" | "cancelling" | "finalizing" | "succeeded" | "failed" | "cancelled";
   error: string;
   scope: "chapter" | "book";
 }

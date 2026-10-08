@@ -1087,7 +1087,7 @@
         {$checkingProgress.label} — {$checkingProgress.percent}%
       </span>
       <div class="track"><div class="fill" style="width:{$checkingProgress.percent}%" /></div>
-      <button class="progress-action cancel-action" on:click={cancelChecks} disabled={$checkingProgress.state === "cancelling"}>
+      <button class="progress-action cancel-action" on:click={cancelChecks} disabled={$checkingProgress.state === "cancelling" || $checkingProgress.state === "finalizing"}>
         {$checkingProgress.state === "cancelling" ? "Cancelling…" : "Cancel"}
       </button>
     </div>

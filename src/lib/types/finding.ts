@@ -1119,8 +1119,10 @@ export interface IssueResolutionHandoffResult {
   };
 }
 
+/** "finalizing": every verse is done and the results are being saved; not
+ *  terminal, so a monitor keeps polling (#235). */
 export type CheckJobState =
-  | "queued" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled";
+  | "queued" | "running" | "cancelling" | "finalizing" | "succeeded" | "failed" | "cancelled";
 
 export interface CheckJobVerseResult {
   chapter: string;
