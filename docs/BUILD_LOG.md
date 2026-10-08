@@ -16683,3 +16683,43 @@ settings…"; no row for a language without an indic-qa checker):
 
 **Verified.** `npm run check` 0/0; `npm run test` 639 passed (15 new:
 11 dialog, 2 Fieldset, 2 Settings); `npm run build` ok. Desktop NOT RUN.
+
+## 2026-10-08 — Handoff: indic-qa parity round 2 (steps 1–4)
+
+The four commits on `indic-qa-editor`, on top of `0e8325e`:
+- `93b70ab`: unknown words are findings.
+- `36a7029`: per-collection checker settings.
+- `06c91d9`: the word menu.
+- `ba557b2`: the Checker settings dialog.
+
+**Gates run after the last commit.**
+- `pytest -n auto`: 5055 passed, 1 skipped, 3 xfailed (16m47s).
+- The three human gates passed: Tamil, `hi --language hin`, and
+  `ml --language mal`.
+- Frontend: `npm run check` 0/0, `npm run test` 639 passed, `npm run build`
+  ok.
+- Rust: `cargo check` ok, `cargo test` 11 passed.
+- Frozen pair: rebuilt with `build-sidecars.ps1`; `smoke_sidecars.py`
+  passed. The Hindi pack took 2.02 s and the ta-irv layer 3.42 s.
+- Latency gate (`--gate --cores 2`): passed for Tamil source, Tamil frozen
+  and Hindi frozen.
+  - Hindi source failed once: `verse.decide (languageQa)` p95 was 1035 ms
+    against a 50 ms budget.
+  - It passed on two reruns, with p95 25 ms and 47 ms.
+  - Only 10 samples are timed, so p95 is the maximum and one stall fails it.
+  - The 47 ms rerun is close to the budget. Step 1 added unknown-word
+    findings, so a decided verse can carry more findings than before.
+  - Reported, not tuned. Watch this gate if it fails again.
+
+**Not done.**
+- The desktop check at 1366×768 has not been run. What it should cover is
+  listed in A118–A121.
+- `rule_precision.json` has no entries for the `lex.unknown` rules yet, so
+  the slider treats them as unmeasured and always draws them. Regenerating it
+  with `--write-precision` would be its own commit.
+- Open for the maintainer:
+  - Profile packs check verse text only. Checking headings and footnotes
+    needs their `irv_state.json.gz` rebuilt.
+  - Tamil's `IRV_ACCEPT_MIN = 5` is a Bridge choice.
+  - A lazy sibling materialized after a save has no copy of the checker
+    settings. This is the same gap as project-scope house style.
