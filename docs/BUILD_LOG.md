@@ -16425,3 +16425,81 @@ follows; the earlier entries in this log that cite the old ids are left as writt
 Every number above was measured or counted on `main` today: `wc -l`, a grep
 for the dispatcher import, `cargo test -- --list`, and the matrix rows'
 own status columns.
+
+## 2026-10-08 — Unknown words are drawn under the slider (indic-qa parity, step 1)
+
+Benz compared `main` with the indic-qa web app and found that "not all the
+typos are visible" and that the menu offered no suggestions or "Add to
+dictionary". Three read-only investigations traced both complaints to one
+cause: the web app's main mark, a word not in the dictionary, was off in
+every Bridge pack. With no mark there is no menu. Benz chose to draw unknown
+words under the slider, and to keep the grey accepted-word marks undrawn.
+See DECISIONS 2026-10-08.
+
+**Engine.**
+- `indic_qa_adapter.default_entry`: `lex.unknown` is low/low and follows
+  upstream (on). The four `rule_versions.json` entries were edited by hand
+  (the build script never rewrites an entry); `revision` stays 1, because
+  nothing was decided under the disabled rule.
+- `indic_qa_tamil`:
+  - `IRV_ACCEPT_MIN = 5`: an unknown word the IRV uses that often is house
+    practice;
+  - a compound the IRV uses more than twice is accepted;
+  - `indicqa.lex.unknown` is on in `indic_qa_rules.json`.
+- `language_qa.suggestion()` gains `kind` and `freq`, set from the
+  checker's `cls`/`op` and `freq` in both adapters (a split is kind
+  `split`). `MAX_SUGGESTIONS` goes from 5 to 9, as in the web app's menu.
+- `language_qa_jobs`:
+  - book-stage findings are settled, then kept by `_cap_order` (confidence,
+    then severity, reading order within a rank), with a per-rule "omitted"
+    note;
+  - `_already_flagged` defers only to an inline overlap;
+  - the profile pack message no longer says agreement leads are never
+    drawn.
+
+**Tests.**
+- New:
+  - `test_unknown_default_entry_is_low_confidence_and_follows_upstream`;
+  - `test_unknown_words_are_on_low_confidence_and_never_inline` (4 packs);
+  - `test_unknown_words_are_findings_with_suggestions_and_low_confidence`
+    (मनूष्य → मनुष्य, vowel_length);
+  - `tests/language_packs/test_indic_qa_tamil_unknown.py` (3);
+  - `tests/jobs/test_language_qa_cap_and_dedupe.py` (2);
+  - `tests/jobs/test_language_qa_suggestion_fields.py` (2);
+  - two dispatcher tests in `test_language_qa_indic.py`: drawn by default
+    and hidden by the floor, and silenced by a project word.
+- Changed: the three that pinned "unknown is off". `test_a_disabled_rule_reports_nothing`
+  now disables the rule with a project override.
+- Isolated: `test_language_qa.py` and `test_language_qa_benchmark.py` use
+  made-up Tamil words that are not in the OV, so their autouse fixtures
+  also call the new `tests/support/packs.switch_off_ta_unknown_words`.
+  - Without it, seven tests failed on unexpected `indicqa.lex.unknown`
+    findings.
+  - One of those was the benchmark harness's synthetic typo முழவதும். The
+    new rule does find it, which is correct, but that test is about the
+    harness's counting.
+- `scripts/benchmark_language_qa.py`'s Tamil sanity check pinned "exactly
+  one finding". It now checks that the corruption in verse 3-4 is reported
+  and is gone after the edit.
+
+**Measured** (one book through the adapter):
+
+| Book | Verses | Unknown words | All indic-qa findings |
+|---|---|---|---|
+| Tamil Ruth | 85 | 129 | 159 |
+| Tamil Genesis | 1,533 | 1,152 | 1,447 |
+| Tamil Luke | 1,140 | 1,140 | 1,266 |
+| Malayalam Genesis | 1,533 | 658 | 1,645 |
+| Hindi Genesis | 1,533 | 4 | 24 |
+
+All are under the 3,000 cap.
+
+**Verified.**
+- Human gates (ta, hi, ml): pass. `ml.lex.unknown` has 27 labelled, 27 TP,
+  0 lost.
+- Latency gates: Tamil passed twice, Hindi passed.
+- `tests/language_packs` and the Language QA service tests pass; the full
+  suite result is in the commit message.
+
+**Not verified.** The desktop app: whether a reviewer finds the Tamil
+density (about one unknown word per verse) useful at the default threshold.

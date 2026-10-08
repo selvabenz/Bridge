@@ -292,8 +292,9 @@ or the whole verse.
 
 - No rule has high severity together with high confidence, so none blocks
   export. The loader refuses such an entry.
-- `<code>.lex.unknown` is off: a word that is not in the dictionary is not a
-  finding.
+- `<code>.lex.unknown` is on at low severity and low confidence, and never
+  inline (DECISIONS 2026-10-08). It is drawn under the Settings slider; a
+  confidence floor of "medium" hides it from the text.
 - The coverage statement lists the pack's own categories. "Agreement" is
   replaced by "agreement across a whole clause", because corpus-attested pairs
   are flagged.
@@ -391,12 +392,14 @@ What the layer does differently from a profile pack:
   message gives the OV and IRV counts behind it.
 - **Unknown words go through a rarity gate.** The rule depends on how often
   the IRV uses the word:
-  - If the IRV uses it more than twice, it is house practice.
-  - A rare word whose best OV suggestion is a typing slip (ல/ள/ழ, ன/ண/ந,
-    ர/ற, vowel length, புள்ளி, transposition) or a reviewed correction is
-    `indicqa.lex.near-miss`.
+  - A rare word (the IRV uses it at most twice) whose best OV suggestion is
+    a typing slip (ல/ள/ழ, ன/ண/ந, ர/ற, vowel length, புள்ளி, transposition)
+    or a reviewed correction is `indicqa.lex.near-miss`.
   - A rare word that splits into two known words is `indicqa.lex.compound`.
-  - Every other unknown word is `indicqa.lex.unknown`, which is off.
+    A compound used more often is accepted.
+  - Any other unknown word the IRV uses fewer than `IRV_ACCEPT_MIN` (5) times
+    is `indicqa.lex.unknown`, at low confidence, drawn under the slider
+    (DECISIONS 2026-10-08). One used that often is house practice.
 
 Re-vendoring: steps 1–4 of "Updating" above, plus
 `build_indic_qa_packs.py --ta-layer` and `--irv-state ta`. If a change to

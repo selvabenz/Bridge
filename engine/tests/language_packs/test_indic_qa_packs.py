@@ -8,6 +8,7 @@ import json
 import pytest
 
 from tc_ai_bridge.language_packs import default_pack, indic_qa_adapter, indic_qa_vendor
+from tc_ai_bridge.language_packs.loader import apply_overrides
 from tc_ai_bridge.language_packs.registry import packs_dir
 from tests.support.indic_qa import check
 
@@ -87,10 +88,29 @@ def test_malayalam_encoding_is_reported_per_run_not_across_a_footnote():
     assert not any("spanning inline USFM" in note for note in notes)
 
 
+# A vowel-length slip of मनुष्य: not in the dictionary, and rare in the IRV.
+UNKNOWN_HINDI = "वह मनूष्य गया"
+
+
+@pytest.mark.parametrize("name", PACKS)
+def test_unknown_words_are_on_low_confidence_and_never_inline(name):
+    rule = default_pack(name).by_id(f"{name.split('-')[0]}.lex.unknown")
+    assert (rule.enabled, rule.inline, rule.severity, rule.confidence) == (True, False, "low", "low")
+
+
+def test_unknown_words_are_findings_with_suggestions_and_low_confidence():
+    findings, _ = check(default_pack("hi-irv"), "GEN", {"1": {"1": UNKNOWN_HINDI}})
+    unknown = _finding(findings, "hi.lex.unknown")
+    assert unknown["originalText"] == "मनूष्य"
+    assert (unknown["confidence"], unknown["inline"], unknown["category"]) == ("low", False, "typo")
+    top = unknown["suggestions"][0]
+    assert (top["text"], top["kind"]) == ("मनुष्य", "vowel_length") and top["freq"] > 100
+
+
 def test_a_disabled_rule_reports_nothing():
-    pack = default_pack("hi-irv")
+    pack = apply_overrides(default_pack("hi-irv"), {"rules": {"hi.lex.unknown": {"enabled": False}}})
     assert not pack.by_id("hi.lex.unknown").enabled
-    findings, _ = check(pack, "GEN", {"1": {"1": "ज़ीज़ीक्वाक्स्त्र नामक शब्द"}})
+    findings, _ = check(pack, "GEN", {"1": {"1": UNKNOWN_HINDI}})
     assert not [f for f in findings if f["rule"] == "hi.lex.unknown"]
 
 

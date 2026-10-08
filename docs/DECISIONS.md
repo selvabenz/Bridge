@@ -560,6 +560,62 @@ Once the project has completed alignments, an agreed **cross-verse** edge is als
 **Limits, recorded so nobody takes them for guarantees:** two samples of one model are correlated, so agreement lowers the error rate but does not bound it. Every number is uncalibrated (`two-pass-agreement-v1`). No real-provider request has been sent yet (#131), so precision is unknown until the `external` test is run with a key.
 **Revisit when:** the first real-provider measurement on the PHP fixtures is recorded; or the maintainer objects on #214.
 
+## 2026-10-08 — Unknown words are drawn, under the Settings slider
+**Decision:** A word not in the language's dictionary is reported as the
+indic-qa web app reports it: `<code>.lex.unknown` for hi, ml, or and pa, and
+`indicqa.lex.unknown` for the Tamil layer. Each is on, at low severity and low
+confidence, and never `inline`. Being drawn follows the reviewer's threshold
+(language_qa_drawn): the default draws it, and a confidence floor of "medium"
+hides it from the text but keeps it in the panel. Benz chose this on
+2026-10-08.
+- **Tamil.** The profile has no `lex.irv_accept_min`, unlike the other four
+  (default 5), so the layer applies that bar itself (`IRV_ACCEPT_MIN = 5`). A
+  word the IRV uses five times or more is house practice and is not
+  reported. A compound the IRV uses more than twice is accepted, as the web
+  app's grey compound mark says. The reviewed near-miss narrowing is
+  unchanged.
+- **Measured on 2026-10-08:**
+
+  | Book | Verses | `lex.unknown` | All indic-qa findings |
+  |---|---|---|---|
+  | Tamil Ruth | 85 | 129 | 159 |
+  | Tamil Genesis | 1,533 | 1,152 | 1,447 |
+  | Tamil Luke | 1,140 | 1,140 | 1,266 |
+  | Malayalam Genesis | 1,533 | 658 | 1,645 |
+  | Hindi Genesis | 1,533 | 4 | 24 |
+
+  The 2026-10-07 Tamil count of 2,200–2,700 was without the IRV bar.
+- **Human labels.** Malayalam has 27 human-labelled `ml.lex.unknown`
+  findings, all 27 confirmed (100%). The gates pass for all three
+  languages.
+- **The book finding limit** now drops the least certain book-stage findings
+  first (confidence, then severity), so unknown words give way before a
+  typing slip. Each rule's omitted count is a coverage note.
+- **The layer's de-duplication** defers only to a finding that is drawn
+  (reviewed inline). A listed-only overlap no longer removes the word's only
+  mark.
+
+**Because:** an unmarked word has no menu, so no suggestions and no "Add".
+That was the most visible gap against the web app. The confidence floor
+already gives the reviewer a one-step way to hide them.
+
+**Supersedes:**
+- the "`<code>.lex.unknown` is off" clause of "indic-qa findings are
+  recomputed per pass ... panel-only";
+- the "Any other unknown word is `indicqa.lex.unknown`, which is off" and
+  "turning `indicqa.lex.unknown` on without counts" clauses of "indic-qa's
+  Tamil checker runs as a layer".
+
+**Rules out:**
+- drawing the accepted-word grey marks (irv_ok, inflected_ok, compound,
+  sandhi_ok, learned);
+- flipping any reviewed `inline` flag;
+- a confidence above low for an unknown word.
+
+**Revisit when:** reviewer labels for `hi.lex.unknown` or
+`indicqa.lex.unknown` exist, or the maintainer wants a different Tamil IRV
+bar.
+
 <!-- New entries go above this line. -->
 
 ## 2026-10-07 — indic-qa's checker core is vendored in-process for Punjabi, Malayalam, Hindi and Odia

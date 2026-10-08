@@ -42,7 +42,8 @@ def test_the_layer_joins_ta_irv_without_changing_its_own_rules():
     extra = [r for r in pack.rules if r.match_type == "indic-qa"]
     assert {(r.stage, r.inline) for r in extra} == {("book", False)}, "inline needs the human gate"
     assert not [r.id for r in extra if (r.severity, r.confidence) == ("high", "high")]
-    assert not pack.by_id("indicqa.lex.unknown").enabled
+    unknown = pack.by_id("indicqa.lex.unknown")
+    assert (unknown.enabled, unknown.inline, unknown.confidence) == (True, False, "low"), "drawn under the slider"
     assert pack.version == "1.1.0", "the layer must not expire the reviewers' ta-irv ignores"
     assert indic_qa_adapter.runs_checker(pack) and not indic_qa_adapter.is_profile_pack(pack.meta)
 

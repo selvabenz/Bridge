@@ -125,13 +125,17 @@ def default_entry(rule_id: str, group: str, on_by_default: bool) -> dict[str, An
         category = "punctuation"
     if tail in {"lex.known-misspelling", "style.divine-names", "style.rejected-names"}:
         confidence = "high"
+    if tail == "lex.unknown":
+        # Not verifiable is not an error (the Hindi review found 22 of 25 such
+        # words correct), but it is the web app's main mark, and a word with no
+        # mark has no menu: no suggestions, no "Add". So it is on as upstream
+        # has it, at the lowest severity and confidence, which the Settings
+        # slider's confidence floor hides (DECISIONS 2026-10-08).
+        severity, confidence = "low", "low"
     entry = {"revision": 1, "category": category, "layer": layer, "severity": severity,
              "confidence": confidence, "enabled": bool(on_by_default), "inline": False}
     if tail == "lex.unknown":
-        # Not verifiable is not an error: indic-qa itself shows these grey (the
-        # Hindi review found 22 of 25 correct). Off until counts say otherwise.
-        entry["enabled"] = False
-        entry["note"] = "off in Bridge: a word missing from the dictionary is not a finding"
+        entry["note"] = "not verifiable from the dictionary; drawn under the Settings slider (confidence low)"
     return entry
 
 
@@ -624,8 +628,13 @@ def build_book(book: str, chapters: dict[str, dict[str, Any]], *, lift: Callable
 
 # -- mapping ------------------------------------------------------------------------
 
-def _suggestion(text: str, source: str, rationale: str) -> dict[str, Any]:
-    return {"text": text, "rank": 1, "source": source, "rationale": rationale}
+def _suggestion(text: str, source: str, rationale: str, *, kind: str = "", freq: int | None = None) -> dict[str, Any]:
+    out: dict[str, Any] = {"text": text, "rank": 1, "source": source, "rationale": rationale}
+    if kind:
+        out["kind"] = kind
+    if freq is not None:
+        out["freq"] = int(freq)
+    return out
 
 
 def _items(block: dict[str, Any], profile: Any) -> list[indic_qa_tamil.Item]:
@@ -649,7 +658,9 @@ def _items(block: dict[str, Any], profile: Any) -> list[indic_qa_tamil.Item]:
                 continue
             detail = token.get("rule") or status_rule.get(token["status"], "")
             suggestions = [_suggestion(s["w"], "lexicon", f"{s.get('cls') or s.get('op') or ''}"
-                                       + (f" · {s['freq']}× in the IRV" if s.get("freq") else ""))
+                                       + (f" · {s['freq']}× in the IRV" if s.get("freq") else ""),
+                                       kind=str(s.get("cls") or s.get("op") or ""),
+                                       freq=s.get("freq") if isinstance(s.get("freq"), int) else None)
                            for s in token.get("sugg", ()) if s.get("w")]
             why = "; ".join(token.get("why") or ())
             out.append(item(switch.get(detail, detail), at + token["s"], at + token["e"], suggestions, why, detail))

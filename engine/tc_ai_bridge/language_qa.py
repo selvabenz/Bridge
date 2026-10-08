@@ -188,13 +188,22 @@ RULES: dict[str, RuleMeta] = {
 # version as ruleRevision (or, for a rule moved out of this file, the version
 # it carried here: its legacyVersion).
 PACK_VERSION = RULE_VERSION
-MAX_SUGGESTIONS = 5
+# The indic-qa editor offers nine numbered suggestions; so does Bridge's menu.
+MAX_SUGGESTIONS = 9
 
 
-def suggestion(text: str, source: str, rationale: str, rank: int = 1) -> dict[str, Any]:
+def suggestion(text: str, source: str, rationale: str, rank: int = 1, *,
+               kind: str = "", freq: int | None = None) -> dict[str, Any]:
     """One ranked fix. `source` is "rule" | "lexicon" | "termbase" |
-    "majority-form" | "housestyle"; `rationale` is shown as the menu item's tooltip."""
-    return {"text": text, "rank": rank, "source": source, "rationale": rationale}
+    "majority-form" | "housestyle"; `rationale` is shown as the menu item's
+    tooltip. `kind` (the checker's edit class: "vowel length", "split", ...) and
+    `freq` are shown beside the suggestion, as the indic-qa editor shows them."""
+    out: dict[str, Any] = {"text": text, "rank": rank, "source": source, "rationale": rationale}
+    if kind:
+        out["kind"] = kind
+    if freq is not None:
+        out["freq"] = int(freq)
+    return out
 
 
 def rule_fields(rule: str, suggestions: list[dict[str, Any]] | None = None, *,

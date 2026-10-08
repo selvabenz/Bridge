@@ -77,17 +77,29 @@ def _read_headings(path: Path, limitations: list[str]) -> dict[str, list[dict[st
             for verse, items in data.items() if isinstance(items, list)}
 
 
-def _already_flagged(finding: dict[str, Any], flagged: dict[str, list[tuple[int, int, str]]]) -> bool:
+def _already_flagged(finding: dict[str, Any], flagged: dict[str, list[tuple[int, int, str, bool]]]) -> bool:
     """Whether a pack layer's finding repeats one the pack's own or the common
-    rules raised on this verse: the same category on an overlapping span. The
-    verse's raw findings count, before decisions, so ignoring the original
-    never lets its repeat through. A heading's offsets index the heading, not
-    the verse, so it is never compared."""
+    rules raised on this verse: the same category on an overlapping span, from
+    a finding that is drawn in the text (reviewed inline). One that is only
+    listed does not count: dropping the layer's finding for it would leave the
+    word with no mark at all. The verse's raw findings count, before
+    decisions, so ignoring the original never lets its repeat through. A
+    heading's offsets index the heading, not the verse, so it is never
+    compared."""
     if finding.get("context") == "heading":
         return False
     start, end, category = int(finding["start"]), int(finding["end"]), str(finding.get("category") or "")
-    return any(c == category and s < end and start < e
-               for s, e, c in flagged.get(f"{finding['chapter']}:{finding['verse']}", ()))
+    return any(inline and c == category and s < end and start < e
+               for s, e, c, inline in flagged.get(f"{finding['chapter']}:{finding['verse']}", ()))
+
+
+def _cap_order(findings: list[dict[str, Any]]) -> list[int]:
+    """Indexes of book-stage findings, most certain first (confidence, then
+    severity), reading order within a rank: who keeps a place when the book
+    finding limit is reached. A low-confidence unknown word goes first."""
+    rank = {"high": 2, "medium": 1, "low": 0}
+    return sorted(range(len(findings)), key=lambda i: (-rank.get(str(findings[i].get("confidence")), 0),
+                                                      -rank.get(str(findings[i].get("severity")), 0), i))
 
 
 def project_rule_pack(project_path: str | Path, name: str | None) -> tuple[Any, list[str]]:
@@ -864,8 +876,8 @@ class LanguageQaManager:
         if (rule_pack is not None and indic_qa_adapter.is_profile_pack(rule_pack.meta)
                 and detection.get("basis") != "setting"):
             detection = {**detection, "message": f"{language_name(rule_pack.language)} spelling, encoding, "
-                         f"punctuation and consistency checks from the IRV dictionary; agreement leads are listed, "
-                         f"never drawn. Not a grammar or publication review."}
+                         f"punctuation and consistency checks from the IRV dictionary; what is drawn in the text "
+                         f"follows the threshold in Settings. Not a grammar or publication review."}
         if pack_name and rule_pack is None:
             detection = {**detection, "pack": "common", "message": pack_problems[0] if pack_problems else
                          detection["message"]}
@@ -969,7 +981,8 @@ class LanguageQaManager:
                 checked += 1
                 if layer:
                     flagged[f"{chapter}:{verse}"] = [
-                        (int(f.get("start", 0)), int(f.get("end", 0)), str(f.get("category") or ""))
+                        (int(f.get("start", 0)), int(f.get("end", 0)), str(f.get("category") or ""),
+                         bool(f.get("inline")))
                         for f in entry.get("findings", [])]
                 text = data.get(verse)
                 for word, (count, start, end) in entry.get("words", {}).items():
@@ -1049,11 +1062,17 @@ class LanguageQaManager:
             if layer:
                 for finding in audit:
                     flagged.setdefault(f"{finding['chapter']}:{finding['verse']}", []).append(
-                        (int(finding["start"]), int(finding["end"]), str(finding.get("category") or "")))
+                        (int(finding["start"]), int(finding["end"]), str(finding.get("category") or ""),
+                         bool(finding.get("inline"))))
                 audit += [f for f in checked_book[0] if not _already_flagged(f, flagged)]
             audit += learned_findings(book, book_text, learned, fixes=learned_fixes, max_verse_chars=MAX_VERSE_CHARS,
                                       finding_id=stable_finding_id, rule_fields=rule_fields, suggestion=suggestion,
                                       text_hash=text_hash, rule_version=RULE_VERSION)
+            # Decisions and house style first, then the room: when the book's
+            # findings would pass the limit, the least certain book-stage
+            # findings give way (low-confidence unknown words before a typo
+            # lead), and the kept ones stay in reading order.
+            settled: list[tuple[dict[str, Any], dict[str, Any]]] = []
             for finding in audit:
                 decided = {}
                 shown, hidden = settle([finding], decided)
@@ -1061,13 +1080,19 @@ class LanguageQaManager:
                                            {"findings": [], "decided": {}, "hidden": []})
                 slot["decided"].update(decided)
                 slot["hidden"].extend(hidden)
-                if not shown:
+                settled.extend((item, slot) for item in shown)
+            room = max(0, MAX_BOOK_FINDINGS - len(findings))
+            keep = set(_cap_order([item for item, _slot in settled])[:room])
+            omitted_by_rule: dict[str, int] = {}
+            for index, (item, slot) in enumerate(settled):
+                if index not in keep:
+                    rule_id = str(item.get("ruleId") or item.get("rule") or "")
+                    omitted_by_rule[rule_id] = omitted_by_rule.get(rule_id, 0) + 1
                     continue
-                if len(findings) >= MAX_BOOK_FINDINGS:
-                    limitations.append("Book finding limit reached; wordlist audit findings omitted.")
-                    break
-                findings.extend(shown)
-                slot["findings"].extend(shown)
+                findings.append(item)
+                slot["findings"].append(item)
+            for rule_id, count in sorted(omitted_by_rule.items()):
+                limitations.append(f"Book finding limit reached: {count} {rule_id} finding(s) omitted.")
             del false_positives[MAX_FALSE_POSITIVES:]
         self._flush(store, pending, limitations)
         with self._lock:

@@ -209,9 +209,10 @@ def main() -> int:
                 assert status["language"]["pack"] == "hi-irv", status
                 assert any(f["ruleId"] == "hi-irv/hi.lex.known-misspelling" for f in status["findings"]), status
             else:
-                assert status["totalFindings"] == 1, status
-                assert status["findings"][0]["verse"] == "3-4", status
+                # The corrupted verse 3-4 is reported (the synthetic words may also be
+                # reported as unknown to the OV: indicqa.lex.unknown, 2026-10-08).
                 assert status["language"]["pack"] == "ta-irv", status
+                assert [f["verse"] for f in status["findings"] if f["rule"] == "unicode.corruption"] == ["3-4"], status
             for p, raw in original.items():
                 if p.name == "2.json":  # edited and edited back; the engine formats JSON its own way
                     assert json.loads(p.read_text(encoding="utf-8")) == json.loads(raw.decode("utf-8")), p
@@ -240,10 +241,10 @@ def main() -> int:
                 if status["state"] == "completed":
                     break
                 time.sleep(.2)
-            # Tamil: the one finding (verse 3-4) is edited away. Hindi: every verse
+            # Tamil: the corruption (verse 3-4) is edited away. Hindi: every verse
             # still carries its misspelling; only the pass completing matters.
             assert status["state"] == "completed", status
-            assert args.language == "hi" or status["totalFindings"] == 0, status
+            assert args.language == "hi" or not [f for f in status["findings"] if f["rule"] == "unicode.corruption"], status
             measurements["editRecheckReusedChapters"] = status["reusedChapters"]
         finally:
             process.stdin.close()

@@ -194,11 +194,11 @@
    "revision": 1,
    "category": "typo",
    "layer": "lexicon",
-   "severity": "medium",
+   "severity": "low",
    "confidence": "low",
-   "enabled": false,
+   "enabled": true,
    "inline": false,
-   "note": "off in Bridge: a word missing from the dictionary is not a finding"
+   "note": "not verifiable from the dictionary; drawn under the Settings slider (confidence low)"
   },
   "ml.lex.rare-near-common": {
    "revision": 1,

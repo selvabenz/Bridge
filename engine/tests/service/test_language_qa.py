@@ -16,7 +16,7 @@ from tc_ai_bridge.language_qa_jobs import (
     LanguageQaManager, MAX_CHAPTER_BYTES, MAX_BOOK_FINDINGS, apply_decisions, decision_effect,
 )
 from tests.support.projects import fixture_project, call
-from tests.support.packs import switch_off_ta_lexicon, ta_pack
+from tests.support.packs import switch_off_ta_lexicon, switch_off_ta_unknown_words, ta_pack
 from tests.support.paths import REPO_ROOT
 from bridge_service import BridgeEngine
 from tests.support.language_qa import issue_for, project_at, wait
@@ -27,8 +27,11 @@ def within_book_wordlist(monkeypatch):
     """These tests pin the within-book wordlist audit on synthetic words that
     the IRV corpus does not contain, so they run with the pack's corpus
     lexicon switched off -- the fallback path that audit now is. The lexicon
-    rules are tested on the real lexicon in test_lexicon.py."""
+    rules are tested on the real lexicon in test_lexicon.py. The same words
+    are not in the OV either, so the indic-qa layer's unknown words are off
+    too; that rule is tested in tests/language_packs."""
     switch_off_ta_lexicon(monkeypatch)
+    switch_off_ta_unknown_words(monkeypatch)
 
 
 def scan(text, tamil=True):
