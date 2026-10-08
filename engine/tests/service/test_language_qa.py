@@ -662,15 +662,23 @@ def test_a_language_qa_decision_never_marks_a_verse_reviewed_while_other_finding
     assert engine.project.load_progress_rollup()["totals"]["reviewedVerseCount"] >= 1
 
 
-def test_job_path_and_live_path_produce_identical_findings(staged_engine):
+def test_job_path_and_live_path_produce_identical_findings(staged_engine, monkeypatch):
     engine, run_job = staged_engine
     live = {(f["chapter"], f["verse"], f["id"]) for f in wait(engine._language_qa)["findings"]}
+    from tc_ai_bridge import language_qa_jobs
+
+    scanned: list[str] = []
+    original = language_qa_jobs.scan_verse
+    monkeypatch.setattr(language_qa_jobs, "scan_verse",
+                        lambda *a, **k: scanned.append(a[2]) or original(*a, **k))
     snapshot = run_job(["languageQa"], scope="chapter")
     job = {(r["chapter"], r["verse"], f["id"]) for r in snapshot["results"].values()
            for f in r["languageQa"]["findings"]}
     assert job == {item for item in live if item[0] == "1"}
-    # The job pass reused the cache the live pass wrote: nothing was rescanned.
-    assert engine._language_qa.status()["scannedVerses"] == 0
+    # The job reused what the live pass wrote: nothing was rescanned. Counted
+    # during the job itself: since #232 the job may reuse the live pass outright,
+    # and status() then reports what that pass scanned, not the job.
+    assert scanned == []
 
 
 def test_language_qa_verse_lists_one_verses_findings_open_and_decided(staged_engine):

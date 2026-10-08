@@ -16948,3 +16948,56 @@ completion hook (#235) and the Language QA pass (#232).
   passing only because the TypeError also failed the job.
 - Engine `pytest -m "not slow"` on the committed tree: 4863 passed,
   3 xfailed.
+
+## 2026-10-08 — A chapter job reuses a current Language QA pass (#232)
+
+**Problem.** Every chapter job ran `language_qa.run_pass()` over the whole
+book, even with nothing changed: about 1 s on GEN. And whenever a job's pass
+published, the background worker took the generation change for new input,
+looped, and ran another full pass (4.6 s on GEN). So reopen or an edit
+followed by a chapter job cost two passes.
+
+**Change** (`language_qa_jobs.py` only).
+- `_current(context, generation)` returns the published summary when it is
+  still what a pass would produce. That means:
+  - its state is "completed" at the caller's generation;
+  - the chapter files' signature equals the one that pass read.
+- Every input change already goes through `_schedule`, which bumps the
+  generation and resets the summary to "queued". That covers an edit, a
+  decision, the termbase, house style, learned fixes and the pack or checker
+  settings (through `bind`). A file changed outside Bridge shows in the
+  signature.
+- `run_pass` asks `_current` before scanning, and again (`_scan(reuse=...)`)
+  once it holds the pass lock. The second check catches a worker pass that
+  published while the job waited for the lock.
+- The worker exits, instead of starting another pass, when it finds a
+  published "completed" summary at the top of its loop.
+
+**Measured.** GEN copy, same script before (the change stashed) and after.
+A visit is a chapter job with `local+greekroom+languageQa`.
+
+| | before | after |
+|---|---|---|
+| chapter visit, Language QA part | 0.98-1.08 s, 1 pass | 1.3 ms, 0 passes |
+| reopen + immediate chapter job | 2 passes (1.07 s + 4.59 s) | 1 pass (1.13 s) |
+| edit 4:1 + chapter 4 job | 2 passes (1.02 s + 4.60 s) | 1 pass (1.06 s) |
+
+**A test changed, and why.**
+- `test_job_path_and_live_path_produce_identical_findings` asserted
+  `status()["scannedVerses"] == 0` after the job. Its comment says the job
+  "rescanned nothing".
+- Since this change the job may reuse the live pass outright. `status()`
+  then reports what the live pass scanned, which was 1 under `-n auto` (the
+  edited verse) and 0 when run alone. So the test failed 3/3 in parallel and
+  passed alone.
+- It now counts `scan_verse` calls during the job and asserts none. That
+  holds before and after #232, in either ordering.
+
+**Verified.**
+- New: `tests/service/test_language_qa_pass_reuse.py`. It covers no pass when
+  nothing changed, one pass after an edit, a pass after a file changed outside
+  Bridge, and one pass at reopen.
+- test_language_qa.py + the new file, `-n auto`, three runs: 300 passed each.
+  The fixed test also passes serially.
+- Full engine suite before the test fix: 4865 passed, 1 failed (this test).
+- Desktop not run.

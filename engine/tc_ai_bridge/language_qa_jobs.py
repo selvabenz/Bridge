@@ -750,10 +750,17 @@ class LanguageQaManager:
         return data, signature, hashlib.sha256(raw).hexdigest()
 
     def _scan(self, generation: int, context: tuple[str, str, str, Path, str], *,
-              cancelled: Callable[[], bool] | None = None, yielding: bool = True) -> dict[str, Any] | None:
+              cancelled: Callable[[], bool] | None = None, yielding: bool = True,
+              reuse: Callable[[], dict[str, Any] | None] | None = None) -> dict[str, Any] | None:
         """One book pass. `cancelled`/`yielding` let the check-job stage run the
-        same pass on its own thread without the background worker's pauses."""
+        same pass on its own thread without the background worker's pauses.
+        `reuse` is asked once the pass lock is held: a summary it returns comes
+        back as {"_reused": summary} and nothing is scanned (#232)."""
         with self._pass_lock:
+            if reuse is not None:
+                current = reuse()
+                if current is not None:
+                    return {"_reused": current}
             pending: dict[str, tuple[str, dict[str, Any]]] = {}
             timings = check_timing.Timings()
             try:
@@ -1211,11 +1218,17 @@ class LanguageQaManager:
                 return copy.deepcopy(self._summary)
         if context is None:
             return None
+        current = self._current(context, generation)
+        if current is not None:
+            return current
         started = time.monotonic()
         result = self._scan(generation, context, yielding=False, cancelled=lambda: (
-            (cancel_event is not None and cancel_event.is_set()) or self._context != context))
+            (cancel_event is not None and cancel_event.is_set()) or self._context != context),
+            reuse=lambda: self._current(context, generation))
         if result is None:
             return None
+        if "_reused" in result:
+            return result["_reused"]
         source_signature = result.pop("_sourceSignature", None)
         result["elapsedSeconds"] = round(time.monotonic() - started, 3)
         with self._lock:
@@ -1227,6 +1240,26 @@ class LanguageQaManager:
                     self._source_signature = source_signature
                 self._last_scan = time.monotonic()
         return result
+
+    def _current(self, context: tuple[str, str, str, Path, str], generation: int) -> dict[str, Any] | None:
+        """The published summary, when it is still what a pass would produce
+        (#232). Every input change -- an edit, a decision, the termbase, house
+        style, learned fixes, the pack -- goes through _schedule, which bumps
+        the generation and resets the summary to "queued"; a "completed" summary
+        at the caller's generation has had none since. A chapter file changed
+        outside Bridge shows in the signature."""
+        with self._lock:
+            if not (context == self._context and generation == self._generation and not self._paused
+                    and self._summary.get("state") == "completed" and self._source_signature is not None):
+                return None
+            signature = self._source_signature
+        if self._chapter_signature(context[3]) != signature:
+            return None
+        with self._lock:
+            if (context == self._context and generation == self._generation
+                    and self._summary.get("state") == "completed"):
+                return copy.copy(self._summary)
+        return None
 
     def verse(self, chapter: str, verse: str) -> dict[str, Any]:
         """languageQa.verse: one verse's findings from the last completed pass,
@@ -1294,6 +1327,13 @@ class LanguageQaManager:
         while True:
             with self._lock:
                 if self._paused or self._context is None:
+                    self._thread = None
+                    return
+                if self._summary.get("state") == "completed":
+                    # A check job's run_pass published a pass after this worker
+                    # was scheduled, and nothing was scheduled since (_schedule
+                    # would have reset the state). Another full pass here would
+                    # only repeat it (#232).
                     self._thread = None
                     return
                 generation, context = self._generation, self._context
