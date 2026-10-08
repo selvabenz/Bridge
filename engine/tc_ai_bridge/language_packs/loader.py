@@ -243,7 +243,8 @@ def _split(token: str) -> tuple[str, str | None]:
 class RulePack:
     def __init__(self, name: str, version: str, language: str, rules: list[Rule],
                  description: str = "", problems: list[str] | None = None, *,
-                 directory: Path | None = None, meta: dict[str, Any] | None = None) -> None:
+                 directory: Path | None = None, meta: dict[str, Any] | None = None,
+                 checker_settings: dict[str, Any] | None = None) -> None:
         self.name = name
         self.version = version
         self.language = language
@@ -254,6 +255,9 @@ class RulePack:
         # (its `lexicon` and `confusion` file names). An overridden copy shares both.
         self.directory = directory
         self.meta = dict(meta or {})
+        # A project's settings for the pack's indic-qa checker, sparse and
+        # validated (indic_qa_settings, DECISIONS 2026-10-08); {} = defaults.
+        self.checker_settings = dict(checker_settings or {})
         self.pair_rules = [r for r in rules if r.enabled and r.match_type == "token-context"]
         self.regex_rules = [r for r in rules if r.enabled and r.match_type == "regex"]
         # The data-driven kinds by stage (indic/kinds.py). Within a word pair
@@ -597,10 +601,14 @@ def _example_lists(example: dict[str, Any]) -> dict[str, frozenset]:
 
 
 def apply_overrides(pack: RulePack, overrides: dict[str, Any] | None) -> RulePack:
-    """A copy of `pack` narrowed by a project's overrides. Only narrowing is
-    accepted: enabled=false, inline=false, extra abstains. Anything else is
-    refused, the rest of the override still applies, and each refusal is
-    listed in `problems` for the panel's coverage notes."""
+    """A copy of `pack` narrowed by a project's overrides. Narrowing is
+    accepted: enabled=false, inline=false, extra abstains. So is switching a
+    rule of the pack's indic-qa checker back on (the web app's own switch;
+    DECISIONS 2026-10-08): drawing stays the runtime threshold, and inline
+    stays the reviewed flag. Anything else is refused, the rest of the
+    override still applies, and each refusal is listed in `problems` for the
+    panel's coverage notes. A `checker` object holds the project's settings for
+    that checker (indic_qa_settings), validated the same way."""
     if not overrides:
         return pack
     problems: list[str] = list(pack.problems)  # the bundled pack's own (an unavailable layer)
@@ -608,11 +616,23 @@ def apply_overrides(pack: RulePack, overrides: dict[str, Any] | None) -> RulePac
     for rule in rules:
         rule.abstain = list(rule.abstain)
     by_id = {rule.id: rule for rule in rules}
-    entries = overrides.get("rules") if isinstance(overrides, dict) else None
-    if not isinstance(entries, dict):
+    if not isinstance(overrides, dict):
         return RulePack(pack.name, pack.version, pack.language, rules, pack.description,
                         problems + ["override ignored: expected {\"rules\": {<rule id>: {...}}}"],
                         directory=pack.directory, meta=pack.meta)
+    checker: dict[str, Any] = {}
+    if overrides.get("checker") is not None:
+        from . import indic_qa_adapter, indic_qa_settings
+        if indic_qa_adapter.indic_config(pack.meta) is None:
+            problems.append("checker settings ignored: this pack has no indic-qa checker")
+        else:
+            checker, refused = indic_qa_settings.validate(overrides["checker"], pack)
+            problems.extend(refused)
+    entries = overrides.get("rules", {})
+    if not isinstance(entries, dict):
+        return RulePack(pack.name, pack.version, pack.language, rules, pack.description,
+                        problems + ["override ignored: expected {\"rules\": {<rule id>: {...}}}"],
+                        directory=pack.directory, meta=pack.meta, checker_settings=checker)
     for rule_id, change in entries.items():
         rule = by_id.get(rule_id)
         if rule is None:
@@ -627,6 +647,8 @@ def apply_overrides(pack: RulePack, overrides: dict[str, Any] | None) -> RulePac
         if "enabled" in change:
             if change["enabled"] is False:
                 rule.enabled = False
+            elif change["enabled"] is True and rule.match_type == "indic-qa":
+                rule.enabled = True
             elif change["enabled"] is not True or not rule.enabled:
                 problems.append(f"override {rule_id}.enabled refused: an override cannot enable a rule")
         if "inline" in change:
@@ -640,7 +662,7 @@ def apply_overrides(pack: RulePack, overrides: dict[str, Any] | None) -> RulePac
             except PackError as exc:
                 problems.append(f"{exc}; ignored")
     return RulePack(pack.name, pack.version, pack.language, rules, pack.description, problems,
-                    directory=pack.directory, meta=pack.meta)
+                    directory=pack.directory, meta=pack.meta, checker_settings=checker)
 
 
 def load_pack(name: str = "", *, directory: Path | None = None) -> RulePack:

@@ -616,6 +616,47 @@ already gives the reviewer a one-step way to hide them.
 `indicqa.lex.unknown` exist, or the maintainer wants a different Tamil IRV
 bar.
 
+## 2026-10-08 — The indic-qa checker's settings are per collection, in the pack's overrides file
+**Decision:** The web app's Settings dialog is Bridge's "Checker settings"
+dialog. It covers text contexts, warnings, suggestions and compounds, the
+language's own rule switches and spelling choices, its two numbers, and
+Tamil's sandhi leads. Its values are stored per collection, in each book's
+`.apps/translationCoreAI/language-packs/<pack>/overrides.json`:
+- a sparse `checker` object holds only the values that differ from the
+  language's defaults;
+- `rules.<id>.enabled` holds a rule switched from its bundled state;
+- the rest of the file (a rule's abstains) is kept;
+- a save writes every materialized book, then rebinds the open one.
+
+`apply_overrides` now accepts `enabled: true` for a rule of the pack's indic-qa
+checker (`match_type: indic-qa`): the web app's own switch.
+- `inline: true` stays refused for every rule.
+- A pack's JSON rules still only narrow.
+- Drawing stays the reviewer's runtime threshold.
+
+Only what Bridge can honour is offered:
+- the contexts Bridge feeds the checker: verse text, plus headings and
+  footnotes for the Tamil layer;
+- not the Tamil layer's three forced warnings (the 2026-09-28 review);
+- no dictionary rebuild or reload (NOTICE contract 2).
+
+Benz chose per collection on 2026-10-08.
+
+**Because:** the web app keeps one settings set per language project, and a
+Bridge collection is that project. The overrides file is already per pack and
+per book, and it is already read on every pass. A book's other overrides
+survive. No workbench table or migration is needed.
+
+**Rules out:**
+- app-wide checker settings;
+- per-book settings that drift apart;
+- drawing a rule inline from the dialog;
+- writing the dictionaries.
+
+**Revisit when:** the team hub (#46) syncs project settings, or a lazy book
+needs the collection's settings before its first save (today it runs the
+defaults until then, as for house style).
+
 <!-- New entries go above this line. -->
 
 ## 2026-10-07 — indic-qa's checker core is vendored in-process for Punjabi, Malayalam, Hindi and Odia

@@ -288,6 +288,39 @@ or the whole verse.
   collection, once per session and pack. It can be turned off with
   `languageQaRelatedWords`.
 
+### Checker settings (every indic-qa pack, DECISIONS 2026-10-08)
+
+The web app's Settings dialog, per collection. The RPCs are
+`languageQa.checkerSettings.get` and `.set`
+(`engine/tc_ai_bridge/language_qa_checker_settings.py`); validation is
+`language_packs/indic_qa_settings.py`.
+
+- **Stored** in each book's `overrides.json` beside the narrowing `rules`:
+  - a sparse `checker` object (version 1), holding only values that differ
+    from the language profile's `default_settings`;
+  - `rules.<id>.enabled` for a switched rule.
+
+  A save writes every materialized book and keeps each file's other keys.
+- **Offered:**
+  - `checked_contexts`: `verse` for a profile pack; `verse`, `heading` and
+    `footnote_text` for the Tamil layer;
+  - `warnings` (the Tamil layer's forced three excepted);
+  - `suggest.max` (1 to 9) and `compound.enabled`;
+  - for hi, ml, or and pa: the rule switches, the style selects (the
+    checker's own spelling clusters, read from the resident checker, so
+    `ready: false` until a pass has loaded the pack), `lex.irv_accept_min`
+    and `consistency.minority_max`;
+  - for ta: the 11 sandhi-lead settings.
+- **Reaches the checker** through `indic_qa_adapter._settings`. In order, it
+  layers the project's sections, then the pack's rule switches, then the
+  layer's forced switches. The resident checker's key includes them, so a
+  change rebuilds it on the next pass.
+- **Refused values** become coverage notes when read from a file, and a
+  `ProjectError` naming the key on `.set`, before anything is written.
+
+`languageQa.occurrences` also takes `match: "text"` (the word menu's
+"Search in this book"): any run of the visible text, not only a whole word.
+
 ### Phase 1 data rules (DECISIONS 2026-10-07)
 
 - No rule has high severity together with high confidence, so none blocks

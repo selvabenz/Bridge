@@ -16503,3 +16503,67 @@ All are under the 3,000 cap.
 
 **Not verified.** The desktop app: whether a reviewer finds the Tamil
 density (about one unknown word per verse) useful at the default threshold.
+
+## 2026-10-08 — Checker settings, engine side (indic-qa parity, step 2)
+
+These are the web app's Settings dialog values, per collection (DECISIONS
+2026-10-08). The frontend dialog comes in step 4.
+
+**Engine.**
+- New `language_packs/indic_qa_settings.py`:
+  - `validate(raw, pack)` keeps what the pack's checker understands, drops
+    defaults, and lists refusals;
+  - `merged(pack)` is what the checker runs with;
+  - also the label tables for Tamil's 11 sandhi controls and the profile
+    packs' two numbers.
+- `loader`:
+  - `RulePack.checker_settings`;
+  - `apply_overrides` reads `overrides["checker"]`, and a file may hold
+    only that;
+  - `enabled: true` is accepted for an indic-qa rule; inline stays refused.
+- `indic_qa_adapter`:
+  - `_settings` layers the project's sections, the pack's rule switches,
+    then the layer's forced switches;
+  - `with_resident(pack, read)` reads the resident checker under `_LOCK`.
+- `LanguageQaManager.rule_counts()` returns the last pass's findings per
+  rule.
+- New `language_qa_checker_settings.py`:
+  - `describe` builds the dialog's model, with labels from the vendored
+    profiles: `settings_warn`, `RULES`, `style_toggles`;
+  - `save` validates the whole patch first, then writes each book's
+    overrides atomically, keeping other keys, and removes a file that ends
+    up empty.
+- `bridge_service`:
+  - `languageQa.checkerSettings.get` and `.set`, project-guarded like every
+    `languageQa.*`;
+  - `.set` rebinds the open book.
+- `languageQa.occurrences` takes `match: "text"` for the menu's "Search in
+  this book". This is instead of the separate `languageQa.search` the plan
+  named: same shape and less new surface.
+- `tests/support/projects.link_collection`.
+
+**Verified.**
+- `tests/service/test_language_qa_checker_settings.py`, 13 tests:
+  - the Hindi model after a pass, and before it (`ready: false`);
+  - a save changes the findings and writes both books;
+  - a book's abstains are kept;
+  - six refusals, with nothing written;
+  - the project guard;
+  - the Tamil layer's model;
+  - a pack with no checker.
+- `tests/language_packs/test_indic_qa_settings.py`, 13 tests.
+- `test_overrides_may_enable_an_indic_qa_rule_but_never_inline_or_a_json_rule`.
+- `test_search_in_this_book_finds_any_run_of_text_not_only_whole_words`.
+- The full suite result is in the commit message.
+
+**Found while verifying.** `tests/support/language_qa.wait` still had a literal
+8 s budget, the pattern `tests/support/waits.py` exists to replace (#85).
+- Under `pytest -n auto`, a first Tamil pass that also loads the indic-qa
+  layer's OV dictionary and IRV snapshot outran it: one full run failed
+  `test_vallinam_ignored_decision_suppresses_the_finding` with the pass still
+  `running` on chapter 0. That test passes 3/3 on its own.
+- This is the likely cause of the 2026-10-07 "1 failed, not recurred" subset
+  run as well.
+- It now uses `job_timeout(8)`. The 442 tests that use it pass in parallel.
+
+**Not verified.** The dialog, which comes in step 4.

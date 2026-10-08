@@ -78,7 +78,9 @@ from tc_ai_bridge.analysis_jobs import (
 )
 from tc_ai_bridge.local_checks import run_local_qa
 from tc_ai_bridge.language_qa import FINDING_SOURCE as LANGUAGE_QA_SOURCE, UNSPECIFIED_DECISION_SOURCE
-from tc_ai_bridge.language_qa_jobs import LanguageQaManager, project_pack_name
+from tc_ai_bridge.language_qa_jobs import LanguageQaManager, project_pack_name, project_rule_pack
+from tc_ai_bridge import language_qa_checker_settings as checker_settings_rpc
+from tc_ai_bridge.language_packs import indic_qa_adapter
 from tc_ai_bridge.language_qa_learned import learned_pair
 from tc_ai_bridge import language_qa_scope
 from tc_ai_bridge.language_qa import text_hash as language_qa_text_hash
@@ -395,6 +397,8 @@ class Methods:
     LANGUAGE_QA_HISTORY = "languageQa.history"
     LANGUAGE_QA_VERSE = "languageQa.verse"
     LANGUAGE_QA_SET_PACK = "languageQa.setPack"
+    LANGUAGE_QA_CHECKER_SETTINGS_GET = "languageQa.checkerSettings.get"
+    LANGUAGE_QA_CHECKER_SETTINGS_SET = "languageQa.checkerSettings.set"
     LANGUAGE_QA_LEARNED_LIST = "languageQa.learned.list"
     LANGUAGE_QA_LEARNED_FORGET = "languageQa.learned.forget"
     LANGUAGE_QA_LEARNED_RESTORE = "languageQa.learned.restore"
@@ -5143,6 +5147,30 @@ class BridgeEngine:
         except Exception:
             return None
 
+    def language_qa_checker_settings(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
+        """languageQa.checkerSettings.get | .set: the indic-qa checker's own
+        settings (the web app's Settings dialog), per collection
+        (language_qa_checker_settings.py, DECISIONS 2026-10-08). A save is
+        written into every materialized book's overrides file, then the open
+        book is rebound so a pass runs with them."""
+        self._require_project()
+        name = project_pack_name(self.project, self._language_qa)
+        pack, _notes = project_rule_pack(self.project.path, name) if name else (None, [])
+        if pack is None or indic_qa_adapter.indic_config(pack.meta) is None:
+            return {"pack": None, "available": False, "reason": "This project's language has no indic-qa checker."}
+        books = sorted({self.project.book_id, *(book for book, _path in self.project.collection_sibling_paths())})
+        if action == "set":
+            patch = {key: params[key] for key in params if key != "projectPath"}
+            try:
+                checker_settings_rpc.save(pack, patch, [Path(self.project.path), *(
+                    path for _book, path in self.project.collection_sibling_paths())])
+            except checker_settings_rpc.CheckerSettingsError as exc:
+                raise ProjectError(str(exc)) from exc
+            self._language_qa.bind(self.project)
+            pack, _notes = project_rule_pack(self.project.path, name)
+        counts = self._language_qa.rule_counts()
+        return checker_settings_rpc.describe(pack, counts=counts, books=books)
+
     def _collection_book_projects(self) -> list[TranslationCoreProject]:
         """The open book and every materialized sibling (a lazy one has no
         workbench yet). A project-scope house-style entry is written to each."""
@@ -5460,17 +5488,23 @@ class BridgeEngine:
     def language_qa_occurrences(self, params: dict[str, Any]) -> dict[str, Any]:
         """Every place a word occurs in this book's verse text (source "irv"),
         with raw offsets and a snippet of the text a reader sees. Same tokenizer
-        as Language QA, so "a word" means what it means everywhere else."""
+        as Language QA, so "a word" means what it means everywhere else.
+        `match: "text"` is the word menu's "Search in this book": any run of
+        the visible text equal to `word` (a phrase, part of a word), not only a
+        whole word."""
         self._require_project()
         word, source, limit = params.get("word"), params.get("source", "irv"), params.get("limit", 50)
+        match = params.get("match", "word")
         if not isinstance(word, str) or not word.strip():
             raise ProjectError("word must be a non-empty string")
         if not isinstance(limit, int) or not 1 <= limit <= 1000:
             raise ProjectError("limit must be an integer from 1 to 1000")
-        if source == "ov":
+        if match not in {"word", "text"}:
+            raise ProjectError("match must be word or text")
+        if source == "ov" and match == "word":
             return self._reference_occurrences(word, limit)
         if source != "irv":
-            raise ProjectError("source must be irv or ov")
+            raise ProjectError("source must be irv (or ov, for a word)")
         wanted = unicodedata.normalize("NFC", word.strip())
         hits, total, scanned = [], 0, 0
         for chapter in self.project.chapters():
@@ -5483,7 +5517,14 @@ class BridgeEngine:
                 lifted, _ = language_qa_lift(raw)
                 if lifted is None:
                     continue
-                for token, start, end in language_qa_word_occurrences(lifted.visible):
+                if match == "text":
+                    found, at = [], lifted.visible.find(wanted)
+                    while at >= 0:
+                        found.append((wanted, at, at + len(wanted)))
+                        at = lifted.visible.find(wanted, at + len(wanted))
+                else:
+                    found = language_qa_word_occurrences(lifted.visible)
+                for token, start, end in found:
                     if token != wanted:
                         continue
                     total += 1
@@ -5494,8 +5535,8 @@ class BridgeEngine:
                                      "start": span[0], "end": span[1],
                                      "snippet": before + lifted.visible[start:end + 40],
                                      "snippetStart": len(before), "snippetEnd": len(before) + end - start})
-        return {"word": wanted, "source": "irv", "ready": True, "total": total, "truncated": total > len(hits),
-                "hits": hits}
+        return {"word": wanted, "source": "irv", "match": match, "ready": True, "total": total,
+                "truncated": total > len(hits), "hits": hits}
 
     def _reference_occurrences(self, word: str, limit: int) -> dict[str, Any]:
         """The reference text's occurrences of a word (OV occurrences)."""
@@ -6327,7 +6368,8 @@ class BridgeEngine:
                      Methods.LANGUAGE_QA_FLAGS_LIST, Methods.LANGUAGE_QA_FLAGS_ADD, Methods.LANGUAGE_QA_FLAGS_UPDATE,
                      Methods.LANGUAGE_QA_FLAGS_DELETE, Methods.LANGUAGE_QA_WORDS_ADD, Methods.LANGUAGE_QA_WORDS_LIST,
                      Methods.LANGUAGE_QA_BOOK_WORDS, Methods.LANGUAGE_QA_OCCURRENCES, Methods.LANGUAGE_QA_REFERENCE,
-                     Methods.LANGUAGE_QA_RELATED}:
+                     Methods.LANGUAGE_QA_RELATED, Methods.LANGUAGE_QA_CHECKER_SETTINGS_GET,
+                     Methods.LANGUAGE_QA_CHECKER_SETTINGS_SET}:
                 self._require_project()
                 # Compared canonically, not as strings. `project.open` resolves
                 # the path it is given, so a caller echoing back the path *it*
@@ -6366,6 +6408,8 @@ class BridgeEngine:
                     if not isinstance(limit, int) or limit < 1:
                         raise ProjectError("limit must be a positive integer when given")
                     result = {"batches": self.project.language_qa_batches()[:min(limit, 200)]}
+                elif m in {Methods.LANGUAGE_QA_CHECKER_SETTINGS_GET, Methods.LANGUAGE_QA_CHECKER_SETTINGS_SET}:
+                    result = self.language_qa_checker_settings(m.rsplit(".", 1)[1], p)
                 elif m == Methods.LANGUAGE_QA_SET_PACK:
                     # The project's Language QA setting (Settings > Language QA):
                     # "auto", "off", or a registered pack. Rebinding starts a pass

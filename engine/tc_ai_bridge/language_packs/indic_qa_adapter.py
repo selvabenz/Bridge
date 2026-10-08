@@ -367,14 +367,30 @@ def word_statuses(pack_name: str, words: list[str]) -> dict[str, tuple[str, int,
 
 
 def _settings(pack: RulePack) -> dict[str, Any]:
-    """indic-qa's own per-rule switches follow the pack (and its overrides),
-    so a rule Bridge disabled does not run inside the checker either. A layer
-    adds its own switches (indic_qa_tamil.SETTINGS)."""
-    settings: dict[str, Any] = {"rules": {r.id: r.enabled for r in pack.rules}}
+    """What the checker runs with, over its language defaults (the checker
+    merges one level deep): the project's own settings (pack.checker_settings,
+    the Checker settings dialog), then indic-qa's per-rule switches, which
+    follow the pack and its overrides so a rule Bridge disabled does not run
+    inside the checker either, then a layer's forced switches
+    (indic_qa_tamil.SETTINGS), which a project cannot change."""
+    settings: dict[str, Any] = json.loads(json.dumps(pack.checker_settings))
+    settings["rules"] = {r.id: r.enabled for r in pack.rules}
     config = indic_config(pack.meta)
     if config is not None and config["layer"]:
-        settings.update(json.loads(json.dumps(indic_qa_tamil.SETTINGS)))
+        for section, values in indic_qa_tamil.SETTINGS.items():
+            settings[section] = {**settings.get(section, {}), **values}
     return settings
+
+
+def with_resident(pack_name: str, read: Callable[[Any, Any], Any]) -> Any:
+    """read(checker, profile) on the resident checker of `pack_name`, under the
+    adapter's lock since a pass mutates it; None when no checker of that pack
+    is resident (no pass has loaded it yet)."""
+    with _LOCK:
+        loaded = _RESIDENT
+        if loaded is None or loaded.key[0] != pack_name:
+            return None
+        return read(loaded.checker, loaded.profile)
 
 
 # A checker is rebuilt from the snapshot whenever a pass moves to another book

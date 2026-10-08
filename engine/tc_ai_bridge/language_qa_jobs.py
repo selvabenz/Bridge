@@ -629,6 +629,17 @@ class LanguageQaManager:
         result["findings"] = [{**copy.deepcopy(f), "drawn": True} for f in findings]
         return result
 
+    def rule_counts(self) -> dict[str, int]:
+        """rule -> findings of the last pass (before the page), for the
+        Checker settings dialog's per-rule counts."""
+        with self._lock:
+            findings = list(self._summary.get("findings") or ())
+        counts: dict[str, int] = {}
+        for finding in findings:
+            rule = str(finding.get("rule") or "")
+            counts[rule] = counts.get(rule, 0) + 1
+        return counts
+
     def status(self, *, offset: int = 0, limit: int = 0, view: str = "findings",
                chapter: str | None = None, categories: Iterable[str] | None = None) -> dict[str, Any]:
         """One page of one list. `view`: "findings" (every open finding),
