@@ -16392,3 +16392,36 @@ about 2 s more, on the background worker. Requests don't wait for it.
 **Not run:** CI itself, since `main` is not pushed yet; the frozen sidecar smoke
 on the merged result. Upstream's `main` has the same red test; this fix has not
 been offered there.
+
+## 2026-10-08 — Docs brought up to date after the merge; matrix row ids de-duplicated
+
+**`QA_TEST_MATRIX.md` had duplicate ids.** Both branches numbered their new rows
+from the same base, so A97–A103 each meant two different rows. The Language QA
+rows (A97–A110) keep their ids. The automatic alignment rows are renumbered as
+follows; the earlier entries in this log that cite the old ids are left as written:
+
+| old | new | row |
+|---|---|---|
+| A97 | A111 | Null alignment decisions (#216) |
+| A98 | A112 | One token one home; N:M groups (#217) |
+| A99 | A113 | Stage 6B/8 read groups and nulls (#218) |
+| A100 | A114 | Automatic window alignment (#219) |
+| A101 | A115 | Possible omission/addition findings (#220) |
+| A102 | A116 | Chapter-wide automatic alignment job (#221) |
+| A103 | A117 | Cross-Verse Alignment page (#222) |
+
+**Other docs updated:**
+- `DEVELOPER_GUIDE.md`: two roadmap rows, for the indic-qa languages and editor
+  and for automatic cross-verse alignment, each with its verification state.
+- `ARCHITECTURE.md`: §4 adds the Language QA path, the automatic alignment
+  overlay, and a paragraph on N:M groups and null decisions as Stage 6B
+  evidence. §5 adds the Language QA, reference and Cross-verse alignment
+  surfaces. §6 adds the cross-verse/automatic alignment and Language QA
+  modules. There are now three vendored trees, not two.
+- `CLAUDE.md`: `bridge_service.py` is 7,142 lines and 59 test files import it;
+  there are 11 `sidecar::tests`; the workbench note no longer names a branch.
+- `LANGUAGE_QA_PACKS.md`: the first pass's one-time checker load.
+
+Every number above was measured or counted on `main` today: `wc -l`, a grep
+for the dispatcher import, `cargo test -- --list`, and the matrix rows'
+own status columns.

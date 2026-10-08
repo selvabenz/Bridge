@@ -54,7 +54,7 @@ the next paragraph. The full suite on every push to `main` is the gate; there is
 no nightly or weekly run.
 
 **Two rules when adding an engine test.** Both exist because
-`bridge_service.py` is 5,300 lines and 42 test files import it, so "which tests
+`bridge_service.py` is 7,100 lines and 59 test files import it (2026-10-08), so "which tests
 could this change affect?" has no useful answer (#74 phase 4, stopped
 deliberately — see `docs/BUILD_LOG.md` 2026-09-30 for why finishing it does not
 pay off):
@@ -123,7 +123,7 @@ the USFM checker script. Verify the frozen pair directly (not just source)
 with `python scripts/smoke_sidecars.py engine/dist/bridge-engine.exe`.
 
 `src-tauri/` has both: `cargo check`/`cargo build` for compile success, and a
-handful of real `#[test]` unit tests (`sidecar::tests` — 9 as of 2026-09-16;
+handful of real `#[test]` unit tests (`sidecar::tests` — 11 as of 2026-10-08;
 `passage_semantic_wire.rs` and its tests were removed in #103) run with
 `cargo test`. Run both, not just the compile check.
 
@@ -399,7 +399,7 @@ This same discipline now has two more, independent ladders. `bridge-workbench.sq
 sync and rebuilt the immutability trigger; v3 added `alignment_cross_verse_links`,
 #117; v4 added `language_qa_cache`, #169; v5 rebuilt `human_decisions` to admit the `housestyle` kind, #169;
 v6 added `language_qa_batches`, `language_qa_learned_fixes` and `language_qa_flags`, indic-qa editor
-features, carried verbatim from `indic-qa-editor` so both branches share one ladder;
+features;
 v7 added `alignment_null_decisions` and `alignment_verdicts`, #216) and `workspace.sqlite3`
 (`WorkspaceRepository`, `engine/tc_ai_bridge/workspace_repository.py`,
 `WORKSPACE_SCHEMA_VERSION`, currently v2 — v1 is exactly the unversioned

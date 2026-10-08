@@ -157,6 +157,13 @@ byte-exact and pinned, and the pack folder still holds only data.
   book's word counts changed.
 - **One checker is resident at a time.** Opening another language releases
   it.
+- **The first pass in a session pays a one-time load.** Measured for
+  ta-irv's layer on 2026-10-08: the OV lexicon takes 0.8 s and the IRV
+  snapshot 0.9 s. Both stay cached for the process (`_LEXICON_CACHE`,
+  `_STATE_CACHE`), so a later book switch rebuilds the checker in about
+  0.17 s. The load runs on the background worker and requests never wait for
+  it. A test with a deadline must warm the caches first, or it times the load
+  (BUILD_LOG 2026-10-08).
 
 ### Mapping
 
