@@ -257,6 +257,26 @@ def main() -> int:
                 or raw_top_tokens[0].get("word") != "Παῦλος"
             ):
                 raise SystemExit(f"Frozen UGNT token initialization failed: {raw_alignment}")
+            # #219/#221: the automatic alignment modules are new top-level and
+            # tc_ai_bridge imports a freeze could drop without failing to
+            # build. Both calls are offline: the estimate builds real window
+            # payloads, and a pass with no key must answer `unavailable`
+            # without sending anything.
+            estimate = request("auto-align-estimate", "alignment.autoAlign.estimate", {
+                "scope": "chapter", "chapters": ["1"],
+            })
+            if (
+                not estimate.get("success")
+                or estimate.get("result", {}).get("windows") != 1
+                or estimate.get("result", {}).get("calls") != 2
+                or not estimate.get("result", {}).get("estimatedInputTokens")
+            ):
+                raise SystemExit(f"Frozen automatic-alignment estimate failed: {estimate}")
+            offline_pass = request("auto-align-offline", "alignment.window.autoAlign", {
+                "chapter": "1", "verses": ["1", "2"],
+            })
+            if (offline_pass.get("result", {}).get("unavailable") or {}).get("reason") != "no-api-key":
+                raise SystemExit(f"Frozen automatic alignment did not degrade offline: {offline_pass}")
 
             if args.import_source:
                 started_at = time.perf_counter()

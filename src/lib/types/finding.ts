@@ -511,6 +511,43 @@ export interface AutoAlignVerdict {
   usage?: { calls: number; totalTokens: number; estimatedCostUSD: number };
 }
 
+/** #221: the chapter / book job over overlapping windows. */
+export interface AutoAlignJobStatus {
+  jobId: string;
+  scope: "chapter" | "book";
+  apply: boolean;
+  state: "queued" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled";
+  stage: string;
+  chapters: string[];
+  windowsTotal: number;
+  windowsDone: number;
+  windowsFailed: number;
+  percent: number;
+  currentWindow: { chapter: string; verses: string[] } | null;
+  /** Counts by verdict, e.g. { ALIGNED_CLEAN: 24, NEEDS_REVIEW: 6 }. */
+  verdictCounts: Record<string, number>;
+  verdicts: Record<string, AutoAlignVerdictKind>;
+  usage: { calls: number; totalTokens: number; estimatedCostUSD: number };
+  error: string | null;
+  unavailable: { reason: string; message: string } | null;
+  resumeOf: string;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+/** What a job would cost, worked out offline before the click. */
+export interface AutoAlignEstimate {
+  scope: "chapter" | "book";
+  chapters: string[];
+  windows: number;
+  calls: number;
+  estimatedInputTokens: number;
+  estimatedOutputTokens: number;
+  estimatedCostUSD: number;
+  model: string;
+  hasApiKey: boolean;
+}
+
 /** The verdict summary each alignment context carries. */
 export interface AutoAlignSummary {
   verdict: AutoAlignVerdictKind;

@@ -14549,3 +14549,40 @@ QA matrix rows A97–A101 now cover parts 1–5, all at source level only.
 
 **Verified.** 6 new protocol tests. Full engine suite with `-n auto`: 4779 passed,
 1 skipped, 3 xfailed.
+
+## 2026-10-08 — Automatic cross-verse alignment, part 6: the chapter job (#221)
+
+`engine/alignment_auto_align_jobs.py` copies `AIReviewJobManager`'s lifecycle:
+- one active job per engine;
+- a daemon thread;
+- cancellation between provider requests;
+- a failed window recorded, not fatal;
+- retry of what did not succeed.
+
+Each window is the service's own `auto_align_window`, so there is no second
+code path for agreement or writes.
+
+**A deviation from the plan.** The plan sketched a three-phase job: ask every
+window, reconcile votes across windows offline, then write. It is built as
+sequential windows instead, where the later window re-decides the overlap
+verse. Part 4's window-scoped ownership is what makes that safe: a later window
+never reverts a link reaching into a verse it cannot see.
+
+Cross-window voting would make an agreed edge stronger when two windows both
+found it. That is worth measuring once there is real-provider data (#131), and
+not worth building blind.
+
+**Estimate.** Offline. It builds every window's real payload and counts about
+three characters per token, plus 1,500 output tokens per call, priced through
+`model_router.estimate_cost`. The Rust timeout is 180 s for the estimate,
+because a whole book is hundreds of windows. `start`, `status` and `cancel` stay
+interactive at 30 s.
+
+**Frozen build.** `scripts/smoke_sidecars.py` now calls the estimate and an
+offline `alignment.window.autoAlign`. That proves the new top-level module and
+the `tc_ai_bridge` agreement and window modules are in the onefile exe, and that
+a pass with no key answers `unavailable` without sending anything.
+
+**Verified.** 6 job tests. Full engine suite with `-n auto`: 4785 passed, 1 skipped,
+3 xfailed. `cargo test` passes (10). The frozen smoke was not run for this part;
+it is run once at the end of the series, after the sidecars are rebuilt.

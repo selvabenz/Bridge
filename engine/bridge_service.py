@@ -133,6 +133,8 @@ from check_jobs import (
     CheckJobSpec,
     LANGUAGE_QA_CHECK,
 )
+import alignment_auto_align_jobs as auto_align_jobs
+from tc_ai_bridge.model_router import estimate_cost
 from ai_review_jobs import (
     AIReviewJobConflict,
     AIReviewJobError,
@@ -407,6 +409,11 @@ class Methods:
     ALIGNMENT_WINDOW_AUTO_ALIGN = "alignment.window.autoAlign"
     ALIGNMENT_AUTO_ALIGN_REVERT = "alignment.autoAlign.revert"
     ALIGNMENT_AUTO_ALIGN_VERDICT = "alignment.autoAlign.verdict"
+    ALIGNMENT_AUTO_ALIGN_START = "alignment.autoAlign.start"
+    ALIGNMENT_AUTO_ALIGN_STATUS = "alignment.autoAlign.status"
+    ALIGNMENT_AUTO_ALIGN_CANCEL = "alignment.autoAlign.cancel"
+    ALIGNMENT_AUTO_ALIGN_RETRY = "alignment.autoAlign.retry"
+    ALIGNMENT_AUTO_ALIGN_ESTIMATE = "alignment.autoAlign.estimate"
     ALIGNMENT_STATUS = "alignment.status"
     ALIGNMENT_REALIGN = "alignment.realign"
     ALIGNMENT_UNALIGN = "alignment.unalign"
@@ -585,6 +592,7 @@ class BridgeEngine:
         self._housestyle_learner = HouseStyleLearner()
         self._language_qa = LanguageQaManager()
         self._ai_review_jobs = AIReviewJobManager()
+        self._auto_align_jobs = auto_align_jobs.AutoAlignJobManager()  # #221
         self._analysis_jobs = AnalysisJobManager()
         self._correction_application_service: CorrectionApplicationService | None = None
         self._correction_affected_analysis_service: CorrectionAffectedAnalysisService | None = None
@@ -3050,6 +3058,91 @@ class BridgeEngine:
     def auto_align_verdict(self, chapter: str, verse: str) -> dict[str, Any]:
         self._require_project()
         return {"chapter": str(chapter), "verse": str(verse), "verdict": self._auto_verdict(str(chapter), str(verse))}
+
+    # ---- chapter / book job (#221) ------------------------------------------------
+
+    def _auto_job_windows(self, scope: str, chapters: Any) -> dict[str, list[list[str]]]:
+        self._require_project()
+        if scope not in {"chapter", "book"}:
+            raise ProjectError("Automatic alignment runs on a chapter or a book.")
+        if scope == "book":
+            wanted = [str(c) for c in self.project.chapters()]
+        else:
+            if not isinstance(chapters, list) or not chapters:
+                raise ProjectError("A chapter job needs the chapter to align.")
+            wanted = [str(c) for c in chapters]
+        known = set(str(c) for c in self.project.chapters())
+        windows: dict[str, list[list[str]]] = {}
+        for chapter in wanted:
+            if chapter not in known:
+                raise ProjectError(f"Chapter {chapter} does not exist in this project.")
+            verses = [str(v) for v in self.project.verses(chapter) if str(v) != "front"]
+            windows[chapter] = auto_align_jobs.windows_for(verses, window=3, overlap=1)
+        return windows
+
+    def auto_align_estimate(self, scope: str = "chapter", chapters: Any = None) -> dict[str, Any]:
+        """alignment.autoAlign.estimate: what a job would cost, worked out
+        offline from the real window payloads. About three characters per token
+        for the mixed Greek/Hebrew/Tamil text is a rough rule, so this is an
+        estimate to show before the click, not a quote."""
+        windows = self._auto_job_windows(scope, chapters)
+        count = sum(len(w) for w in windows.values())
+        input_tokens = 0
+        for chapter, chapter_windows in windows.items():
+            for window in chapter_windows:
+                built, guidance = self._build_auto_window(chapter, window, {"groups": set(), "links": set(), "nulls": set()})
+                chars = len(json.dumps(built.payload, ensure_ascii=False)) + len(alignment_window.INSTRUCTIONS[alignment_window.SOURCE_FIRST]) + len(guidance)
+                input_tokens += 2 * (chars // 3 + 1)
+        output_tokens = count * 2 * 1500
+        model = self.settings.model
+        try:
+            cost = estimate_cost(model, input_tokens, output_tokens)
+        except Exception:
+            cost = 0.0
+        return {
+            "scope": scope, "chapters": list(windows), "windows": count, "calls": count * 2,
+            "estimatedInputTokens": input_tokens, "estimatedOutputTokens": output_tokens,
+            "estimatedCostUSD": round(cost, 4), "model": model,
+            "hasApiKey": bool(self.settings.get_api_key()),
+        }
+
+    def start_auto_align_job(self, scope: str = "chapter", chapters: Any = None, apply: bool = True) -> dict[str, Any]:
+        windows = self._auto_job_windows(scope, chapters)
+        try:
+            self._ai_client()
+        except AIError as exc:
+            return {"state": "failed", "unavailable": {"reason": "no-api-key", "message": str(exc)}}
+        spec = auto_align_jobs.AutoAlignJobSpec(
+            scope=scope, chapters=tuple(windows), windows=windows, apply=bool(apply),
+        )
+        return self._start_auto_align(spec)
+
+    def _start_auto_align(self, spec) -> dict[str, Any]:
+        def run_window(chapter: str, verses: list[str], job_id: str) -> dict[str, Any]:
+            return self.auto_align_window(chapter, verses, apply=spec.apply, job_id=job_id)
+        try:
+            return self._auto_align_jobs.start(spec, run_window=run_window)
+        except auto_align_jobs.AutoAlignJobConflict as exc:
+            raise ProjectError(str(exc)) from exc
+
+    def auto_align_job_status(self, job_id: str = "") -> dict[str, Any]:
+        try:
+            return self._auto_align_jobs.status(job_id)
+        except auto_align_jobs.AutoAlignJobNotFound as exc:
+            raise ProjectError(str(exc)) from exc
+
+    def cancel_auto_align_job(self, job_id: str = "") -> dict[str, Any]:
+        try:
+            return self._auto_align_jobs.cancel(job_id)
+        except auto_align_jobs.AutoAlignJobNotFound as exc:
+            raise ProjectError(str(exc)) from exc
+
+    def retry_auto_align_job(self, job_id: str) -> dict[str, Any]:
+        try:
+            spec = self._auto_align_jobs.spec_for_retry(job_id)
+        except (auto_align_jobs.AutoAlignJobNotFound, auto_align_jobs.AutoAlignJobConflict) as exc:
+            raise ProjectError(str(exc)) from exc
+        return self._start_auto_align(spec)
 
     def get_lexicon_entry(self, strong: str, morph: str) -> dict[str, Any]:
         """Look up lexicon glosses + decoded morphology for one source token.
@@ -5752,6 +5845,20 @@ class BridgeEngine:
             if m == Methods.ALIGNMENT_AUTO_ALIGN_VERDICT:
                 return EngineResponse.ok(request.id, result=self.auto_align_verdict(
                     str(p.get("chapter") or ""), str(p.get("verse") or ""),
+                ))
+            if m == Methods.ALIGNMENT_AUTO_ALIGN_START:
+                return EngineResponse.ok(request.id, result=self.start_auto_align_job(
+                    str(p.get("scope") or "chapter"), p.get("chapters"), bool(p.get("apply", True)),
+                ))
+            if m == Methods.ALIGNMENT_AUTO_ALIGN_STATUS:
+                return EngineResponse.ok(request.id, result=self.auto_align_job_status(str(p.get("jobId") or "")))
+            if m == Methods.ALIGNMENT_AUTO_ALIGN_CANCEL:
+                return EngineResponse.ok(request.id, result=self.cancel_auto_align_job(str(p.get("jobId") or "")))
+            if m == Methods.ALIGNMENT_AUTO_ALIGN_RETRY:
+                return EngineResponse.ok(request.id, result=self.retry_auto_align_job(str(p.get("jobId") or "")))
+            if m == Methods.ALIGNMENT_AUTO_ALIGN_ESTIMATE:
+                return EngineResponse.ok(request.id, result=self.auto_align_estimate(
+                    str(p.get("scope") or "chapter"), p.get("chapters"),
                 ))
             if m == Methods.LEXICON_GET_ENTRY:
                 return EngineResponse.ok(

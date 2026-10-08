@@ -226,6 +226,32 @@ signature):
   error rate, it does not bound it. Every number is uncalibrated
   (`two-pass-agreement-v1`). No real-provider run has been recorded yet (#131).
 
+### A chapter or a book at a time (#221)
+
+```text
+alignment.autoAlign.estimate {scope: "chapter"|"book", chapters?}   offline: windows, calls, tokens, cost
+alignment.autoAlign.start    {scope, chapters?, apply?}             background job; `unavailable` without a key
+alignment.autoAlign.status / .cancel / .retry {jobId}
+```
+
+The job walks each chapter in windows of three verses that overlap by one, so
+every verse boundary falls inside some window. Each window is one
+`alignment.window.autoAlign`, with all of its rules.
+
+- **Order.** Windows run in reading order. A verse in two windows is decided
+  again by the later one, which supersedes only what an automatic pass wrote,
+  and for a link only when both ends are inside the later window.
+- **Failures and cancelling.** A failed window is recorded and the job moves
+  on. Cancel takes effect between requests. Retry runs only the windows that
+  did not succeed.
+- **Cost.** A 30-verse chapter is 15 windows and 30 requests. The estimate is
+  worked out from the real window payloads at about three characters per
+  token, so it is an estimate, not a quote.
+
+The plan sketched a cross-window vote, where a second window's agreement counts
+as another vote. It is not built. Sequential re-decision is simpler, and it
+never touches a link a later window cannot see.
+
 ### In the verse editor (#220)
 
 The ordinary `alignment` check engine (and `local`) raises

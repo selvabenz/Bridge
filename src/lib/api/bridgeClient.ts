@@ -38,6 +38,8 @@ import type {
   NullSide,
   AutoAlignWindowResult,
   AutoAlignVerdict,
+  AutoAlignJobStatus,
+  AutoAlignEstimate,
   CrossVerseProposalResult,
   BookProgressEntry,
   CheckJobSnapshot,
@@ -227,6 +229,11 @@ export type EngineMethod =
   | "alignment.window.autoAlign"
   | "alignment.autoAlign.revert"
   | "alignment.autoAlign.verdict"
+  | "alignment.autoAlign.start"
+  | "alignment.autoAlign.status"
+  | "alignment.autoAlign.cancel"
+  | "alignment.autoAlign.retry"
+  | "alignment.autoAlign.estimate"
   | "alignment.gapScan"
   | "alignment.get"
   | "alignment.getRange"
@@ -698,6 +705,32 @@ export const bridge = {
 
   autoAlignVerdict(chapter: string, verse: string): Promise<{ chapter: string; verse: string; verdict: AutoAlignVerdict | null }> {
     return call("alignment.autoAlign.verdict", { chapter, verse });
+  },
+
+  /** #221: what aligning a chapter (or the book) would cost, worked out
+   *  offline. Shown before the job is started. */
+  autoAlignEstimate(scope: "chapter" | "book", chapters: string[] = []): Promise<AutoAlignEstimate> {
+    return call("alignment.autoAlign.estimate", { scope, chapters });
+  },
+
+  /** Start the background job; returns its first snapshot, or `unavailable`
+   *  without a key. */
+  autoAlignStart(scope: "chapter" | "book", chapters: string[] = [], apply = true): Promise<AutoAlignJobStatus & {
+    unavailable?: { reason: string; message: string } | null;
+  }> {
+    return call("alignment.autoAlign.start", { scope, chapters, apply });
+  },
+
+  autoAlignStatus(jobId = ""): Promise<AutoAlignJobStatus> {
+    return call("alignment.autoAlign.status", { jobId });
+  },
+
+  autoAlignCancel(jobId = ""): Promise<AutoAlignJobStatus> {
+    return call("alignment.autoAlign.cancel", { jobId });
+  },
+
+  autoAlignRetry(jobId: string): Promise<AutoAlignJobStatus> {
+    return call("alignment.autoAlign.retry", { jobId });
   },
 
   getLexiconEntry(strong: string, morph: string): Promise<LexiconEntryResponse> {
