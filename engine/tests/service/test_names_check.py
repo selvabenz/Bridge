@@ -110,6 +110,66 @@ def test_names_adapter_is_listed_as_a_real_engine():
     names_info = info["greekRoom"]["adapters"]["names"]
     assert names_info["available"] is True
     assert names_info["usingRealEngine"] is True
+    assert names_info["state"] in {"not-loaded", "loading", "loaded"}  # #242
+
+
+@pytest.fixture
+def uroman_constructions(monkeypatch):
+    """Reset the names adapter to a new process's state and count every
+    Uroman() built from here on (#242)."""
+    import uroman
+
+    from greek_room_engine.adapters import names_adapter
+
+    monkeypatch.setattr(names_adapter, "_uroman", None)
+    monkeypatch.setattr(names_adapter, "_uroman_unavailable_reason", None)
+    monkeypatch.setattr(names_adapter, "_uroman_thread", None)
+    real = uroman.Uroman
+    built: list[int] = []
+
+    class Counting(real):  # type: ignore[misc, valid-type]
+        def __init__(self, *args, **kwargs):
+            built.append(1)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(uroman, "Uroman", Counting)
+    return built
+
+
+def test_engine_info_builds_no_uroman_and_names_still_finds_the_typo(spelling_fixture_project, uroman_constructions):
+    engine = BridgeEngine()
+    names_info = call(engine, "engine.info")["result"]["greekRoom"]["adapters"]["names"]
+    assert names_info["available"] is True and names_info["state"] == "not-loaded"
+    assert uroman_constructions == []
+    call(engine, "project.open", {"path": str(spelling_fixture_project)})
+    result = call(engine, "verse.runChecks", {"chapter": "2", "verse": "7", "checks": ["names"]})
+    assert [f["original_text"] for f in result["findings"]] == ["Tituss"]
+    assert uroman_constructions == [1]
+    assert call(engine, "engine.info")["result"]["greekRoom"]["adapters"]["names"]["state"] == "loaded"
+
+
+def test_cached_names_findings_never_load_uroman(spelling_fixture_project, monkeypatch):
+    first = BridgeEngine()
+    call(first, "project.open", {"path": str(spelling_fixture_project)})
+    found = call(first, "verse.runChecks", {"chapter": "2", "verse": "7", "checks": ["names"]})["findings"]
+    assert [f["original_text"] for f in found] == ["Tituss"]
+
+    import uroman
+
+    from greek_room_engine.adapters import names_adapter
+
+    monkeypatch.setattr(names_adapter, "_uroman", None)
+    monkeypatch.setattr(names_adapter, "_uroman_unavailable_reason", None)
+
+    def refuse(*_args, **_kwargs):
+        raise AssertionError("a book whose names cache matches must not load uroman")
+
+    monkeypatch.setattr(uroman, "Uroman", refuse)
+    second = BridgeEngine()
+    call(second, "project.open", {"path": str(spelling_fixture_project)})
+    again = call(second, "verse.runChecks", {"chapter": "2", "verse": "7", "checks": ["names"]})
+    assert again["success"] is True, again
+    assert [f["id"] for f in again["findings"]] == [f["id"] for f in found]
 
 
 @pytest.fixture

@@ -17326,3 +17326,72 @@ that, a later change always moves the timestamp.
 - GEN: no extra parses (run 1: 50, run 2: 0). The local stage is unchanged
   within noise.
 - Engine `pytest -m "not slow"`: 4913 passed, 3 xfailed.
+
+## 2026-10-09 — uroman loads off the dispatcher, after the sidecar is ready (#242)
+
+**Problem.**
+- `NamesAdapter.is_available()` built `Uroman()`, which takes 4.5-5.2 s.
+- `GreekRoomEngine.info()` calls it, and `TopBar.svelte` calls `engine.info`
+  on mount. So every app start held the single-threaded dispatcher about 5 s,
+  and nothing else was answered meanwhile. `engine-events.log` showed
+  `rpc engine.info took 4944ms` and `5810ms`.
+- Correction to the 2026-10-08 entry. Its "8.0-8.4 s first-open load" came
+  from a harness that never called `engine.info` first. In the desktop app
+  that cost was paid at startup, not at the first open.
+
+**Change.**
+- `names_adapter`:
+  - `_import_uroman()` checks the package and the data files its loader
+    needs, without building anything (about 0.06 s);
+  - `is_available()` = package and data present, plus SED, and no recorded
+    load failure;
+  - `_ensure_uroman()` records a failure reason and calls `gc.enable()` in a
+    `finally`. Uroman's own `__init__` disables gc with no try/finally, so a
+    failed load used to leave the collector off for the whole process;
+  - `load_state()` reports `not-loaded`, `loading`, `loaded` or `failed`;
+  - `preload_async()` starts an idempotent daemon thread named
+    `uroman-preload` and logs one `[trace] uroman preload took` line.
+- `CheckAdapter.status()` lets `engine.info` add `state` and `error` per
+  adapter. This is additive; the frontend reads nothing under `adapters`.
+- `run_stdio_loop(on_ready=...)` runs `on_ready` once, after `__ready__`. A
+  failure there is logged and never stops the loop.
+- `main.py` passes `engine.start_background_warmup`, and that is the only
+  starter. `BridgeEngine()` in tests starts no thread.
+- `smoke_sidecars.py`:
+  - waits for `__ready__` and prints the boot time;
+  - fails if `engine.info` takes 2 s or more;
+  - requires `state: loaded` after the names check.
+- `docs/DECISIONS.md` has an entry for this, and QA matrix row A15 now
+  covers the new assertions.
+
+**Measured.**
+- In-process: `engine.info` 56 ms, where it was about 5 s. The background
+  load took 5.47 s.
+- Frozen pair, built from this branch: ready in 1.28 s, `engine.info` 31 ms,
+  names `loaded` after the check.
+- The smoke test passed: Hindi 3.31 s, ta-irv layer 3.88 s.
+
+**Tests.**
+- `greek_room_engine/tests/test_names_adapter.py`:
+  - `is_available` never constructs;
+  - a failed construction reports `failed`, restores gc, and makes
+    `check_book` raise `NamesCheckError` with the reason;
+  - the preload runs once on `uroman-preload`.
+- `tests/service/test_names_check.py`:
+  - `engine.info` builds nothing and names still finds Tituss, with exactly
+    one construction;
+  - a book whose names cache matches never loads uroman.
+- `tests/service/test_stdio_e2e.py`: a real `main.py` answers `engine.info` in
+  under 2 s and reaches `loaded`.
+- Engine `pytest -m "not slow"`: 4918 passed, 3 xfailed. stdio e2e: 2 passed.
+- Not run: the frontend gate, since no frontend file changed; cargo; the
+  desktop app.
+
+**Follow-ups filed, not done.**
+- #243: the second `Uroman()` in alignment statistics.
+- #244: `check.listForVerse` rebuilds the tN/tW index on every call.
+- #245: `decisions.reapply` reads one connection per verse. It is now the
+  largest local-stage step on GEN.
+- The stdio e2e `Sidecar` helper also pipes stderr without draining it. The
+  preload adds one short line, under the pipe buffer, but it is the same
+  hazard `d2a0a8d` fixed in the smoke harness.

@@ -42,10 +42,18 @@ class GreekRoomEngine:
                     "available": a.is_available(),
                     "usingRealEngine": a.using_real_engine(),
                     "version": a.version(),
+                    **a.status(),
                 }
                 for name, a in self._adapters.items()
             },
         }
+
+    def preload_async(self) -> None:
+        """Start loading what is slow to load (uroman, for names) on a
+        background thread. Called once the sidecar is ready (#242)."""
+        names = self._adapters.get("names")
+        if names is not None and hasattr(names, "preload_async"):
+            names.preload_async()
 
     def check_verse(self, *, project_id: str, lang_code: str, ref: str,
                      text: str, checks: list[str]) -> list[QaFinding]:

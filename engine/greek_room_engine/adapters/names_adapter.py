@@ -37,10 +37,12 @@ happen to look similar.
 """
 from __future__ import annotations
 
+import gc
 import re
 import sys
 import threading
 import time
+import traceback
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any
@@ -102,7 +104,13 @@ _MAX_BIGRAM_BUCKET = 250
 
 _lock = threading.Lock()
 _uroman = None
-_uroman_unavailable = False
+# Why uroman cannot be used, once known: not installed, its data missing, or
+# its construction failed. None while it may still load.
+_uroman_unavailable_reason: str | None = None
+_uroman_module = None
+_uroman_thread: threading.Thread | None = None
+# The files Uroman.load_resource_files cannot do without.
+_UROMAN_DATA = ("romanization-auto-table.txt", "romanization-table.txt", "UnicodeDataProps.txt")
 _sed_module = None
 _sed_unavailable_reason: str | None = None
 _sed_cache: dict[str, Any] = {}  # lang_code -> loaded SmartEditDistance instance
@@ -139,28 +147,113 @@ class NamesCheckError(RuntimeError):
     """Uroman or Smart Edit Distance could not be loaded/used reliably."""
 
 
+def _import_uroman():
+    """The uroman package, when it is installed with its data -- without
+    building it. Cheap (~0.06 s), so engine.info can call it (#242)."""
+    global _uroman_module, _uroman_unavailable_reason
+    if _uroman_module is not None:
+        return _uroman_module
+    if _uroman_unavailable_reason is not None:
+        return None
+    try:
+        import uroman as uroman_pkg
+    except ImportError as exc:
+        _uroman_unavailable_reason = f"uroman package is not installed: {exc}"
+        return None
+    try:
+        data_dir = Path(uroman_pkg.Uroman.default_data_dir())
+    except Exception:
+        data_dir = Path(uroman_pkg.__file__).parent / "data"
+    missing = [name for name in _UROMAN_DATA if not (data_dir / name).is_file()]
+    if missing:
+        _uroman_unavailable_reason = f"uroman data not found in {data_dir}: {', '.join(missing)}"
+        return None
+    _uroman_module = uroman_pkg
+    return uroman_pkg
+
+
 def _ensure_uroman():
     """Load Uroman's full table set exactly once per process.
 
-    Verified directly (not assumed from docs) that construction is a real,
-    substantial cost — ~1.8-2.1s measured during the Phase 5 investigation —
-    after which romanize_string() calls are effectively instant. This is
-    the concrete reason the vendored tool's own "load once, not per call"
-    recommendation is worth following, not a rubber-stamped best practice.
+    Construction parses ~3.9 MB of tables: 4.5-5.2 s measured on 2026-10-08
+    (the Phase 5 figure of ~1.8-2.1 s no longer holds), after which
+    romanize_string() calls are effectively instant -- hence "load once, not
+    per call". It is preloaded on a background thread after the sidecar is
+    ready (preload_async, #242); whoever needs it first waits on _lock for
+    the rest of that load, never for a second one.
+
+    Uroman's own __init__ calls gc.disable() and only re-enables on success;
+    a failed construction would leave garbage collection off for the whole
+    process, so Bridge restores it here.
     """
-    global _uroman, _uroman_unavailable
-    if _uroman is not None or _uroman_unavailable:
+    global _uroman, _uroman_unavailable_reason
+    if _uroman is not None or _uroman_unavailable_reason is not None:
         return _uroman
     with _lock:
-        if _uroman is not None or _uroman_unavailable:
+        if _uroman is not None or _uroman_unavailable_reason is not None:
             return _uroman
-        try:
-            import uroman as uroman_pkg
-        except ImportError:
-            _uroman_unavailable = True
+        uroman_pkg = _import_uroman()
+        if uroman_pkg is None:
             return None
-        _uroman = uroman_pkg.Uroman()
+        try:
+            _uroman = uroman_pkg.Uroman()
+        except Exception as exc:
+            _uroman_unavailable_reason = f"uroman could not load: {type(exc).__name__}: {exc}"
+            return None
+        finally:
+            gc.enable()
         return _uroman
+
+
+def load_state() -> str:
+    """"loaded", "loading" (the preload thread is building it), "failed" or
+    "not-loaded" -- what engine.info reports for names (#242)."""
+    if _uroman is not None:
+        return "loaded"
+    if _uroman_unavailable_reason is not None:
+        return "failed"
+    if _uroman_thread is not None and _uroman_thread.is_alive():
+        return "loading"
+    return "not-loaded"
+
+
+def load_error() -> str | None:
+    return _uroman_unavailable_reason
+
+
+def preload_async() -> threading.Thread | None:
+    """Build uroman on a daemon thread, once per process; the sidecar starts it
+    after it has said it is ready (main.py), so neither startup nor engine.info
+    waits ~5 s for it. Returns the thread, or None when there is nothing to
+    load. Never raises; a failure is reported by load_state()."""
+    global _uroman_thread
+    with _lock:
+        if _uroman is not None or _uroman_unavailable_reason is not None:
+            return None
+        if _uroman_thread is not None:
+            return _uroman_thread
+
+        def run() -> None:
+            started = time.perf_counter()
+            try:
+                _ensure_uroman()
+            except Exception:  # never let a warmup thread die loudly
+                traceback.print_exc(file=sys.stderr)
+            # The "[trace]" prefix is what the desktop shell files as info.
+            print(f"[trace] uroman preload took {(time.perf_counter() - started) * 1000:.0f}ms"
+                  f" ({load_state()})", file=sys.stderr, flush=True)
+
+        _uroman_thread = threading.Thread(target=run, name="uroman-preload", daemon=True)
+        _uroman_thread.start()
+        return _uroman_thread
+
+
+def wait_for_preload(timeout: float | None = None) -> str:
+    """For tests: wait for the preload thread, then report load_state()."""
+    thread = _uroman_thread
+    if thread is not None:
+        thread.join(timeout)
+    return load_state()
 
 
 def _load_sed_module():
@@ -225,10 +318,19 @@ class NamesAdapter(CheckAdapter):
     engine_name = "names"
 
     def is_available(self) -> bool:
-        return _ensure_uroman() is not None and _load_sed_module() is not None
+        """Installed with its data, and not known to have failed to load.
+        Never builds uroman (that took engine.info 4.5-5.2 s, #242)."""
+        return (_import_uroman() is not None and _load_sed_module() is not None
+                and _uroman_unavailable_reason is None)
 
     def using_real_engine(self) -> bool:
         return self.is_available()
+
+    def status(self) -> dict[str, Any]:
+        return {"state": load_state(), "error": load_error()}
+
+    def preload_async(self) -> threading.Thread | None:
+        return preload_async()
 
     def version(self) -> str:
         return "uroman-1.3.1.1+sed-vendored-18ddcf0"
@@ -265,7 +367,7 @@ class NamesAdapter(CheckAdapter):
         phases["names.load"] = (now - mark, 1)
         mark = now
         if uroman is None or sed is None:
-            reason = _sed_unavailable_reason or "uroman package is not installed"
+            reason = _uroman_unavailable_reason or _sed_unavailable_reason or "uroman package is not installed"
             raise NamesCheckError(f"Names/transliteration check unavailable: {reason}")
 
         candidates = {

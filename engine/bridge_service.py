@@ -725,6 +725,13 @@ class BridgeEngine:
             "greekRoom": self.greek_room.info(),
         }
 
+    def start_background_warmup(self) -> None:
+        """Slow loads, started off the dispatcher once the sidecar is ready
+        (main.py only: tests that build a BridgeEngine never pay them). Today:
+        uroman for the names check, which engine.info used to build, ~5 s
+        with nothing else answered (#242)."""
+        self.greek_room.preload_async()
+
     def open_project(self, path: str, project_id: str = "") -> dict[str, Any]:
         self._usfm_findings_by_book.clear()
         self._usfm_errors_by_book.clear()
