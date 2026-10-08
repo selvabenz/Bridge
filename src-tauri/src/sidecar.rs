@@ -151,6 +151,10 @@ fn request_timeout_seconds(method: &str) -> u64 {
         | "alignment.crossVerse.aiPropose"
         | "correction.createProposal"
         | "correction.regenerateProposal" => 260,
+        // The automatic window alignment (#219) makes TWO such calls in a row
+        // (source-first, then target-first), then the offline corpus pass and
+        // the writes: twice the single-call class plus headroom.
+        "alignment.window.autoAlign" => 540,
         // A whole-Bible report payload (tens of thousands of rows) takes a
         // while to serialize and ship over stdio; the export writes it
         // back out. report.status/report.cancel stay interactive.
@@ -541,6 +545,7 @@ mod tests {
         // getting them the wrong way round is silent -- the AI one would die at
         // 30s mid-request, the offline one would hang the UI for four minutes.
         assert_eq!(request_timeout_seconds("alignment.crossVerse.aiPropose"), 260);
+        assert_eq!(request_timeout_seconds("alignment.window.autoAlign"), 540);
         assert_eq!(request_timeout_seconds("alignment.crossVerse.propose"), 30);
         assert_eq!(request_timeout_seconds("alignment.crossVerse.link"), 30);
     }

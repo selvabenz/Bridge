@@ -36,6 +36,8 @@ import type {
   NullDecisionResult,
   NullReason,
   NullSide,
+  AutoAlignWindowResult,
+  AutoAlignVerdict,
   CrossVerseProposalResult,
   BookProgressEntry,
   CheckJobSnapshot,
@@ -222,6 +224,9 @@ export type EngineMethod =
   | "alignment.crossVerse.unlink"
   | "alignment.null.set"
   | "alignment.null.clear"
+  | "alignment.window.autoAlign"
+  | "alignment.autoAlign.revert"
+  | "alignment.autoAlign.verdict"
   | "alignment.gapScan"
   | "alignment.get"
   | "alignment.getRange"
@@ -674,6 +679,25 @@ export const bridge = {
 
   nullClear(decisionId: string): Promise<NullDecisionResult> {
     return call("alignment.null.clear", { decisionId });
+  },
+
+  /** #219: ask the window twice and write what both passes agree on. Sends the
+   *  window's words to the configured provider; returns `unavailable` without
+   *  a key. Never called on open, import or check. */
+  autoAlignWindow(chapter: string, verses: string[], apply = true): Promise<AutoAlignWindowResult> {
+    return call("alignment.window.autoAlign", { chapter, verses, apply });
+  },
+
+  /** Undo what the last automatic pass wrote in one verse, where it is still
+   *  exactly as written; anything a reviewer changed since is `skipped`. */
+  autoAlignRevert(chapter: string, verse: string): Promise<{
+    chapter: string; verse: string; skipped: string[]; context: AlignmentContext;
+  }> {
+    return call("alignment.autoAlign.revert", { chapter, verse });
+  },
+
+  autoAlignVerdict(chapter: string, verse: string): Promise<{ chapter: string; verse: string; verdict: AutoAlignVerdict | null }> {
+    return call("alignment.autoAlign.verdict", { chapter, verse });
   },
 
   getLexiconEntry(strong: string, morph: string): Promise<LexiconEntryResponse> {

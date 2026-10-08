@@ -381,6 +381,8 @@ export interface AlignmentContext {
    *  null -- and the verse has a source and no structural issue. Bridge's
    *  "nothing left to do"; `status` stays translationCore's own state. */
   accounted: boolean;
+  /** #219: the last automatic pass on this verse, if any. */
+  autoAlign?: AutoAlignSummary | null;
 }
 
 /** #216: why a word has no counterpart. Source words are implicit or
@@ -421,6 +423,103 @@ export interface NullDecisionEntry {
   invalidReason?: string | null;
   /** Active, but this load cannot find the token: the source pack changed. */
   stale: boolean;
+}
+
+/** #219: what the automatic two-pass alignment concluded about one verse. */
+export type AutoAlignVerdictKind = "ALIGNED_CLEAN" | "NEEDS_REVIEW" | "UNAVAILABLE" | "REVERTED";
+
+/** One end of a suggestion or issue, resolved to this load's positional id. */
+export interface AutoAlignTokenEnd {
+  side: NullSide;
+  chapter: string;
+  verse: string;
+  signature: string;
+  word: string;
+  /** Positional id in its verse now, or null if the word is gone. */
+  id: string | null;
+}
+
+/** A word neither pass could place. Never aligned; reported for the reviewer. */
+export interface AutoAlignIssue {
+  kind: "POSSIBLE_OMISSION" | "POSSIBLE_ADDITION";
+  side: NullSide;
+  signature: string;
+  word: string;
+  id: string | null;
+  /** The model's own words about what is missing or added. */
+  note: string;
+}
+
+/** A claim only one pass made, or that agreement could not settle. Accepting
+ *  one goes through the ordinary writers (realign / crossVerse.link / null.set). */
+export interface AutoAlignSuggestion {
+  kind: "link" | "null";
+  status: "UNCERTAIN" | "CORPUS_DISAGREES" | "CONFLICTS_WITH_HUMAN";
+  votes: Record<string, boolean>;
+  source: AutoAlignTokenEnd | null;
+  target: AutoAlignTokenEnd | null;
+  /** For a null suggestion: the word it is about. */
+  token: AutoAlignTokenEnd | null;
+  reason: string;
+  note: string;
+  confidence: number;
+}
+
+/** The ledger of what one automatic pass wrote in a verse -- what a re-run
+ *  supersedes and "Undo a verse" removes. */
+export interface AutoAlignApplied {
+  groups: { tops: string[]; bottoms: string[]; relation?: string }[];
+  links: string[];
+  nulls: string[];
+}
+
+export interface AutoAlignVerseResult {
+  verse: string;
+  verdict: AutoAlignVerdictKind;
+  applied: AutoAlignApplied;
+  issues: AutoAlignIssue[];
+  suggestions: AutoAlignSuggestion[];
+  context: AlignmentContext;
+}
+
+export interface AutoAlignWindowResult {
+  chapter: string;
+  verses: string[];
+  runId: string;
+  calibrationVersion: string;
+  corpus?: { checked: boolean; reason: string };
+  results: AutoAlignVerseResult[];
+  usage?: { calls: number; totalTokens: number; estimatedCostUSD: number };
+  notes?: string[];
+  failures?: string[];
+  unavailable?: { reason: string; message: string };
+}
+
+/** The stored verdict of the last automatic pass on a verse. */
+export interface AutoAlignVerdict {
+  chapter: string;
+  verse: string;
+  verdict: AutoAlignVerdictKind;
+  runId: string;
+  jobId?: string;
+  applyRequested: boolean;
+  issues: AutoAlignIssue[];
+  suggestions: AutoAlignSuggestion[];
+  applied: AutoAlignApplied;
+  window: string[];
+  createdAt: string;
+  usage?: { calls: number; totalTokens: number; estimatedCostUSD: number };
+}
+
+/** The verdict summary each alignment context carries. */
+export interface AutoAlignSummary {
+  verdict: AutoAlignVerdictKind;
+  runId: string;
+  createdAt: string;
+  /** The verse or its alignment changed after the pass. */
+  stale: boolean;
+  issues: number;
+  suggestions: number;
 }
 
 export interface NullDecisionResult {

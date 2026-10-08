@@ -360,6 +360,19 @@ Bridge is a Windows desktop application built from:
   gate may auto-link; uncorroborated suggestions require explicit acceptance.
 - `FR-XVA-010 P0` Proposal generation alone shall write no link, and a batch shall
   stop safely at a refused or conflicting write.
+- `FR-XVA-011 P0` A null alignment decision (a word with no counterpart, for a
+  named reason) shall be stored Bridge-private, never as an empty tC group, and
+  the absence of a decision shall mean unaligned (#216).
+- `FR-XVA-012 P0` Every token shall have at most one home: a tC group, a
+  cross-verse link group or a null decision; a 1:N/N:1/N:M cross-verse
+  realization shall be one group written and removed as a unit (#217).
+- `FR-XVA-013 P0` Automatic window alignment shall write only what a
+  source-first and a target-first pass both give, shall never write over a
+  reviewer's alignment, and shall report a word neither pass placed as a
+  possible omission or addition without aligning it (#219).
+- `FR-XVA-014 P1` A possible omission or addition from automatic alignment shall
+  appear as a verse check finding with a stable id, silenced by a reviewer's
+  link or null decision (#220).
 
 ### 7.9 Passage-semantic analysis
 

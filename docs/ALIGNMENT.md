@@ -171,6 +171,61 @@ alignment.null.clear  {decisionId}
   stales Stage 6B/7/8. It is folded only when a book has decisions, so existing
   projects keep their digests.
 
+## Automatic alignment: two passes, agreement writes (#219)
+
+```text
+alignment.window.autoAlign   {chapter, verses: [2..5 consecutive], apply?: true}
+alignment.autoAlign.revert   {chapter, verse}
+alignment.autoAlign.verdict  {chapter, verse}
+```
+
+The window (`alignment_window.py`, #214's payload) is the whole source and the
+whole target of the verses, in reading order. Each word has an opaque handle
+(`S1`, `T1`); Bridge's own ids and signatures are never sent. A word a reviewer
+has already placed is shown for context, marked `alreadyAligned`, and any claim
+on it is discarded. The window is asked **twice**, and each pass must account
+for every word on both sides:
+
+- **source-first**: each source word is linked, marked null, or marked
+  unplaced, then each target word left over;
+- **target-first**: the same, starting from the target words.
+
+`alignment_agreement.agree` compares the two (pure, keyed on side + verse +
+signature):
+
+| Both passes give | Result |
+|---|---|
+| the same edge | **written**. Same-verse edges are compiled into tC groups (1:1/1:N/N:1/N:M) by `compile_link_proposal` with thresholds 0.0, because agreement is the gate, and saved with operation `ai_auto_align`. Cross-verse edges become one link group per connected component, through `alignment.crossVerse.link`. |
+| the same null, same reason | **written** to the null store with `origin: "ai-auto"`, unless either pass also linked the word |
+| something only one pass gave, or reasons that differ | a **suggestion** with both votes; nothing written |
+| nothing at all for a word | **POSSIBLE_OMISSION** (source) or **POSSIBLE_ADDITION** (target), with the model's notes; nothing written |
+
+- **Corpus check.** Once the project has completed alignments, an agreed
+  cross-verse edge is blocked (`CORPUS_DISAGREES`) when the offline scorer's top
+  candidate for that source word is a different target word, or the target word
+  is contested.
+- **Spans.** A cross-verse component reaching more than two verses cannot be one
+  group and is offered as a suggestion instead.
+- **A reviewer's work is never written over.** Their groups, links and
+  decisions are fixed homes. When both passes contradict them, that shows up
+  once as a `CONFLICTS_WITH_HUMAN` suggestion.
+- **The ledger.** Each verse's verdict row (`alignment_verdicts`) records what
+  this run wrote: tC groups by signature set, link `groupId`s and decision ids.
+  A re-run first undoes its predecessor's writes, but only where they are still
+  exactly as written and, for a link, only where both ends lie inside the
+  window. `alignment.autoAlign.revert` does the same for one verse and reports
+  anything a reviewer has since changed as `skipped`.
+- **Verdict.** `ALIGNED_CLEAN` when nothing is left to suggest or report and the
+  verse is `accounted`; otherwise `NEEDS_REVIEW`. tC `status` and
+  `completionState` stay honest, and a verse whose words all landed in
+  same-verse groups is marked completed by the ordinary save path.
+- **Offline.** No key means a structured `unavailable` and no request.
+  Nothing is sent on open, import or check. The Rust timeout for the method is
+  540 s (two provider calls).
+- **Limits.** Two samples of one model are correlated: agreement lowers the
+  error rate, it does not bound it. Every number is uncalibrated
+  (`two-pass-agreement-v1`). No real-provider run has been recorded yet (#131).
+
 ## What Stage 6B and Stage 8 read from all this (#218)
 
 - A cross-verse **group** reaches Stage 6B as one `WORD_ALIGNMENT` precedent

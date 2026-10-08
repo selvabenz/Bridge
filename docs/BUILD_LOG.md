@@ -14477,3 +14477,52 @@ IMPLICIT. The run fingerprint moves, and every other unlocated word in the verse
 is still reported. Full engine suite with `-n auto`, run on this part with later
 parts' files ignored: 4751 passed, 1 skipped, 3 xfailed. Both golden tests pass
 unchanged.
+
+## 2026-10-08 — Automatic cross-verse alignment, part 4: two-pass agreement writes (#219)
+
+**What it does.** `alignment.window.autoAlign` builds #214's window, asks it
+source-first and target-first, compares the two passes
+(`alignment_agreement.agree`), writes what both agree on, suggests the rest, and
+reports what neither placed. Maintainer sign-off for the zero-click gate is
+recorded in DECISIONS (2026-10-08) and on #214.
+
+**Three corrections made while designing, each a bug the first sketch had:**
+- **Each pass must account for both sides.** If only the target-first pass
+  spoke about target-only words, a Tamil grammar word could never be agreed
+  on, and no verse containing one could end clean.
+- **Homed tokens leave the compiler's input.** `compile_link_proposal` in
+  gap_fill mode *extends* a protected group whenever an edge touches one of its
+  tokens, which would have let the automatic pass grow a reviewer's group. Any
+  edge on a token with a home is filtered out before compiling.
+- **Overlapping windows.** Window [1-3] could link v2→v3, and window [3-5] would
+  then revert v3's ledger and delete that link without being able to see v2. A
+  pass owns, and reverts, only link groups whose two ends are both inside its
+  window. Kept groups carry forward into the new ledger.
+
+**The corpus rule, stated precisely.** The agreed cross-verse edge is blocked
+only when the corpus has a *different* top candidate, or the target word is
+contested. A corpus with nothing to say about the word does not block it.
+Requiring the corpus to propose the edge would have made a warm project stricter
+than a cold one.
+
+**Not done.** Whether a *human* null should override an AMBIGUOUS Stage 6B
+outcome is still open (part 3). The chapter job, the verse check findings and
+the UI are parts 5-7.
+
+**Verified.** 11 pure agreement and window tests and 11 protocol tests over a
+fake transport (`tests/service/test_auto_align_window.py`). They cover:
+- a clean window written with no click, with the tC group, the 1:2 link group,
+  the null, the ledger and `origin: "ai-auto"` on the events;
+- a one-pass edge becoming a suggestion;
+- unplaced words reported and not forced;
+- no key, so no request;
+- `apply: false`, which writes only the verdict;
+- a reviewer's IMPLICIT kept against two GRAMMATICAL votes;
+- a re-run superseding its own writes;
+- revert, including a reviewer-changed group being skipped;
+- an invented handle failing with nothing written;
+- window validation.
+
+Rust: the 540 s timeout is pinned in `sidecar::tests`; `cargo test` passes
+(10). Full engine suite with `-n auto` on this part: 4773 passed, 1 skipped,
+3 xfailed. `npm run check` is clean.

@@ -163,6 +163,16 @@ same uncontested pair, and only on an explicit "Suggest with AI" click. Two
 methods agreeing is the gate; a confidence threshold on one number is still not,
 anywhere. Nothing about Scripture, tC alignment data or findings changed.
 
+The second (#219, maintainer sign-off 2026-10-08, DECISIONS.md) is the
+**automatic window alignment**: on an explicit "Align automatically" click, the
+same verse window is asked twice (source-first and target-first), and what both
+passes agree on is written. That covers tC same-verse groups, cross-verse link
+groups and reasoned null decisions, each with `origin: "ai-auto"`. A
+single-pass claim is a suggestion. A word neither pass placed is a *possible*
+omission or addition and is never forced. A reviewer's existing alignment is
+never written over. Scripture text and findings are still untouched by any
+automatic path, and widening to them is still a fresh question.
+
 ### Two different vendoring shapes for the same upstream repo
 
 Both the USFM structural checker (`engine/vendor/greekroom-usfm/`) and
@@ -627,10 +637,11 @@ raise it as a question in the issue rather than deciding it in a commit:
   runtime path a translator hits
 - Re-baselining either golden
 - Changing the confidence thresholds or the auto-apply behaviour. Still on this
-  list after #146: that decision was taken once, for cross-verse links only, on
-  an agreement-between-two-methods gate. Widening it — to Scripture, to tC
-  alignment data, to findings, or to any single-score threshold — is a fresh
-  question, not a precedent already set
+  list after #146 and #219: those decisions were taken for cross-verse links
+  (#146) and for the two-pass window alignment of tC groups, links and null
+  decisions (#219), each on an agreement-between-two-methods gate. Widening it —
+  to Scripture, to findings, to a single pass, or to any single-score threshold —
+  is a fresh question, not a precedent already set
 - A second Scripture writer, or an alternative path for applying corrections to
   the text — Stage 9B.3b's authorized write behind an explicit human confirmation
   is deliberately the only one
