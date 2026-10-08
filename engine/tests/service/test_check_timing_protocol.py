@@ -27,9 +27,9 @@ def test_check_job_snapshot_carries_stage_and_engine_timings(fixture_project, mo
         assert name in timings, name
         assert timings[name]["calls"] >= 1
         assert timings[name]["ms"] >= 0
-    # Two stages each asked for the verse's prior decisions: the repeat the
-    # instrumentation exists to make visible.
-    assert timings["decisions.reapply"]["calls"] == 2
+    # Two QaFinding stages, one read of the verse's decisions (#231; it was
+    # two before, the repeat this instrumentation first made visible).
+    assert timings["decisions.reapply"]["calls"] == 1
     assert finished["elapsedSeconds"] >= 0
 
 

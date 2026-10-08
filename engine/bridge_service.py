@@ -4607,14 +4607,21 @@ class BridgeEngine:
         chapter: str,
         verse: str,
         checks: list[str],
+        reads: Optional[dict[str, Any]] = None,
     ) -> list[QaFinding]:
+        """`reads`: a check job's memo for this one verse, shared by its
+        stages so the verse's text and decisions are read once, not once per
+        stage (#231). Each read costs a workbench connection."""
         findings: list[QaFinding] = []
         project_id = str(project.summary.path)
         book = project.summary.book_id
         timings = check_timing.current()
+        reads = {} if reads is None else reads
 
-        with timings.step("verse.read_text"):
-            target_text = project.target_verse_text(chapter, verse)
+        if "text" not in reads:
+            with timings.step("verse.read_text"):
+                reads["text"] = project.target_verse_text(chapter, verse)
+        target_text = reads["text"]
 
         if "local" in checks or "tN" in checks or "tW" in checks or "alignment" in checks:
             with timings.step("local.alignment_load"):
@@ -4724,8 +4731,10 @@ class BridgeEngine:
 
         # Re-apply any prior human decision so re-running checks (or
         # reopening the project) doesn't silently forget review state.
-        with timings.step("decisions.reapply"):
-            prior_decisions = project.qa_decisions_for_verse(chapter, verse)
+        if "decisions" not in reads:
+            with timings.step("decisions.reapply"):
+                reads["decisions"] = project.qa_decisions_for_verse(chapter, verse)
+        prior_decisions = reads["decisions"]
         for finding in findings:
             record = prior_decisions.get(finding.id)
             if record:
@@ -4786,15 +4795,23 @@ class BridgeEngine:
         language_qa = language_qa or self._language_qa
         check_jobs = check_jobs or self._check_jobs
 
+        # One verse's text and decisions, read by its first stage and reused by
+        # the next (#231). Only ever the current verse: a decision recorded on a
+        # later verse while the job runs is read when the job gets there.
+        verse_reads: dict[str, Any] = {}
+
         def run_stage(chapter: str, verse: str, stage_checks: list[str]) -> Any:
             if stage_checks == [LANGUAGE_QA_CHECK]:
                 # The book pass ran in the preflight; this verse's share of it.
                 return language_qa.verse_results(chapter, verse)
+            if verse_reads.get("key") != (chapter, verse):
+                verse_reads.clear()
+                verse_reads["key"] = (chapter, verse)
             with self._checker_lock:
                 return [
                     finding.to_dict()
                     for finding in self._run_verse_checks_for_project(
-                        project, chapter, verse, stage_checks,
+                        project, chapter, verse, stage_checks, reads=verse_reads,
                     )
                 ]
 
