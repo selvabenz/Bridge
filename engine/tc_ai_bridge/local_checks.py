@@ -44,19 +44,19 @@ def alignment_integrity_checks(verse: VerseAlignment, target_text: str = '', tar
 
 
 def target_editorial_checks(text: str, language: ProjectLanguageContext | None = None) -> list[QAIssue]:
+    # Repeated spaces and zero-width/BOM characters were checked here too
+    # ({TA|LANG}_DOUBLE_SPACE, {TA|LANG}_HIDDEN_CHAR) until #234. Language QA
+    # owns them now (spacing.extra, unicode.invisible): it runs for every pack,
+    # is cached per verse, draws inline and offers the fix, and one character
+    # no longer makes three findings with three decisions. The codes stay known
+    # to _categorize_qaissue for findings recorded before.
     issues: list[QAIssue] = []
-    lang = language.target_name if language else 'Tamil'
     prefix = 'TA' if (language is None or language.target_id == 'ta') else 'LANG'
-    plain = strip_usfm(text)
-    if '  ' in plain:
-        issues.append(QAIssue(f'{prefix}_DOUBLE_SPACE', 'editorial', 'Repeated spaces', f'The {lang} verse contains repeated spaces.'))
     tokens = whitespace_tokens(text)
     for a, b in zip(tokens, tokens[1:]):
         if a == b:
             issues.append(QAIssue(f'{prefix}_REPEAT_WORD', 'medium', 'Consecutive repeated word', f'“{a}” occurs twice consecutively. Verify that the repetition is intentional.'))
             break
-    if '\u200b' in text or '\ufeff' in text:
-        issues.append(QAIssue(f'{prefix}_HIDDEN_CHAR', 'editorial', 'Hidden Unicode character', 'The verse contains a zero-width/BOM character that can cause publishing or tokenization problems.'))
     return issues
 
 
