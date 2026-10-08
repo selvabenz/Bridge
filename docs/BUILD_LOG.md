@@ -16723,3 +16723,107 @@ The four commits on `indic-qa-editor`, on top of `0e8325e`:
   - Tamil's `IRV_ACCEPT_MIN = 5` is a Bridge choice.
   - A lazy sibling materialized after a save has no copy of the checker
     settings. This is the same gap as project-scope house style.
+
+## 2026-10-08 — Timing instrumentation for the checks; first measurements (open, whole book, edit)
+
+Benz asked which checks the app runs, how often the same work is repeated,
+and for numbers before any of it is changed. This entry adds the
+instrumentation (measurement only; no check behaves differently) and records
+the first measurements on two copies of the IRV Tamil import: PHP (4 chapters,
+104 verses) and GEN (50 chapters, 1,533 verses), real Wildebeest 0.9.2, Python
+3.12, source engine, in-process RPCs under a scratch `LOCALAPPDATA`.
+
+**What was added.**
+- `tc_ai_bridge/check_timing.py`: `Timings`, a thread-safe accumulator of
+  (name -> ms, calls); `activate()`/`current()` so code deep in a check path
+  records against the job or pass that owns it without a new parameter on
+  every signature; `trace()` writes one `[trace] timing ...` line on stderr,
+  the channel `_trace` already uses.
+- `check_jobs.py`: every job owns a `Timings`; `stage:<label>` and `preflight`
+  are timed; the snapshot carries `timings` and `elapsedSeconds`; one trace
+  line per finished job.
+- `bridge_service.py`: `_run_verse_checks_for_project` times each engine
+  (`greekroom.wildebeest`, `usfm.book`, `names.book`, `consistency.book`,
+  `local.*`, `decisions.reapply`, `verse.read_text`); the preflight phases;
+  `verse.runChecks` traces a request-local `Timings`; `handle_request` traces
+  any RPC that held the dispatcher for 100 ms or more.
+- `local_checks.run_local_qa`: one step per sub-check.
+- `language_qa_jobs._scan`: one `Timings` per pass, reported as `timings` on
+  the summary (so `languageQa.status` carries it); phases `lqa.*`; the common
+  rules in `language_qa.scan_text` one step each (`rule.*`); the indic-qa
+  layer's build/load/index/check phases in `indic_qa_adapter.profile_findings`.
+  `lqa.book.layer_dropped_as_duplicate` is count-only: `calls` = layer findings
+  `_already_flagged` removed.
+- `src/lib/types/finding.ts`: `CheckJobSnapshot.timings?`/`elapsedSeconds?`.
+- Tests: `tests/jobs/test_check_timing.py` (the accumulator) and
+  `tests/service/test_check_timing_protocol.py` (the snapshot and the pass).
+
+**Measurements.** Whole-book job = `checks.start scope=book` with
+`["local","greekroom","languageQa"]`, what "Run whole book" sends.
+
+| | PHP 104 v | GEN 1,533 v |
+|---|---|---|
+| project.open RPC | 0.34–0.39 s | 1.4 s |
+| background Language QA pass after open (cold process) | 7.7 s | 8.0 s |
+| whole-book job #1 | 7.4 s | 295 s |
+| whole-book job #2, text unchanged | 7.4 s | 262 s |
+| of which Wildebeest, per verse, no cache | 4.3 s (41 ms/v) | 171–177 s (112 ms/v) |
+| of which `decisions.reapply`, 2 calls per verse | 0.7 s | 25–30 s |
+| of which names preflight (first time / after an edit) | 11.5 s | 18.6 s |
+| of which Language QA (verses cached) | 0.1 s | 1.0 s |
+| verse.edit RPC | 0.55 s | 1.0 s |
+| verse.runChecks after the edit | 0.10–0.14 s | 0.38 s |
+| background pass after one edit | 1.6 s | 5.4–5.7 s |
+| chapter job (a chapter visit) | 1.9–2.3 s | 3.3 s |
+| verse.runChecks ["greekroom"] on selection | 35–55 ms | 32–35 ms |
+
+Where the Language QA pass goes, cold (GEN): checker load 1.4 s, pack
+resolve 0.36 s (the pack's 523 rule examples are scanned at load, once per
+process), build_index 0.23 s, check_chapter 0.69 s/50, build_book 0.29 s,
+learned 0.18 s. Warm, with every verse cached: ~1.0 s on GEN, of which
+build_book 0.27, check_chapter 0.21, learned 0.17, index_book 0.07, names
+0.05. After an edit build_index runs again (0.23–0.30 s).
+
+**The repeats, with numbers.**
+1. `checks.status` blocks the dispatcher for as long as it takes to deep-copy
+   every verse result so far. GEN run #1, polled every 100 ms: 626 polls,
+   183 s blocked in total, 4.6 s for one poll near the end; the polls also
+   slow the job (Wildebeest is 112 ms/verse inside the job on GEN, 33 ms when
+   called alone). The app polls every 500 ms (`App.svelte`). PHP, polled every
+   500 ms: 15 polls, max 184 ms.
+2. Wildebeest is 58–68 % of a whole-book job and runs once per verse with no
+   cache keyed on the text: run #2 cost the same as run #1.
+3. `qa_decisions_for_verse` is read twice per verse (once per stage): 10 % of
+   the GEN job.
+4. The whole-book Language QA pass runs on every chapter job (1.0 s on GEN),
+   and the reopen sequence (project.open, then the first chapter job at once)
+   ran three passes.
+5. Names: cached on a sha256 of the whole book's text, so one verse edit means
+   a full re-run at the next open (11.5 s PHP, 18.6 s GEN). The USFM
+   subprocess cache behaved: 0 ms after the first run.
+6. Local QA: cheap per verse (editorial 0.2 ms, integrity 0.2 ms, usfm 1–2 ms)
+   but `tc_checks` 6–10 s and `alignment_gap` 9–11 s on GEN, every run.
+
+**Overlap on real text.** On unedited IRV text the overlapping checks
+rarely fire together: GEN has 6 `TA_REPEAT_WORD`, 0 double spaces, 0
+zero-width, 0 NFC findings; name spelling is flagged on 258 verses, 2 of them
+by both Greek Room names and Language QA. The indic-qa layer raised 103
+findings on GEN that `_already_flagged` dropped as pack duplicates. On the
+edited verse (one U+200B inserted into the last word, one double space), the
+one zero-width character produced `TA_HIDDEN_CHAR`, `wildebeest.zero_width`,
+`unicode.invisible` and, on GEN, `indicqa.shape.malformed` +
+`tamil.dependent-sign` as well: 3 engines, up to 5 findings, one problem. The
+double space produced `spacing.extra` only (`TA_DOUBLE_SPACE` tests the
+stripped text, where the editor's space handling had already collapsed it).
+
+**Verified.** `pytest` on tests/service/test_language_qa.py,
+test_bridge_service.py, test_stdio_e2e.py and tests/jobs: 421 passed; the two
+new files: 7 passed with the cross-import guard; `npm run check` 0/0. Desktop
+not run. The scripts that produced the numbers (`measure.py`, `show.py`) live
+in the session scratchpad, not the repo; the table above is the record.
+
+**Not done, by design.** No cache, no dedupe, no change to which engine owns
+which check: Benz will decide ownership from these numbers. The fixes are
+listed as candidates in the chat handoff, in order of measured cost: the
+status snapshot, Wildebeest text-hash cache, one decisions read per verse,
+the chapter-job pass, the names cache key.

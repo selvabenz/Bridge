@@ -1165,6 +1165,10 @@ export interface CheckJobSnapshot {
   createdAt: string;
   finishedAt: string | null;
   languageQa?: CheckJobLanguageQa;
+  /** Wall clock per stage ("stage:QA") and per engine ("greekroom.wildebeest"),
+   *  slowest first; measurement only (engine check_timing, 2026-10-08). */
+  timings?: Record<string, { ms: number; calls: number }>;
+  elapsedSeconds?: number;
 }
 
 export interface AIReviewJobVerseResult {

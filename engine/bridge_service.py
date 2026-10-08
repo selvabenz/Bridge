@@ -79,6 +79,7 @@ from tc_ai_bridge.analysis_jobs import (
 from tc_ai_bridge.local_checks import run_local_qa
 from tc_ai_bridge.language_qa import FINDING_SOURCE as LANGUAGE_QA_SOURCE, UNSPECIFIED_DECISION_SOURCE
 from tc_ai_bridge.language_qa_jobs import LanguageQaManager, project_pack_name, project_rule_pack
+from tc_ai_bridge import check_timing
 from tc_ai_bridge import language_qa_checker_settings as checker_settings_rpc
 from tc_ai_bridge.language_packs import indic_qa_adapter
 from tc_ai_bridge.language_qa_learned import learned_pair
@@ -4587,12 +4588,18 @@ class BridgeEngine:
             name in {"local", "tN", "tW", "alignment", "usfm", "names", "consistency"}
             for name in checks
         )
-        if not needs_checker_lock:
-            return self._run_verse_checks_for_project(project, chapter, verse, checks)
-        with self._checker_lock:
-            if any(name in checks for name in ("local", "tN", "tW")):
-                self._ensure_resource_indexes(project)
-            return self._run_verse_checks_for_project(project, chapter, verse, checks)
+        timings = check_timing.Timings()
+        with check_timing.activate(timings):
+            if not needs_checker_lock:
+                findings = self._run_verse_checks_for_project(project, chapter, verse, checks)
+            else:
+                with self._checker_lock:
+                    if any(name in checks for name in ("local", "tN", "tW")):
+                        with timings.step("preflight.resource_indexes"):
+                            self._ensure_resource_indexes(project)
+                    findings = self._run_verse_checks_for_project(project, chapter, verse, checks)
+        check_timing.trace(f"verse.runChecks {chapter}:{verse} {list(checks)}", timings)
+        return findings
 
     def _run_verse_checks_for_project(
         self,
@@ -4604,20 +4611,24 @@ class BridgeEngine:
         findings: list[QaFinding] = []
         project_id = str(project.summary.path)
         book = project.summary.book_id
+        timings = check_timing.current()
 
-        target_text = project.target_verse_text(chapter, verse)
+        with timings.step("verse.read_text"):
+            target_text = project.target_verse_text(chapter, verse)
 
         if "local" in checks or "tN" in checks or "tW" in checks or "alignment" in checks:
-            alignment = project.load_verse_alignment(chapter, verse)
+            with timings.step("local.alignment_load"):
+                alignment = project.load_verse_alignment(chapter, verse)
             issues = run_local_qa(project, chapter, verse, alignment)
             if "local" in checks or "alignment" in checks:
                 # #220: what the automatic pass could not place, as findings the
                 # editor shows. Quiet on a verse no pass has run on; a live gap
                 # only, so a reviewer's link or decision silences it at once.
                 try:
-                    issues = [*issues, *alignment_gap_checks.gap_issues(
-                        project, chapter, verse, alignment, target_text,
-                    )]
+                    with timings.step("local.alignment_gap"):
+                        issues = [*issues, *alignment_gap_checks.gap_issues(
+                            project, chapter, verse, alignment, target_text,
+                        )]
                 except Exception:
                     # Optional evidence: a problem here must never sink the
                     # verse's ordinary checks.
@@ -4638,7 +4649,9 @@ class BridgeEngine:
             book_verses = project.verses(chapter) if chapter in project.chapters() else []
             existing_verses = {str(value) for value in book_verses}
             first_verse = book_verses[0] if book_verses else None
-            for f in self._usfm_findings_for_book(project):
+            with timings.step("usfm.book"):
+                usfm_findings = self._usfm_findings_for_book(project)
+            for f in usfm_findings:
                 if str(f.chapter) != str(chapter):
                     continue
                 if str(f.verse) == str(verse):
@@ -4656,7 +4669,9 @@ class BridgeEngine:
             # first location — see NamesAdapter._build_finding), never a
             # placeholder chapter-level slot, so no first-verse fallback is
             # needed here.
-            for f in self._names_findings_for_book(project):
+            with timings.step("names.book"):
+                names_findings = self._names_findings_for_book(project)
+            for f in names_findings:
                 if str(f.chapter) == str(chapter) and str(f.verse) == str(verse):
                     findings.append(f)
 
@@ -4670,7 +4685,9 @@ class BridgeEngine:
             book_verses = project.verses(chapter) if chapter in project.chapters() else []
             existing_verses = {str(value) for value in book_verses}
             first_verse = book_verses[0] if book_verses else None
-            for f in self._consistency_findings_for_book(project):
+            with timings.step("consistency.book"):
+                consistency_findings = self._consistency_findings_for_book(project)
+            for f in consistency_findings:
                 if str(f.chapter) != str(chapter):
                     continue
                 if str(f.verse) == str(verse):
@@ -4685,13 +4702,14 @@ class BridgeEngine:
         if "greekroom" in checks or "wildebeest" in checks:
             target_language = project.manifest.get("target_language", {})
             language_id = str(target_language.get("id") or "") if isinstance(target_language, dict) else ""
-            gr_findings = self.greek_room.check_verse(
-                project_id=project_id,
-                lang_code=language_id,
-                ref=f"{book} {chapter}:{verse}",
-                text=target_text,
-                checks=["wildebeest"],
-            )
+            with timings.step("greekroom.wildebeest"):
+                gr_findings = self.greek_room.check_verse(
+                    project_id=project_id,
+                    lang_code=language_id,
+                    ref=f"{book} {chapter}:{verse}",
+                    text=target_text,
+                    checks=["wildebeest"],
+                )
             for f in gr_findings:
                 # Greek Room findings default to a random uuid4 id from
                 # QaFinding's dataclass default — override with a stable
@@ -4706,7 +4724,8 @@ class BridgeEngine:
 
         # Re-apply any prior human decision so re-running checks (or
         # reopening the project) doesn't silently forget review state.
-        prior_decisions = project.qa_decisions_for_verse(chapter, verse)
+        with timings.step("decisions.reapply"):
+            prior_decisions = project.qa_decisions_for_verse(chapter, verse)
         for finding in findings:
             record = prior_decisions.get(finding.id)
             if record:
@@ -4790,17 +4809,21 @@ class BridgeEngine:
                     # with the background worker by Language QA's own pass lock,
                     # not _checker_lock: the dispatcher takes _checker_lock for
                     # verse.runChecks, and must not wait on a book pass.
-                    if language_qa.run_pass(cancel_event) is None and not cancel_event.is_set():
+                    with check_timing.current().step("preflight.language_qa"):
+                        passed = language_qa.run_pass(cancel_event)
+                    if passed is None and not cancel_event.is_set():
                         raise CheckJobError("Language QA could not check this book.")
                     if cancel_event.is_set():
                         return
                 with self._checker_lock:
                     if any(name in spec.checks for name in ("local", "tN", "tW")):
-                        self._ensure_resource_indexes(project)
+                        with check_timing.current().step("preflight.resource_indexes"):
+                            self._ensure_resource_indexes(project)
                     if cancel_event.is_set():
                         return
                     if any(name in spec.checks for name in ("local", "usfm")):
-                        self._usfm_findings_for_book(project, cancel_event=cancel_event)
+                        with check_timing.current().step("preflight.usfm"):
+                            self._usfm_findings_for_book(project, cancel_event=cancel_event)
                     if cancel_event.is_set():
                         return
                     if any(name in spec.checks for name in ("local", "names")):
@@ -4812,7 +4835,8 @@ class BridgeEngine:
                         # docs/BUILD_LOG.md's Phase 5 section) shows
                         # this needs the same cooperative-cancel treatment
                         # USFM's subprocess has.
-                        self._names_findings_for_book(project)
+                        with check_timing.current().step("preflight.names"):
+                            self._names_findings_for_book(project)
             preflight = run_preflight
 
         return check_jobs.start(
@@ -6356,6 +6380,17 @@ class BridgeEngine:
     # -- protocol dispatch --------------------------------------------------
 
     def handle_request(self, request: EngineRequest) -> EngineResponse:
+        started = time.perf_counter()
+        try:
+            return self._handle_request(request)
+        finally:
+            # One line per RPC that held the dispatcher for 100ms or more, so the
+            # engine log says which request made the UI wait (check_timing).
+            elapsed = time.perf_counter() - started
+            if elapsed >= 0.1:
+                _trace(f"rpc {request.method} took {elapsed * 1000:.0f}ms")
+
+    def _handle_request(self, request: EngineRequest) -> EngineResponse:
         self._language_qa.touch()
         try:
             m, p = request.method, request.params

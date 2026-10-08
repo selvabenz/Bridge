@@ -51,6 +51,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import indic_qa_tamil, indic_qa_vendor, ov_reference
+from .. import check_timing
 from ..usfm_verse import lift_verse
 from .loader import PackError, RulePack, Rule
 
@@ -718,8 +719,10 @@ def profile_findings(pack: RulePack, book: str, chapters: dict[str, dict[str, An
     stored verse, so its fix goes through the one verse writer as usual."""
     config = indic_config(pack.meta) or {"layer": "", "dictionary": "dictionary"}
     layer = bool(config["layer"])
-    synthetic, refs, notes = build_book(book, chapters, lift=lift, max_verse_chars=max_verse_chars,
-                                        headings=headings if layer else None, footnotes=layer)
+    timings = check_timing.current()
+    with timings.step("lqa.indicqa.build_book"):
+        synthetic, refs, notes = build_book(book, chapters, lift=lift, max_verse_chars=max_verse_chars,
+                                            headings=headings if layer else None, footnotes=layer)
     dictionary = pack.directory / config["dictionary"] if pack.directory else None
     findings: list[dict[str, Any]] = []
     crossing = unmapped = 0
@@ -727,24 +730,31 @@ def profile_findings(pack: RulePack, book: str, chapters: dict[str, dict[str, An
         # The snapshot keys books by Bridge's book id, lower case ("1ch"); the
         # same key here replaces that book's share instead of adding a 67th.
         key = book_key(book)
-        loaded = _resident(pack, key)
+        with timings.step("lqa.indicqa.checker_load"):
+            loaded = _resident(pack, key)
         loaded.live_book = key
         checker = loaded.checker
-        checker.index_book(key, synthetic)
+        with timings.step("lqa.indicqa.index_book"):
+            checker.index_book(key, synthetic)
         counts = checker.book_count.get(key, Counter())
         if loaded.built_for.get(key) != counts:
             # A new or changed word can start or join a consistency cluster, and
             # build_index is where clusters are made; it also clears classify()'s
             # cache, which is keyed by generation, not by counts. Unchanged text
             # (a decision, a status refresh) needs neither.
-            checker.build_index()
+            with timings.step("lqa.indicqa.build_index"):
+                checker.build_index()
             loaded.built_for = {key: Counter(counts)}
         occurrences: Counter = Counter()
         for n in range(1, len(synthetic.chapters)):
             if not proceed():
                 return None
             lo, _hi = synthetic.chapters[n]
-            for offset, block in enumerate(checker.check_chapter(synthetic, n)):
+            with timings.step("lqa.indicqa.check_chapter"):
+                blocks = list(checker.check_chapter(synthetic, n))
+            map_items = timings.step("lqa.indicqa.map_findings")
+            map_items.__enter__()
+            for offset, block in enumerate(blocks):
                 ref = refs.get(lo + offset)
                 if ref is None:
                     continue
@@ -796,6 +806,7 @@ def profile_findings(pack: RulePack, book: str, chapters: dict[str, dict[str, An
                         if reference is not None:
                             finding["reference"] = reference
                     findings.append(finding)
+            map_items.__exit__(None, None, None)
     if crossing:
         notes.append(f"{crossing} {pack.name} {crossing_note}")
     if unmapped:

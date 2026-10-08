@@ -13,6 +13,7 @@ from typing import Any
 
 import regex
 
+from . import check_timing
 from .language_packs.registry import language_code, language_name, select_pack
 from .language_packs.tokens import GRAPHEME, WORD
 from .usfm_verse import lift_verse
@@ -463,12 +464,16 @@ def scan_text(text: str, *, book: str, chapter: str, verse: str,
             findings[-1]["confidence"] = candidate.confidence
 
     lists = lists or {}
+    timings = check_timing.current()
 
-    if not unicodedata.is_normalized("NFC", text):
-        # Report a small exact span rather than copying an entire verse into a finding.
-        for cluster in GRAPHEME.finditer(text):
-            if not unicodedata.is_normalized("NFC", cluster.group()):
-                add("unicode.nfc", *cluster.span(), "Canonically equivalent non-NFC text; review project normalization policy.")
+    with timings.step("rule.unicode.nfc"):
+        if not unicodedata.is_normalized("NFC", text):
+            # Report a small exact span rather than copying an entire verse into a finding.
+            for cluster in GRAPHEME.finditer(text):
+                if not unicodedata.is_normalized("NFC", cluster.group()):
+                    add("unicode.nfc", *cluster.span(), "Canonically equivalent non-NFC text; review project normalization policy.")
+    char_scan = timings.step("rule.unicode.charscan")  # corruption, private-use, invisible, spacing.unusual
+    char_scan.__enter__()
     for index, char in enumerate(text):
         if char in USFM_LINE_BREAKS:
             continue  # USFM line structure, i.e. whitespace -- not a control character in the text
@@ -481,14 +486,20 @@ def scan_text(text: str, *, book: str, chapter: str, verse: str,
             add("unicode.invisible", index, index + 1, f"Review {unicodedata.name(char, 'control character')} (U+{ord(char):04X}); it may be intentional.")
         elif char.isspace() and char != " ":
             add("spacing.unusual", index, index + 1, f"Review unusual space U+{ord(char):04X}; it may be intentional.")
-    for match in regex.finditer(r" {2,}|^ +| +$", text):
-        add("spacing.extra", *match.span(), "Repeated or edge spaces; check the intended spacing.")
+    char_scan.__exit__(None, None, None)
+    with timings.step("rule.spacing.extra"):
+        for match in regex.finditer(r" {2,}|^ +| +$", text):
+            add("spacing.extra", *match.span(), "Repeated or edge spaces; check the intended spacing.")
     # Ellipsis and ?! are legitimate style choices, so do not flag them here.
-    for match in regex.finditer(r"([,;:!?])\1+", text):
-        add("punctuation.repeated", *match.span(), "Repeated punctuation; check project style.")
-    for match in regex.finditer(r" +(?:[,;:!?]|\.(?!\.))", text):
-        add("punctuation.space-before", *match.span(), "Space before punctuation; check project style.")
+    with timings.step("rule.punctuation.repeated"):
+        for match in regex.finditer(r"([,;:!?])\1+", text):
+            add("punctuation.repeated", *match.span(), "Repeated punctuation; check project style.")
+    with timings.step("rule.punctuation.space-before"):
+        for match in regex.finditer(r" +(?:[,;:!?]|\.(?!\.))", text):
+            add("punctuation.space-before", *match.span(), "Space before punctuation; check project style.")
     if pack is not None:
+        pack_pairs = timings.step("rule.pack.pairs")  # the pack's pair-stage rules (sandhi, splits, ...)
+        pack_pairs.__enter__()
         previous = None
         for word in WORD.finditer(text):
             if previous and text[previous.end():word.start()].isspace():
@@ -501,8 +512,10 @@ def scan_text(text: str, *, book: str, chapter: str, verse: str,
                 for candidate in pack.pair_candidates(text, previous, word, lists):
                     add_candidate(candidate)
             previous = word
-        for candidate in pack.verse_candidates(text, raw):
-            add_candidate(candidate)
+        pack_pairs.__exit__(None, None, None)
+        with timings.step("rule.pack.verse"):
+            for candidate in pack.verse_candidates(text, raw):
+                add_candidate(candidate)
     if crossing:
         result["limitations"].append(f"{crossing} {CROSSING_LIMITATION}")
     return result

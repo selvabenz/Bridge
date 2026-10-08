@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
+from tc_ai_bridge import check_timing
+
 
 TERMINAL_STATES = {"succeeded", "failed", "cancelled"}
 LANGUAGE_QA_CHECK = "languageQa"
@@ -59,6 +61,10 @@ class _CheckJob:
         self.finished_at: Optional[str] = None
         self.cancel_event = threading.Event()
         self.lock = threading.RLock()
+        # Wall-clock per stage and per engine (check_timing): "stage:<label>"
+        # from the loop below, "preflight.*"/"local.*"/"greekroom.*" from the
+        # code the stages call. Reported as `timings` on the snapshot.
+        self.timings = check_timing.Timings()
 
     def snapshot(self) -> dict[str, Any]:
         with self.lock:
@@ -92,6 +98,8 @@ class _CheckJob:
                 "error": self.error,
                 "createdAt": self.created_at,
                 "finishedAt": self.finished_at,
+                "timings": self.timings.as_dict(),
+                "elapsedSeconds": round(self.timings.elapsed(), 3),
             }
 
 
@@ -205,7 +213,9 @@ class CheckJobManager:
         self, job: _CheckJob, run_stage: RunStage, preflight: Optional[Preflight],
         on_complete: Optional[Callable[["_CheckJob"], None]] = None,
     ) -> None:
-        self._run_impl(job, run_stage, preflight, on_complete)
+        with check_timing.activate(job.timings):
+            self._run_impl(job, run_stage, preflight, on_complete)
+        check_timing.trace(f"check job {job.spec.scope} {job.state} {len(job.results)} verse(s)", job.timings)
 
     def _run_impl(
         self, job: _CheckJob, run_stage: RunStage, preflight: Optional[Preflight],
@@ -223,7 +233,8 @@ class CheckJobManager:
                     return
                 with job.lock:
                     job.current_stage = "Preparing checks"
-                preflight(job.cancel_event)
+                with job.timings.step("preflight"):
+                    preflight(job.cancel_event)
                 with job.lock:
                     job.completed_steps += 1
 
@@ -243,7 +254,8 @@ class CheckJobManager:
                             job.current_verse = verse
                             job.current_stage = label
                         try:
-                            produced = run_stage(chapter, verse, stage_checks)
+                            with job.timings.step(f"stage:{label}"):
+                                produced = run_stage(chapter, verse, stage_checks)
                             if stage_checks == [LANGUAGE_QA_CHECK]:
                                 language_qa = produced  # type: ignore[assignment]
                             else:

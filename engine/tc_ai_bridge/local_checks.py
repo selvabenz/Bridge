@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from pathlib import Path
 
+from . import check_timing
 from .models import QAIssue, VerseAlignment
 from .tc_project import TranslationCoreProject
 from .plugins import PluginRegistry, ProjectLanguageContext
@@ -112,12 +113,19 @@ def usfm_checks(project: TranslationCoreProject, chapter: str, verse: str) -> li
 
 
 def run_local_qa(project: TranslationCoreProject, chapter: str, verse: str, alignment: VerseAlignment) -> list[QAIssue]:
-    text = project.target_verse_text(chapter, verse)
-    language = PluginRegistry().detect_project(project, alignment, text)
+    timings = check_timing.current()
+    with timings.step("local.read_text"):
+        text = project.target_verse_text(chapter, verse)
+    with timings.step("local.detect_language"):
+        language = PluginRegistry().detect_project(project, alignment, text)
     issues = []
-    issues += alignment_integrity_checks(alignment, text, language.target_name, language.source_name)
-    issues += translationcore_check_issues(project, chapter, verse)
-    issues += target_editorial_checks(text, language)
-    issues += usfm_checks(project, chapter, verse)
+    with timings.step("local.alignment_integrity"):
+        issues += alignment_integrity_checks(alignment, text, language.target_name, language.source_name)
+    with timings.step("local.tc_checks"):
+        issues += translationcore_check_issues(project, chapter, verse)
+    with timings.step("local.editorial"):
+        issues += target_editorial_checks(text, language)
+    with timings.step("local.usfm"):
+        issues += usfm_checks(project, chapter, verse)
     order = {'critical': 0, 'high': 1, 'medium': 2, 'editorial': 3, 'info': 4}
     return sorted(issues, key=lambda x: (order.get(x.severity, 9), x.title))
