@@ -45,7 +45,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-AGREEMENT_CALIBRATION_VERSION = "two-pass-agreement-v1"
+# v2 (2026-10-08): a word that would only *join* two otherwise separate pairs
+# is split out instead of fusing them into one block -- see `split_bridges`.
+AGREEMENT_CALIBRATION_VERSION = "two-pass-agreement-v2"
 
 SOURCE_REASONS = frozenset({"IMPLICIT", "GRAMMATICAL"})
 TARGET_REASONS = frozenset({"GRAMMATICAL", "EXPLICITATION"})
@@ -201,6 +203,31 @@ def agree(
         else:
             result.agreed_edges[key] = {"confidence": confidence, "reason": reason}
 
+    # --- bridges ----------------------------------------------------------------
+    # The compiler turns every connected set of agreed edges into ONE group, so a
+    # word linked to two words that each already render another word glues two
+    # separate pairs into one block: 1 Cor 7:2's καὶ, carried by the "-உம்" on
+    # both மனைவியையும் and கணவனையும், made {γυναῖκα, καὶ, ἄνδρα} -> both Tamil words
+    # a single 3:2 group, and which Greek word went with which Tamil word was
+    # lost. Such a word is split out: the pairs it would have joined are written
+    # on their own, and its own edges become suggestions, with "grammatical" or
+    # "grammar" offered as Bridge's own reading (no pass voted for it).
+    kept, bridges = split_bridges(result.agreed_edges)
+    for token, edges in bridges.items():
+        for key in edges:
+            info = result.agreed_edges[key]
+            result.suggestions.append(Suggestion(
+                kind="link", status="UNCERTAIN", votes=votes(True, True),
+                source=key[0], target=key[1], confidence=int(info.get("confidence", 0)),
+                reason=_join(info.get("reason"), "would join two separate pairs into one group"),
+            ))
+        result.suggestions.append(Suggestion(
+            kind="null", status="UNCERTAIN", votes=votes(False, False), token=token,
+            reason="GRAMMATICAL",
+            note="Both passes linked it to words that each render another word; its meaning may be carried by their grammar.",
+        ))
+    result.agreed_edges = kept
+
     # --- nulls ----------------------------------------------------------------
     for token in sorted(nulled_anywhere):
         in_a, in_b = token in a.nulls, token in b.nulls
@@ -230,6 +257,74 @@ def agree(
         notes = [n for n in (a.unplaced.get(token), b.unplaced.get(token)) if n]
         result.unplaced[token] = notes
     return result
+
+
+def split_bridges(
+    edges: dict[tuple[TokenKey, TokenKey], dict[str, Any]],
+) -> tuple[dict[tuple[TokenKey, TokenKey], dict[str, Any]], dict[TokenKey, list[tuple[TokenKey, TokenKey]]]]:
+    """Separate the words that would only *join* otherwise separate pairs.
+
+    A word is a bridge when removing it splits its connected set of edges into
+    two or more parts that each still hold a source word **and** a target word.
+    That is what a conjunction or particle carried by an ending on several
+    words looks like. It is not what a real N:M realization looks like:
+
+    * 1:2 (εὐχαριστῶ -> நான் + ஸ்தோத்திரிக்கிறேன்): removing the source leaves two
+      lone target words, no pair -- kept;
+    * a fully joined 2:2 idiom: removing any one word leaves the rest
+      connected -- kept;
+    * {γυναῖκα-மனைவியையும், ἄνδρα-கணவனையும்} joined only through καὶ: removing καὶ
+      leaves two pairs -- καὶ is a bridge.
+
+    Repeated until no bridge is left, since removing one can expose another.
+    Returns (edges to keep, {bridge word: its edges}).
+    """
+    kept = dict(edges)
+    bridges: dict[TokenKey, list[tuple[TokenKey, TokenKey]]] = {}
+    while True:
+        adjacency: dict[TokenKey, set[TokenKey]] = {}
+        for source, target in kept:
+            adjacency.setdefault(source, set()).add(target)
+            adjacency.setdefault(target, set()).add(source)
+        found = None
+        for node in sorted(adjacency):
+            if len(adjacency[node]) < 2:
+                continue
+            parts = _parts_without(adjacency, node)
+            if sum(1 for part in parts if _has_pair(part)) >= 2:
+                found = node
+                break
+        if found is None:
+            return kept, bridges
+        removed = [key for key in kept if found in key]
+        bridges[found] = removed
+        for key in removed:
+            del kept[key]
+
+
+def _parts_without(adjacency: dict[TokenKey, set[TokenKey]], removed: TokenKey) -> list[set[TokenKey]]:
+    """The connected parts of `removed`'s neighbourhood once it is gone."""
+    seen: set[TokenKey] = {removed}
+    parts: list[set[TokenKey]] = []
+    for start in sorted(adjacency[removed]):
+        if start in seen:
+            continue
+        part: set[TokenKey] = set()
+        stack = [start]
+        seen.add(start)
+        while stack:
+            node = stack.pop()
+            part.add(node)
+            for nxt in adjacency.get(node, ()):
+                if nxt not in seen:
+                    seen.add(nxt)
+                    stack.append(nxt)
+        parts.append(part)
+    return parts
+
+
+def _has_pair(part: set[TokenKey]) -> bool:
+    return any(t.side == "source" for t in part) and any(t.side == "target" for t in part)
 
 
 def _join(*parts: Any) -> str:

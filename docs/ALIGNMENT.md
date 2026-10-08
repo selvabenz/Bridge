@@ -195,11 +195,23 @@ signature):
 
 | Both passes give | Result |
 |---|---|
-| the same edge | **written**. Same-verse edges are compiled into tC groups (1:1/1:N/N:1/N:M) by `compile_link_proposal` with thresholds 0.0, because agreement is the gate, and saved with operation `ai_auto_align`. Cross-verse edges become one link group per connected component, through `alignment.crossVerse.link`. |
+| the same edge | **written**, unless the word only *bridges* two separate pairs (below). Same-verse edges are compiled into tC groups (1:1/1:N/N:1/N:M) by `compile_link_proposal` with thresholds 0.0, because agreement is the gate, and saved with operation `ai_auto_align`. Cross-verse edges become one link group per connected component, through `alignment.crossVerse.link`. |
 | the same null, same reason | **written** to the null store with `origin: "ai-auto"`, unless either pass also linked the word |
 | something only one pass gave, or reasons that differ | a **suggestion** with both votes; nothing written |
 | nothing at all for a word | **POSSIBLE_OMISSION** (source) or **POSSIBLE_ADDITION** (target), with the model's notes; nothing written |
 
+- **Bridges.** The compiler makes one group of every connected set of agreed
+  edges. A word linked to two words that each already render another word
+  would therefore glue two pairs into one block: in 1 Cor 7:2, καὶ is carried
+  by the "-உம்" on both மனைவியையும் and கணவனையும், and {γυναῖκα, καὶ, ἄνδρα} →
+  both Tamil words came out as a single 3:2 group, losing which Greek word
+  went with which Tamil word. `split_bridges` removes such a word when taking
+  it out leaves two or more parts that each still hold a source and a target
+  word. The pairs are written on their own; the word's edges become
+  suggestions, and "grammatical" is offered as Bridge's own reading, with
+  no pass's vote behind it. A real 1:2 (one source, two lone targets) and a
+  fully joined 2:2 idiom are not bridges. The prompt also tells the model
+  not to link a shared ending to each word it sits on.
 - **Corpus check.** Once the project has completed alignments, an agreed
   cross-verse edge is blocked (`CORPUS_DISAGREES`) when the offline scorer's top
   candidate for that source word is a different target word, or the target word
@@ -224,7 +236,7 @@ signature):
   540 s (two provider calls).
 - **Limits.** Two samples of one model are correlated: agreement lowers the
   error rate, it does not bound it. Every number is uncalibrated
-  (`two-pass-agreement-v1`). No real-provider run has been recorded yet (#131).
+  (`two-pass-agreement-v2`). No real-provider run has been recorded yet (#131).
 
 ### A chapter or a book at a time (#221)
 

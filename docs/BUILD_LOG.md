@@ -16425,3 +16425,37 @@ follows; the earlier entries in this log that cite the old ids are left as writt
 Every number above was measured or counted on `main` today: `wc -l`, a grep
 for the dispatcher import, `cargo test -- --list`, and the matrix rows'
 own status columns.
+
+## 2026-10-08 — Fix: a shared ending fused two pairs into one 3:2 group (#219)
+
+**What Benz saw.** On IRV Tamil 1 Cor 7:2, γυναῖκα, καὶ and ἄνδρα each showed
+*both* Tamil words, மனைவியையும் and கணவனையும், every card tagged "3:2". The
+verdict ledgers confirm it: the pass wrote one many-to-many group
+`{γυναῖκα, καὶ, ἄνδρα} → {கணவனையும், மனைவியையும்}`. Psalm 1:3 and 1:4 hold the
+same shape (a conjunction and a particle fused with their neighbours).
+
+**Why.** Both passes agreed on four edges: the two real pairs, plus καὶ to each
+Tamil word, because "-உம்" ("and") sits on both. `compile_link_proposal` makes
+one group of every connected set of edges, and καὶ connected the two pairs. So
+the compiler was correct, and the outcome still lost the one fact a reviewer
+wants: which Greek word goes with which Tamil word.
+
+**Fix.** `alignment_agreement.split_bridges`: a word is a bridge when removing
+it leaves two or more parts that each still hold a source and a target word.
+The parts are written on their own. The bridge's own edges become suggestions,
+and "grammatical" is offered as Bridge's reading, with both votes shown as
+false, since no pass gave it. A real 1:2 is not a bridge, since removing the
+source leaves two lone target words. A fully joined 2:2 idiom is not a bridge
+either, since the rest stays connected. The prompt gained a rule against
+linking a repeated ending to each word it sits on. `two-pass-agreement-v2`.
+
+**Not changed.** Existing verdicts and groups already written stay as they are.
+A re-run of the pass supersedes its own 3:2 group with the split result.
+
+**Verified.** 5 new pure tests (bridge, 1:2 kept, 2:2 kept, a target-side
+bridge, the prompt rule) and one protocol test replaying 1 Cor 7:2 through a
+fake transport: two 1:1 groups, three suggestions, and `accounted` once καὶ is
+marked grammatical. Full engine suite with `-n auto`: 5019 passed, 1 skipped,
+3 xfailed. A first run in a fresh worktree failed 12 tests because the gitignored
+Stage 3 database and `src-tauri/resources/` were absent; with both linked in
+from the main checkout, nothing fails.

@@ -185,3 +185,59 @@ def test_ask_sends_the_direction_and_guidance():
     assert "on both sides" in seen["instructions"]
     assert seen["payload"]["passage"] == "PHP 1:3-6"
     assert set(SCHEMA["required"]) == {"links", "nulls", "unplaced", "review_notes"}
+
+
+# --- bridges: one word must not glue two separate pairs (1 Cor 7:2) ------------
+
+GYNAIKA, KAI, ANDRA = S("2", "γυναῖκα"), S("2", "καὶ"), S("2", "ἄνδρα")
+MANAIVI, KANAVAN = T("2", "மனைவியையும்"), T("2", "கணவனையும்")
+
+
+def test_a_conjunction_carried_by_both_endings_does_not_fuse_two_pairs():
+    """Both passes link καὶ to both Tamil words (each carries "-உம்"). Without
+    the split, the compiler would write one 3:2 group and lose which Greek word
+    goes with which Tamil word."""
+    edges = [(GYNAIKA, MANAIVI), (ANDRA, KANAVAN), (KAI, MANAIVI), (KAI, KANAVAN)]
+    result = agree(_pass(SOURCE_FIRST, edges), _pass(TARGET_FIRST, edges),
+                   tokens=[GYNAIKA, KAI, ANDRA, MANAIVI, KANAVAN])
+    assert set(result.agreed_edges) == {(GYNAIKA, MANAIVI), (ANDRA, KANAVAN)}
+    links = [s for s in result.suggestions if s.kind == "link"]
+    assert {(s.source, s.target) for s in links} == {(KAI, MANAIVI), (KAI, KANAVAN)}
+    assert all("two separate pairs" in s.reason for s in links)
+    [null] = [s for s in result.suggestions if s.kind == "null"]
+    assert (null.token, null.reason) == (KAI, "GRAMMATICAL")
+    # Bridge's own reading, not a pass's: nobody voted for it.
+    assert null.votes == {SOURCE_FIRST: False, TARGET_FIRST: False}
+    assert result.unplaced == {}
+
+
+def test_a_real_one_to_many_is_not_a_bridge():
+    edges = [(EUCH, NAN), (EUCH, STHOTH), (THEOS, DEVANAI)]
+    result = agree(_pass(SOURCE_FIRST, edges), _pass(TARGET_FIRST, edges), tokens=ALL)
+    assert set(result.agreed_edges) == set(edges)
+    assert not [s for s in result.suggestions if s.kind == "link"]
+
+
+def test_a_fully_joined_many_to_many_idiom_is_not_a_bridge():
+    a, b = S("5", "x"), S("5", "y")
+    c, d = T("5", "p"), T("5", "q")
+    edges = [(a, c), (a, d), (b, c), (b, d)]
+    result = agree(_pass(SOURCE_FIRST, edges), _pass(TARGET_FIRST, edges), tokens=[a, b, c, d])
+    assert set(result.agreed_edges) == set(edges)
+    assert result.suggestions == []
+
+
+def test_a_target_word_can_be_the_bridge_too():
+    # One target word joined to two sources that each already have their own word.
+    x, y = S("6", "x"), S("6", "y")
+    p, q, glue = T("6", "p"), T("6", "q"), T("6", "glue")
+    edges = [(x, p), (y, q), (x, glue), (y, glue)]
+    result = agree(_pass(SOURCE_FIRST, edges), _pass(TARGET_FIRST, edges), tokens=[x, y, p, q, glue])
+    assert set(result.agreed_edges) == {(x, p), (y, q)}
+    assert [s.token for s in result.suggestions if s.kind == "null"] == [glue]
+
+
+def test_the_prompt_says_not_to_link_a_shared_ending_to_each_word():
+    from tc_ai_bridge.alignment_window import INSTRUCTIONS
+    for text in INSTRUCTIONS.values():
+        assert "carried by an ending or clitic repeated on several target words" in text

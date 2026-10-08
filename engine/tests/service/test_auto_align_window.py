@@ -244,3 +244,47 @@ def test_window_validation(root):
                    {"chapter": "9", "verses": ["1"]}):
         response = call(engine, "alignment.window.autoAlign", params)
         assert response["success"] is False and response["error"]["code"] == "project_error", params
+
+
+def test_a_shared_ending_does_not_fuse_two_pairs_into_one_group(tmp_path):
+    """1 Cor 7:2, as found in the desktop app: both passes linked καὶ to both
+    Tamil words (each carries "-உம்"), and the compiler wrote ONE 3:2 group.
+    Now the two pairs are written on their own and καὶ is offered, with
+    "grammatical" as Bridge's reading. Handles: S1 γυναῖκα S2 καὶ S3 ἄνδρα;
+    T1 மனைவியையும் T2 கணவனையும்."""
+    root = tmp_path / "1co"
+    write_alignment_book(root, "1co", {"7": {
+        "2": unaligned_verse("மனைவியையும் கணவனையும்", [("γυναῖκα", "G11350"), ("καὶ", "G25320"), ("ἄνδρα", "G04350")]),
+    }})
+    body = {
+        "links": [
+            {"source_id": "S1", "target_id": "T1", "confidence": 95, "reason": "wife"},
+            {"source_id": "S3", "target_id": "T2", "confidence": 95, "reason": "husband"},
+            {"source_id": "S2", "target_id": "T1", "confidence": 70, "reason": "-உம் and"},
+            {"source_id": "S2", "target_id": "T2", "confidence": 70, "reason": "-உம் and"},
+        ],
+        "nulls": [], "unplaced": [], "review_notes": [],
+    }
+    engine = open_engine(root, transport_for(body, body))
+    response = call(engine, "alignment.window.autoAlign", {"chapter": "7", "verses": ["2"]})
+    assert response["success"] is True, response
+    [result] = response["result"]["results"]
+    context = result["context"]
+    written = [g for g in context["groups"] if g["bottomIds"]]
+    # Two 1:1 groups, never a 3:2 block.
+    assert sorted((len(g["topIds"]), len(g["bottomIds"])) for g in written) == [(1, 1), (1, 1)]
+    words = {t["id"]: t["word"] for t in context["topTokens"] + context["bottomTokens"]}
+    assert {(words[g["topIds"][0]], words[g["bottomIds"][0]]) for g in written} == {
+        ("γυναῖκα", "மனைவியையும்"), ("ἄνδρα", "கணவனையும்"),
+    }
+    # καὶ is left for the reviewer: two link options and a grammatical one.
+    assert result["verdict"] == "NEEDS_REVIEW"
+    kinds = sorted((s["kind"], (s["target"] or {}).get("word", s["reason"])) for s in result["suggestions"])
+    assert kinds == [("link", "கணவனையும்"), ("link", "மனைவியையும்"), ("null", "GRAMMATICAL")]
+    # Accepting "grammatical" settles the verse.
+    kai = context_id(context, top_word="καὶ")
+    assert call(engine, "alignment.null.set", {
+        "chapter": "7", "verse": "2", "side": "source", "id": kai, "reason": "GRAMMATICAL",
+    })["success"]
+    after = call(engine, "alignment.get", {"chapter": "7", "verse": "2"})["result"]
+    assert after["accounted"] is True
