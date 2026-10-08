@@ -543,6 +543,23 @@ siblings on every edit.
 **Revisit when:** the team hub (#46) syncs workbench rows; a shared table
 would then be simpler than a merge.
 
+## 2026-10-08 — Automatic alignment writes what two passes agree on, without a click (#219)
+
+**Decision:** `alignment.window.autoAlign` asks the same verse window twice, once source-first and once target-first, and writes everything **both** passes give, with no per-item click:
+- same-verse groups to tC `alignmentData/`, through the existing compiler and `_save_alignment`;
+- cross-verse link groups;
+- null decisions (grammatical, implicit or explicitation, with the identical reason in both passes).
+
+Every write carries `origin: "ai-auto"` and a `runId`. Anything only one pass gave, or whose null reasons differ, is a suggestion with ✓/×. A token neither pass placed is reported as a possible omission or addition and is never forced. A reviewer's existing group, link or decision is never written over.
+
+Once the project has completed alignments, an agreed **cross-verse** edge is also checked against the offline corpus scorer (#138). It is blocked when the corpus's top candidate for that source word is a different target word, or when the target word is contested. A corpus that says nothing about the word does not block it. On a cold project, two-pass agreement is the whole gate.
+
+**Who decided:** @RevantCI. Sign-off was obtained by @selvabenz on 2026-10-08 and posted on #214 (comment 6051693007), with a request to object there if this is not what was approved.
+**Because:** #214 made every model pick a proposal, so on a fresh book a verse could only come out aligned word by word, even where the model was plainly right. CLAUDE.md's rule is "two methods agreeing is the gate; a confidence threshold on one number is still not". Two readings from opposite directions are two methods in that sense, though weaker ones than #146's model-plus-corpus. Confidences are recorded and decide nothing.
+**Rules out:** writing on one pass's say-so at any confidence; overwriting a reviewer's alignment; widening this to Scripture text or to findings, which stays a fresh question.
+**Limits, recorded so nobody takes them for guarantees:** two samples of one model are correlated, so agreement lowers the error rate but does not bound it. Every number is uncalibrated (`two-pass-agreement-v1`). No real-provider request has been sent yet (#131), so precision is unknown until the `external` test is run with a key.
+**Revisit when:** the first real-provider measurement on the PHP fixtures is recorded; or the maintainer objects on #214.
+
 <!-- New entries go above this line. -->
 
 ## 2026-10-07 — indic-qa's checker core is vendored in-process for Punjabi, Malayalam, Hindi and Odia

@@ -455,10 +455,10 @@ def test_alignment_precedents_for_range_skips_a_verse_bridge_reference(
 # hits by the fixed engine -- correction_verification.py's fingerprint()
 # docstring states the same rule for Stage 6B changes generally.
 
-def test_alignment_evidence_version_is_v3() -> None:
-    # v3 (#119): cross-verse links join the evidence; a v2-fingerprinted run
+def test_alignment_evidence_version_is_v4() -> None:
+    # v4 (#218): cross-verse groups and null decisions. v3 (#119): cross-verse links join the evidence; a v2-fingerprinted run
     # never saw them and must not be served as a cache hit.
-    assert word_alignment_evidence.ALIGNMENT_EVIDENCE_VERSION == "tc-word-alignment-v3"
+    assert word_alignment_evidence.ALIGNMENT_EVIDENCE_VERSION == "tc-word-alignment-v4"
 
 
 def test_alignment_evidence_version_is_in_policy_versions_output(tmp_path: Path) -> None:
@@ -466,7 +466,7 @@ def test_alignment_evidence_version_is_in_policy_versions_output(tmp_path: Path)
 
     runtime = _runtime_with_completed_alignment(tmp_path)
     versions = AnalysisJobManager.policy_versions(runtime)
-    assert versions["alignmentEvidenceVersion"] == "tc-word-alignment-v3"
+    assert versions["alignmentEvidenceVersion"] == "tc-word-alignment-v4"
 
 
 # --- #119: Bridge-private cross-verse links as location evidence -------------
@@ -635,5 +635,5 @@ def test_alignment_evidence_version_is_a_real_input_to_the_verifier_fingerprint(
             "qaPolicy": QA_POLICY_VERSION,
         })
 
-    assert real_fingerprint == _fingerprint_with("tc-word-alignment-v3")
+    assert real_fingerprint == _fingerprint_with("tc-word-alignment-v4")
     assert real_fingerprint != _fingerprint_with("tc-word-alignment-v2")

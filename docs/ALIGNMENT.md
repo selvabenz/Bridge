@@ -99,6 +99,202 @@ alignment.crossVerse.unlink              {linkId}
   weight as completed same-verse alignment, and a link change stales the
   downstream Stage 6B/7/8 records (#119).
 
+### Groups, and one token one home (#217)
+
+The spec's lexical ownership rule (section 5) applies across verses too. A 1:N,
+N:1 or N:M realization is **one** composite group, not several overlapping
+pairs, and every token has at most one home: a tC group, a cross-verse group
+or a null decision.
+
+- A row is still one (source, target) pair, so the unique pair index and every
+  reader are unchanged. `groupId` in the payload ties a group's rows together.
+  It is derived from the members, so the same group gets the same id
+  everywhere. A row written before groups existed is a group of one.
+- `alignment.crossVerse.link` also takes `{sources: [...], targets: [...]}`.
+  All sources must be in one verse and all targets in one other verse. N×M rows
+  and events are written, plus **one** history row (`crossVerseLinkGroup`).
+- Dropping a single word onto a word that is already in a group between the
+  same two verses **extends** that group: it unlinks the group and links the
+  union, under a new `groupId`. A word already linked into a *different* verse
+  is refused, and so is an exact duplicate.
+- `alignment.crossVerse.unlink` takes `{linkId}` or `{groupId}` and removes the
+  whole group either way. Removing one pair would leave a claim nobody made.
+- A text edit that removes any target word of a group invalidates the whole
+  group.
+- `_save_alignment` (realign, unalign, save, aiApplyProposal) refuses to put a
+  token into a tC group when the token is at an end of an active link or
+  carries an active null decision. Tokens leaving a group never conflict. A
+  token that was already double-homed before this rule is left as it is, not
+  repaired silently.
+- The verse context adds `crossVerseGroups`
+  (`{groupId, relation, sources, targets, sourceTopIds, targetBottomIds, linkIds, state}`)
+  beside the flat `crossVerseLinks`. `relation` uses the labels
+  `compile_link_proposal` gives tC groups.
+
+## Null decisions: a word with no counterpart, for a reason (#216)
+
+translationCore can say "this source word has these target words" or nothing.
+An empty group and a word left in the word bank both mean *not aligned yet*.
+Bridge records a third statement, the spec's NULL_ALIGNED: this word has no
+counterpart, and that is correct. It is stored in `alignment_null_decisions`
+(workbench v7), beside the link table, and never in `alignmentData/`.
+
+```text
+alignment.null.set    {chapter, verse, side: "source"|"target", id, reason, note?}
+alignment.null.clear  {decisionId}
+```
+
+- **The reason set is closed and depends on the side.** A source word is
+  `IMPLICIT` (context carries it) or `GRAMMATICAL` (an ending or word order, with
+  no separate word). A target word is `GRAMMATICAL` (the language requires it)
+  or `EXPLICITATION` (it states what the source implies). Nothing else is
+  accepted.
+- **No row means unaligned.** "Unresolved" is never stored, and an empty tC
+  group is never read as a null.
+- **One token, one home.** A word already aligned in its own verse, or at
+  either end of an active link, cannot be marked. A marked word cannot be
+  linked. Clear one home first.
+- **Same discipline as a link.** Each change makes three writes: the row, a
+  `nullDecide` / `nullClear` / `nullInvalidate` event, and a history row without
+  a backup. A different reason is an explicit update that keeps
+  `previousReason`. A text edit that removes a decided target word marks the
+  decision `invalid`, inside the edit's journal transaction. `origin` (`human`
+  or `ai-auto`) is kept on the row as well as on the event, so an automatic
+  re-run can supersede its own decisions and never a reviewer's.
+- **Status.** A null-decided token is not a gap. The verse context reports
+  `nullDecisions`, `accountedBy {tc, crossVerse, null}` and `accounted`, which
+  is true when every token has some home and there is a source and no
+  structural issue. `status`, `completionState` and `canComplete` keep telling
+  the translationCore truth, so a verse whose only remaining tokens are nulls is
+  still `partial` there.
+- The decisions' digest is folded into `alignment_state_digest`, so a change
+  stales Stage 6B/7/8. It is folded only when a book has decisions, so existing
+  projects keep their digests.
+
+## Automatic alignment: two passes, agreement writes (#219)
+
+```text
+alignment.window.autoAlign   {chapter, verses: [2..5 consecutive], apply?: true}
+alignment.autoAlign.revert   {chapter, verse}
+alignment.autoAlign.verdict  {chapter, verse}
+```
+
+The window (`alignment_window.py`, #214's payload) is the whole source and the
+whole target of the verses, in reading order. Each word has an opaque handle
+(`S1`, `T1`); Bridge's own ids and signatures are never sent. A word a reviewer
+has already placed is shown for context, marked `alreadyAligned`, and any claim
+on it is discarded. The window is asked **twice**, and each pass must account
+for every word on both sides:
+
+- **source-first**: each source word is linked, marked null, or marked
+  unplaced, then each target word left over;
+- **target-first**: the same, starting from the target words.
+
+`alignment_agreement.agree` compares the two (pure, keyed on side + verse +
+signature):
+
+| Both passes give | Result |
+|---|---|
+| the same edge | **written**. Same-verse edges are compiled into tC groups (1:1/1:N/N:1/N:M) by `compile_link_proposal` with thresholds 0.0, because agreement is the gate, and saved with operation `ai_auto_align`. Cross-verse edges become one link group per connected component, through `alignment.crossVerse.link`. |
+| the same null, same reason | **written** to the null store with `origin: "ai-auto"`, unless either pass also linked the word |
+| something only one pass gave, or reasons that differ | a **suggestion** with both votes; nothing written |
+| nothing at all for a word | **POSSIBLE_OMISSION** (source) or **POSSIBLE_ADDITION** (target), with the model's notes; nothing written |
+
+- **Corpus check.** Once the project has completed alignments, an agreed
+  cross-verse edge is blocked (`CORPUS_DISAGREES`) when the offline scorer's top
+  candidate for that source word is a different target word, or the target word
+  is contested.
+- **Spans.** A cross-verse component reaching more than two verses cannot be one
+  group and is offered as a suggestion instead.
+- **A reviewer's work is never written over.** Their groups, links and
+  decisions are fixed homes. When both passes contradict them, that shows up
+  once as a `CONFLICTS_WITH_HUMAN` suggestion.
+- **The ledger.** Each verse's verdict row (`alignment_verdicts`) records what
+  this run wrote: tC groups by signature set, link `groupId`s and decision ids.
+  A re-run first undoes its predecessor's writes, but only where they are still
+  exactly as written and, for a link, only where both ends lie inside the
+  window. `alignment.autoAlign.revert` does the same for one verse and reports
+  anything a reviewer has since changed as `skipped`.
+- **Verdict.** `ALIGNED_CLEAN` when nothing is left to suggest or report and the
+  verse is `accounted`; otherwise `NEEDS_REVIEW`. tC `status` and
+  `completionState` stay honest, and a verse whose words all landed in
+  same-verse groups is marked completed by the ordinary save path.
+- **Offline.** No key means a structured `unavailable` and no request.
+  Nothing is sent on open, import or check. The Rust timeout for the method is
+  540 s (two provider calls).
+- **Limits.** Two samples of one model are correlated: agreement lowers the
+  error rate, it does not bound it. Every number is uncalibrated
+  (`two-pass-agreement-v1`). No real-provider run has been recorded yet (#131).
+
+### A chapter or a book at a time (#221)
+
+```text
+alignment.autoAlign.estimate {scope: "chapter"|"book", chapters?}   offline: windows, calls, tokens, cost
+alignment.autoAlign.start    {scope, chapters?, apply?}             background job; `unavailable` without a key
+alignment.autoAlign.status / .cancel / .retry {jobId}
+```
+
+The job walks each chapter in windows of three verses that overlap by one, so
+every verse boundary falls inside some window. Each window is one
+`alignment.window.autoAlign`, with all of its rules.
+
+- **Order.** Windows run in reading order. A verse in two windows is decided
+  again by the later one, which supersedes only what an automatic pass wrote,
+  and for a link only when both ends are inside the later window.
+- **Failures and cancelling.** A failed window is recorded and the job moves
+  on. Cancel takes effect between requests. Retry runs only the windows that
+  did not succeed.
+- **Cost.** A 30-verse chapter is 15 windows and 30 requests. The estimate is
+  worked out from the real window payloads at about three characters per
+  token, so it is an estimate, not a quote.
+
+The plan sketched a cross-window vote, where a second window's agreement counts
+as another vote. It is not built. Sequential re-decision is simpler, and it
+never touches a link a later window cannot see.
+
+### In the verse editor (#220)
+
+The ordinary `alignment` check engine (and `local`) raises
+`alignment.possible_omission` (high) and `alignment.possible_addition` (medium)
+for every live gap of a verse that an automatic pass has run on, or that
+translationCore marks completed. A gap is live when the word is not in a tC
+group with a counterpart, not at either end of an active link and not
+null-decided. Nothing is raised on a verse nobody has aligned, where
+`ALIGN_UNALIGNED_*` already applies, or on one that was reverted.
+
+- The finding id is stable: `group_id` is the token signature, so decisions are
+  re-applied as usual.
+- A target finding carries the word's raw span, so the editor underlines it.
+- The explanation carries the model's note. If the verse changed after the
+  pass, it says to run the pass again instead.
+
+## What Stage 6B and Stage 8 read from all this (#218)
+
+- A cross-verse **group** reaches Stage 6B as one `WORD_ALIGNMENT` precedent
+  with all its sources and all its targets. That is the shape a same-verse N:M
+  tC group already has, so no weight or threshold changes. If any member does
+  not resolve, the whole group is dropped, the same all-or-nothing rule the
+  same-verse path uses.
+- A **null decision** has no target span, so Stage 6B never sees it.
+  `null_precedents_for_range` resolves the active decisions in a range to Stage
+  5/6A token instance ids, and Stage 8 reads them:
+  - A source unit whose every token carries the same `GRAMMATICAL` or
+    `IMPLICIT` decision is `COVERED_BY_RESTRUCTURING` instead of
+    `POSSIBLY_MISSING`. This applies only when Stage 6B found it `NOT_LOCATED`
+    or found no relationship. An `AMBIGUOUS` or incomplete search stays
+    `UNCERTAIN`, and a located realization is still judged on its meaning.
+  - A target unit whose every token carries the same `GRAMMATICAL` or
+    `EXPLICITATION` decision is `GRAMMATICALLY_REQUIRED` or
+    `EXPLICITATION_SUPPORTED`. The decision is checked before the hard-coded
+    function-word and specificity lists, which only know English and a few
+    Tamil forms.
+- Stage 8 still never re-runs Stage 6B. Decisions reach Stage 8's fingerprint
+  through `alignment_state_digest`, then the location run, then the meaning
+  run. `ALIGNMENT_EVIDENCE_VERSION` is `tc-word-alignment-v4` and
+  `QA_POLICY_VERSION` is `qa-policy-v2`, so every cached run goes stale once.
+- The Stage 6B golden has no alignment data, links or decisions, so it is
+  unaffected, and so is the Stage 5 golden.
+
 ## Finding the gaps, and suggesting what fills them (#137–#139)
 
 A **gap** is a source token with no target word in its own verse, or a target

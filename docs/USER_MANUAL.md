@@ -319,6 +319,44 @@ top counting the gaps per verse.
 - Editing a verse so a linked word disappears marks that link invalid, with the
   reason, rather than deleting it.
 
+**Align automatically.** With an AI provider set up in Settings, **Align
+automatically** at the top of the page aligns the verses in range for you, up to
+five at a time. Bridge asks your provider about the passage twice, once starting
+from the original words and once starting from the translation, and writes only
+what both readings agree on:
+
+- **Same-verse groups**, including one word to several (1:2), several to one
+  (2:1) and several to several.
+- **Cross-verse links**, when the meaning sits in a neighbouring verse.
+- **Words with no counterpart for a reason.** A Greek article is *grammatical*;
+  a meaning clear from context is *implicit*; a Tamil word the language needs is
+  *grammar*; a word that states what the original implies is *explicitation*.
+  These show as grey dashed cards and are not counted as gaps.
+
+Anything only one reading gave appears as a suggestion in the cell it would
+fill, with ✓ to accept and × to dismiss. Hover to see which reading gave it.
+
+A word **neither** reading could place is never forced. It is marked **?
+possible omission** (an original word) or **? possible addition** (a translated
+word), and the same finding appears in the verse editor. If it is not really
+missing or added, choose **Not missing ▾** or **Not an addition ▾** and say why.
+That records a decision, and the finding goes away.
+
+Your own alignments, links and decisions are never changed by an automatic
+pass. Each verse gets a card in the strip at the top:
+- **✓ Aligned**: nothing is left to do;
+- **? Needs review**: with what is left;
+- **· Not aligned yet**.
+
+**Undo a verse** puts a verse back as it was before the last pass, leaving alone
+anything you changed since. **Align chapter with AI** in the editor toolbar
+does the whole chapter three verses at a time, and shows the number of requests
+and an approximate cost before anything is sent.
+
+translationCore's own status is unchanged by any of this. A verse with a
+cross-verse link or a grammatical word still reads as not complete there,
+because aligned USFM cannot express either.
+
 ### 6.6 Translation helps review
 
 A focused, occurrence-aware view for working through translationNotes and

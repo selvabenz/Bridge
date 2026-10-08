@@ -15972,3 +15972,371 @@ the fix applies to the project's other books too.
 - Every existing learned, scope, flag and store test passes unchanged
   (32).
 - Frontend: `npm run check` 0/0, 595 passed, build ok.
+
+## 2026-10-07 — The Collection QA runner gets an issue and a place in the docs (#215)
+
+The "Run QA on all N books" panel at the top of the dashboard was asked about and
+turned out to have no issue of its own and no entry in ARCHITECTURE. It is Benz's
+`46e0e3d` (2026-09-24, layered-rules Phases 4.4 and 4.5), tracked only as one line
+in #169's checklist and QA matrix row A70. #215 now records the feature as
+shipped, verified against the code today: the ordinary check job per book (local,
+greekroom, languageQa) in a private project handle, never automatic, read-only
+app while active, resumable through `collection.json` `qaRuns[]` keyed by a sha256
+of the chapter files, pause between books, cancel keeps nothing half-written, one
+final whole-collection stage (termbase coverage, cross-book names; house-style
+propagation reported unavailable), and the measured whole-Bible runs (1 h 41 min on
+2026-09-24, 62 min on 2026-09-28).
+
+**Docs changed.** ARCHITECTURE §3 now says `collection.json` carries `qaRuns[]` and
+`qaFinalStage`; §5 adds `CollectionQaPanel` to the dashboard node. CLAUDE.md's
+multi-book section gains a paragraph on the runner. DEVELOPER_GUIDE's roadmap
+table had no Language QA row at all, so the whole of #169 was invisible there; it
+now has one, pointing at LANGUAGE_QA_PLAN. Not touched, already stale and noted on
+#215: ARCHITECTURE §5 still lists the Semantic and Passage tabs retired by #129.
+
+**Verified.** The six engine test files `affected_tests.py` selects for a docs-only
+change (165 tests) pass. No code changed.
+
+## 2026-10-08 — Automatic cross-verse alignment, part 1: null alignment decisions (#216)
+
+The first of seven parts of automatic cross-verse alignment (#216–#222, extending
+#214; plan agreed with Benz 2026-10-07/08, mockup
+https://claude.ai/artifact/C75bSQPQEfCUEAs2dyNZXc). This part gives Bridge
+somewhere to say "this word has no counterpart, and that is correct". Before it,
+a Greek article with no Tamil word, or a Tamil word that is pure grammar, could
+only stay a gap, and Stage 8 could only read it as a possible omission or
+addition.
+
+**Storage: workbench v5 → v6.** Two tables. `alignment_null_decisions` is a
+sibling of v3's link table: chapter, verse, side, signature, reason and state are
+lifted, and it is unique on (book, chapter, verse, side, signature).
+`alignment_verdicts` is the per-verse cache the automatic pass (#219–#221) will
+write; it is created now so the series needs one bump, not two. Neither carries a
+CHECK on side or reason. v5 shows that widening a CHECK costs a table rebuild;
+both sets are validated in `alignment_null_decisions.validate`. **Schema-number
+collision:** `indic-qa-editor` (not on main) also takes v6 for its Language QA
+batch tables. Whichever branch merges second renumbers its block to v7.
+
+**Store.** `alignment_null_decisions.py` mirrors `cross_verse_links.py`: three
+writes per change, history without a backup, and invalidation on a text edit
+inside `apply_scripture_edit`'s transaction (reported as
+`nullDecisionsInvalidated`). Decisions on the source side are never invalidated
+by an edit, because no edit removes a source token. A source signature the load
+cannot resolve is reported `stale` on read, not written. Two differences from
+the link store, both deliberate:
+- `origin` is on the row, not only the event, so the automatic pass can
+  supersede only its own rows;
+- the history id includes the row id. `_timestamp` has millisecond resolution,
+  and a burst of decisions in one verse would otherwise overwrite each other's
+  history row. The link store has the same latent collision; the automatic
+  pass's link groups (part 2) will need the same fix there.
+
+**Service.** `alignment.null.set` / `.clear`. A token that already has a home (a
+group with target words, any target group, or either end of an active link)
+cannot be marked, and a marked token cannot be linked. `gap_ids` takes
+`null_source_ids` / `null_target_ids`, so `_alignment_context` and `gapScan`
+share one definition. The context gains `nullDecisions`, `accountedBy` and
+`accounted`. `fullyAccounted` now counts nulls as well as links. The digest is
+folded into `alignment_state_digest` only when a book has decisions, so every
+existing project keeps the digest, and the cached runs, it had.
+
+**Not in this part.** `_save_alignment` (realign / save / aiApplyProposal) does
+not yet refuse a token that has a null or a link. That is part 2 (#217), with
+the N:M link groups.
+
+**Verified.** 13 new tests (`tests/alignment/test_alignment_null_decisions.py`,
+`tests/service/test_alignment_null_rpc.py`) pass. Full engine suite with
+`-n auto`: 4735 passed, 1 skipped, 3 xfailed. `npm run check` is clean. Neither
+golden moved. Frozen sidecars not rebuilt for this part.
+
+## 2026-10-08 — Automatic cross-verse alignment, part 2: one token one home, N:M link groups (#217)
+
+**The hole it closes.** The #117 link store refused only an exact duplicate pair.
+One Greek word could be linked into two different verses with nothing tying the
+links together, and after part 1 a word could also be "grammatical" and aligned
+at the same time.
+
+**Groups.** `groupId` lives in the link payload. It is a sha1 of the members'
+chapter:verse:signature, prefixed `xvg_`. The unique pair index, the per-verse
+reads and the Stage 6B reader are unchanged. No column was added and there is
+no schema bump; grouping is done in Python over the rows of one source verse.
+A group is written and removed as a unit: N×M rows and events, one history row.
+Membership never changes in place. A single-pair drop onto a word already
+grouped between the same two verses extends the group by unlinking it and
+linking the union, because refusing it would make dragging a second word
+useless. A text edit that removes any target member invalidates the whole
+group. Unlinking any pair removes the whole group. This is visible in today's
+UI: × on one card of a 1:N group removes them all. The part 7 UI draws the
+group.
+
+**One home.** Each of these refuses a token that already has a home elsewhere:
+`link_cross_verse`, `alignment.null.set`, and the new
+`_refuse_if_homed_elsewhere` in `_save_alignment`. In `_save_alignment` only
+tokens that *gain* a group in that save are checked. A token that was already
+double-homed before this change is not repaired silently; I don't know of any.
+The AI review's auto-align path also goes through `_save_alignment`; a refusal
+there is caught by its existing "must not sink the review" handler.
+
+**History id collision**, noted in part 1, is fixed in the link store too: the
+record id is now part of the history id.
+
+**Verified.** 8 new tests (`tests/service/test_alignment_one_home.py`). The
+existing `test_alignment_cross_verse.py` passes unchanged once the
+exact-duplicate case refuses instead of "extending" into itself, which was the
+one bug the existing tests caught. Full engine suite with `-n auto`, run on this
+part alone (later parts stashed): 4743 passed, 1 skipped, 3 xfailed.
+`npm run check` is clean.
+
+## 2026-10-08 — Automatic cross-verse alignment, part 3: Stage 6B/8 read groups and null decisions (#218)
+
+**Why.** On a verse with no alignment, Stage 8 raises `POSSIBLE_OMISSION` for
+every unlocated content word. Parts 1 and 2 give a reviewer, or the automatic
+pass, a way to say "grammatical", "implicit" or "this whole group, across the
+verse boundary". Stage 8 still could not hear it: links reached Stage 6B only
+as 1:1 pairs, and decisions did not reach it at all.
+
+**Evidence.** `_cross_verse_precedents` folds rows by `groupId` into one
+precedent per group, with every member or none. The new
+`null_precedents_for_range` resolves active decisions in the range through the
+same resolvers the tC path uses: exact NFC word plus occurrence on the pinned
+pack for a source token, and the current text revision for a target word. It
+never raises.
+
+**Stage 8.** `source_coverage_for` and `target_support_for` take an optional
+`null_precedent`. `QaAuditEngine._unit_null` applies it to a unit only when
+every token of the unit carries a decision with the same reason, so a decision
+on one word never explains its neighbour. A source decision explains only an
+absence (NOT_LOCATED, or no relationship). AMBIGUOUS and SEARCH_INCOMPLETE stay
+UNCERTAIN; I didn't widen that. The plan listed "should a *human* null override
+AMBIGUOUS?" as a question, and it is still open. A target decision comes before
+the English and Tamil word lists.
+
+**Versions.** `tc-word-alignment-v4` and `qa-policy-v2`. Neither string appears
+in either golden. The three pins in `test_word_alignment_evidence.py` move with
+the bump, and that file's version test is renamed `..._is_v4`.
+
+**Verified.** 8 new tests (`tests/semantic/test_null_and_group_evidence.py`).
+The end-to-end test shows θεός, unlocated in a Tamil verse that does not name
+God, going from `POSSIBLE_OMISSION` to `COVERED_BY_RESTRUCTURING` once marked
+IMPLICIT. The run fingerprint moves, and every other unlocated word in the verse
+is still reported. Full engine suite with `-n auto`, run on this part with later
+parts' files ignored: 4751 passed, 1 skipped, 3 xfailed. Both golden tests pass
+unchanged.
+
+## 2026-10-08 — Automatic cross-verse alignment, part 4: two-pass agreement writes (#219)
+
+**What it does.** `alignment.window.autoAlign` builds #214's window, asks it
+source-first and target-first, compares the two passes
+(`alignment_agreement.agree`), writes what both agree on, suggests the rest, and
+reports what neither placed. Maintainer sign-off for the zero-click gate is
+recorded in DECISIONS (2026-10-08) and on #214.
+
+**Three corrections made while designing, each a bug the first sketch had:**
+- **Each pass must account for both sides.** If only the target-first pass
+  spoke about target-only words, a Tamil grammar word could never be agreed
+  on, and no verse containing one could end clean.
+- **Homed tokens leave the compiler's input.** `compile_link_proposal` in
+  gap_fill mode *extends* a protected group whenever an edge touches one of its
+  tokens, which would have let the automatic pass grow a reviewer's group. Any
+  edge on a token with a home is filtered out before compiling.
+- **Overlapping windows.** Window [1-3] could link v2→v3, and window [3-5] would
+  then revert v3's ledger and delete that link without being able to see v2. A
+  pass owns, and reverts, only link groups whose two ends are both inside its
+  window. Kept groups carry forward into the new ledger.
+
+**The corpus rule, stated precisely.** The agreed cross-verse edge is blocked
+only when the corpus has a *different* top candidate, or the target word is
+contested. A corpus with nothing to say about the word does not block it.
+Requiring the corpus to propose the edge would have made a warm project stricter
+than a cold one.
+
+**Not done.** Whether a *human* null should override an AMBIGUOUS Stage 6B
+outcome is still open (part 3). The chapter job, the verse check findings and
+the UI are parts 5-7.
+
+**Verified.** 11 pure agreement and window tests and 11 protocol tests over a
+fake transport (`tests/service/test_auto_align_window.py`). They cover:
+- a clean window written with no click, with the tC group, the 1:2 link group,
+  the null, the ledger and `origin: "ai-auto"` on the events;
+- a one-pass edge becoming a suggestion;
+- unplaced words reported and not forced;
+- no key, so no request;
+- `apply: false`, which writes only the verdict;
+- a reviewer's IMPLICIT kept against two GRAMMATICAL votes;
+- a re-run superseding its own writes;
+- revert, including a reviewer-changed group being skipped;
+- an invented handle failing with nothing written;
+- window validation.
+
+Rust: the 540 s timeout is pinned in `sidecar::tests`; `cargo test` passes
+(10). Full engine suite with `-n auto` on this part: 4773 passed, 1 skipped,
+3 xfailed. `npm run check` is clean.
+
+## 2026-10-08 — Automatic cross-verse alignment, part 5: possible omission/addition in the verse editor (#220)
+
+`alignment_gap_checks.gap_issues` runs inside `_run_verse_checks_for_project`
+whenever `local` or `alignment` checks run. It uses the `project` handle it is
+given, not `self.project`, because check jobs open their own handles.
+
+- **When it fires.** Only for live gaps, and only on a verse with a non-reverted
+  verdict or a translationCore completion. Firing on every unaligned verse would
+  repeat `ALIGN_UNALIGNED_*` once per word and bury the verse.
+- **Codes.** `ALIGN_POSSIBLE_OMISSION` / `_ADDITION` keep the `ALIGN_` prefix,
+  so `_categorize_qaissue` files them under Alignment.
+- **Spans.** A target finding gets a highlight-only span: offsets and the
+  original text, no replacement. The span comes from `_first_token_span`
+  generalised to the n-th occurrence, so a repeated word underlines the right
+  copy.
+- **Failure handling.** A failure inside the gap check is swallowed, so a
+  verse's ordinary checks are never sunk by optional evidence.
+
+QA matrix rows A97–A101 now cover parts 1–5, all at source level only.
+
+**Verified.** 6 new protocol tests. Full engine suite with `-n auto`: 4779 passed,
+1 skipped, 3 xfailed.
+
+## 2026-10-08 — Automatic cross-verse alignment, part 6: the chapter job (#221)
+
+`engine/alignment_auto_align_jobs.py` copies `AIReviewJobManager`'s lifecycle:
+- one active job per engine;
+- a daemon thread;
+- cancellation between provider requests;
+- a failed window recorded, not fatal;
+- retry of what did not succeed.
+
+Each window is the service's own `auto_align_window`, so there is no second
+code path for agreement or writes.
+
+**A deviation from the plan.** The plan sketched a three-phase job: ask every
+window, reconcile votes across windows offline, then write. It is built as
+sequential windows instead, where the later window re-decides the overlap
+verse. Part 4's window-scoped ownership is what makes that safe: a later window
+never reverts a link reaching into a verse it cannot see.
+
+Cross-window voting would make an agreed edge stronger when two windows both
+found it. That is worth measuring once there is real-provider data (#131), and
+not worth building blind.
+
+**Estimate.** Offline. It builds every window's real payload and counts about
+three characters per token, plus 1,500 output tokens per call, priced through
+`model_router.estimate_cost`. The Rust timeout is 180 s for the estimate,
+because a whole book is hundreds of windows. `start`, `status` and `cancel` stay
+interactive at 30 s.
+
+**Frozen build.** `scripts/smoke_sidecars.py` now calls the estimate and an
+offline `alignment.window.autoAlign`. That proves the new top-level module and
+the `tc_ai_bridge` agreement and window modules are in the onefile exe, and that
+a pass with no key answers `unavailable` without sending anything.
+
+**Verified.** 6 job tests. Full engine suite with `-n auto`: 4785 passed, 1 skipped,
+3 xfailed. `cargo test` passes (10). The frozen smoke was not run for this part;
+it is run once at the end of the series, after the sidecars are rebuilt.
+
+## 2026-10-08 — Automatic cross-verse alignment, part 7: the page (#222)
+
+Built to the mockup approved on 2026-10-08
+(https://claude.ai/artifact/C75bSQPQEfCUEAs2dyNZXc).
+
+**`CrossVerseAlignmentModal`.** The shell, the drag/drop, the lexicon popup and
+both columns are unchanged.
+- **Removed:** the gap strip and the suggestion strip.
+- **Auto-bar:** **Align automatically** sits beside **Suggest links**. It is
+  disabled, with the reason, when there is no key or the range cannot be one
+  window. The bar also carries a usage line.
+- **Verdict strip:** a card per verse (✓ Aligned / ? Needs review / ↻ Edited
+  since the pass / · Not aligned yet), filtering as the gap cards did.
+- **Run notice:** includes **Undo a verse**.
+- **Source cells:** an `ai` tag and the group's shape (2:1, 1:2) on cards;
+  null cards; `? possible omission` with **Not missing ▾**; disputed
+  suggestions with both votes on hover and ✓/×; offline corpus suggestions now
+  inline as well.
+- **Bank:** null words, `? possible addition` with **Not an addition ▾**, and
+  target-side options.
+- **Cards:** two lines, so a long Tamil word ellipsizes in a 150px track
+  (#206's overflow).
+- **#146's "Suggest with AI" is gone.** Align automatically supersedes it. Its
+  engine method `alignment.crossVerse.aiPropose` is left in place and is no
+  longer called from the UI. Removing it would be a separate cleanup.
+
+**A Svelte 4 trap hit while building this.** A template expression re-runs only
+when a variable *named in it* changes. Helpers that read `verdicts` or
+`visibleProposals` from the closure never refreshed their cells. The dismiss
+test caught it. Every helper the template calls now takes its state as an
+argument, the same way the gloss lookups already took `glossVersion`.
+
+**Chapter toolbar.** `AutoAlignChapterButton` runs in four states on one
+toolbar row:
+1. the offline estimate, with Start or Cancel, so nothing is sent before Start;
+2. progress, with Cancel;
+3. the result, with **Open review** on the first verses that need review;
+4. idle.
+
+When a job ends it reloads the chapter.
+
+`alignmentGroups.unaccountedTargets` / `unrealizedSources` now count null
+decisions as accounted, matching the engine's `gap_ids`.
+
+**Surprise, not fixed.** `VerseList.test.ts`'s "click budget under 100 ms" test
+failed once while the engine suite was saturating the CPU, and passes alone and
+in a quiet full run. It is timing-sensitive under load. That is worth an issue,
+and it is unrelated to this work.
+
+**Verified.** `npm run check` is clean. `npm run test` passes 41 files, 540
+tests, including 28 modal, 4 toolbar and 7 helper tests. `npm run build`
+succeeds. **Not verified:** the 1366×768 rendering in the desktop app, because
+jsdom does not lay out. QA row A103 says so.
+
+**Frozen pair, 2026-10-08, after part 7.** `.\scripts\build-sidecars.ps1` rebuilt
+both sidecars from this branch, and `python scripts/smoke_sidecars.py
+engine/dist/bridge-engine.exe` passed. That run includes the two new
+automatic-alignment checks: the offline estimate (one window, two calls) and a
+no-key pass answering `unavailable`.
+
+Follow-ups filed:
+- #223: Stage 6B scores span containment, not coverage. A linked word ties with
+  the phrase around it. This may move the 6B golden.
+- #224: the `VerseList` click-budget test is load-sensitive.
+
+**Still not run:**
+- the desktop app at 1366×768;
+- a real-provider pass (#131). The precision of two-pass agreement on IRV is
+  unmeasured until someone runs it with a key.
+
+## 2026-10-08 — Fix: "no such table: alignment_null_decisions" in the desktop app (workbench v6 → v7)
+
+**What Benz saw.** Opening Align Words or Cross-verse alignment on IRV Tamil GEN
+1:10 failed with `no such table: alignment_null_decisions`. The verse recheck
+failed the same way, and so did "Align chapter with AI" in the toolbar.
+
+**Cause.** This is the schema collision the part 1 entry warned about.
+`indic-qa-editor` took workbench v6 for its Language QA batch tables, and the
+real projects were already migrated to it on 2026-10-07. A read-only scan of all
+five materialised project databases found four at that v6 and one at v5. This
+branch also called its alignment tables "v6". So a database already at "v6"
+skipped them: the ladder trusts the number. No database had this branch's v6, so
+renumbering is safe for every one of them.
+
+**Fix.**
+- `indic-qa-editor`'s v6 block is carried **verbatim**. The v1–v6 migration
+  strings were compared programmatically and are byte-identical, so both
+  branches build the same ladder and merge without a renumber.
+- The alignment tables are **v7**. The three Language QA tables are registered
+  in `MUTABLE_TABLES` as they are on that branch.
+- `test_workbench_v7_upgrade.py` pins two paths: a database at the other
+  branch's v6 gains the alignment tables, and a v5 database climbs both rungs.
+
+**Verified on real data**, on a scratch copy, so the user's project was
+untouched:
+- A copy of GEN's workbench database upgrades to 7, gaining both tables and
+  keeping the Language QA ones.
+- A copy of the whole GEN project, opened through the engine, serves
+  `alignment.get` 1:10 (0.16 s), `getRange` 9–11 (0.24 s) and
+  `verse.runChecks alignment` (4.6 s, cold).
+- The chapter 1 estimate comes back as 15 windows, 30 requests, ~123k input
+  tokens and about $1.97, in 1.6 s.
+- A keyless pass answers `unavailable`.
+
+**Not explained here.** The two 30 s timeouts in the diagnostics
+(`ai.review.status`, `navigation.poll`). The sidecar answers one request at a
+time, so a long request at that moment would delay both. Nothing in this fix
+targets them; if they recur after the fix, that needs its own look.

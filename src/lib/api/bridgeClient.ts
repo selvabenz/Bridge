@@ -37,6 +37,13 @@ import type {
   AlignmentStatusResponse,
   CrossVerseLinkResult,
   CrossVerseAiProposalResult,
+  NullDecisionResult,
+  NullReason,
+  NullSide,
+  AutoAlignWindowResult,
+  AutoAlignVerdict,
+  AutoAlignJobStatus,
+  AutoAlignEstimate,
   CrossVerseProposalResult,
   BookProgressEntry,
   CheckJobSnapshot,
@@ -239,6 +246,16 @@ export type EngineMethod =
   | "alignment.crossVerse.link"
   | "alignment.crossVerse.propose"
   | "alignment.crossVerse.unlink"
+  | "alignment.null.set"
+  | "alignment.null.clear"
+  | "alignment.window.autoAlign"
+  | "alignment.autoAlign.revert"
+  | "alignment.autoAlign.verdict"
+  | "alignment.autoAlign.start"
+  | "alignment.autoAlign.status"
+  | "alignment.autoAlign.cancel"
+  | "alignment.autoAlign.retry"
+  | "alignment.autoAlign.estimate"
   | "alignment.gapScan"
   | "alignment.get"
   | "alignment.getRange"
@@ -798,8 +815,80 @@ export const bridge = {
     return call("alignment.crossVerse.link", { source, target, origin });
   },
 
+  /** #217: one composite group -- 1:N, N:1 or N:M -- between one source verse
+   *  and one other verse, written as a unit. */
+  crossVerseLinkGroup(
+    sources: { chapter: string; verse: string; topId: string }[],
+    targets: { chapter: string; verse: string; bottomId: string }[],
+    origin = "",
+  ): Promise<CrossVerseLinkResult> {
+    return call("alignment.crossVerse.link", { sources, targets, origin });
+  },
+
+  /** Removes the link's whole group (#217): a composite group is one decision. */
   crossVerseUnlink(linkId: string): Promise<CrossVerseLinkResult> {
     return call("alignment.crossVerse.unlink", { linkId });
+  },
+
+  crossVerseUnlinkGroup(groupId: string): Promise<CrossVerseLinkResult> {
+    return call("alignment.crossVerse.unlink", { groupId });
+  },
+
+  /** #216: record that a word has no counterpart, for a reason. Refused when
+   *  the word is already aligned or linked: one token, one home. */
+  nullSet(
+    chapter: string, verse: string, side: NullSide, id: string, reason: NullReason, note = "",
+  ): Promise<NullDecisionResult> {
+    return call("alignment.null.set", { chapter, verse, side, id, reason, note });
+  },
+
+  nullClear(decisionId: string): Promise<NullDecisionResult> {
+    return call("alignment.null.clear", { decisionId });
+  },
+
+  /** #219: ask the window twice and write what both passes agree on. Sends the
+   *  window's words to the configured provider; returns `unavailable` without
+   *  a key. Never called on open, import or check. */
+  autoAlignWindow(chapter: string, verses: string[], apply = true): Promise<AutoAlignWindowResult> {
+    return call("alignment.window.autoAlign", { chapter, verses, apply });
+  },
+
+  /** Undo what the last automatic pass wrote in one verse, where it is still
+   *  exactly as written; anything a reviewer changed since is `skipped`. */
+  autoAlignRevert(chapter: string, verse: string): Promise<{
+    chapter: string; verse: string; skipped: string[]; context: AlignmentContext;
+  }> {
+    return call("alignment.autoAlign.revert", { chapter, verse });
+  },
+
+  autoAlignVerdict(chapter: string, verse: string): Promise<{ chapter: string; verse: string; verdict: AutoAlignVerdict | null }> {
+    return call("alignment.autoAlign.verdict", { chapter, verse });
+  },
+
+  /** #221: what aligning a chapter (or the book) would cost, worked out
+   *  offline. Shown before the job is started. */
+  autoAlignEstimate(scope: "chapter" | "book", chapters: string[] = []): Promise<AutoAlignEstimate> {
+    return call("alignment.autoAlign.estimate", { scope, chapters });
+  },
+
+  /** Start the background job; returns its first snapshot, or `unavailable`
+   *  without a key. */
+  autoAlignStart(scope: "chapter" | "book", chapters: string[] = [], apply = true): Promise<AutoAlignJobStatus & {
+    unavailable?: { reason: string; message: string } | null;
+  }> {
+    return call("alignment.autoAlign.start", { scope, chapters, apply });
+  },
+
+  autoAlignStatus(jobId = ""): Promise<AutoAlignJobStatus> {
+    return call("alignment.autoAlign.status", { jobId });
+  },
+
+  autoAlignCancel(jobId = ""): Promise<AutoAlignJobStatus> {
+    return call("alignment.autoAlign.cancel", { jobId });
+  },
+
+  autoAlignRetry(jobId: string): Promise<AutoAlignJobStatus> {
+    return call("alignment.autoAlign.retry", { jobId });
   },
 
   getLexiconEntry(strong: string, morph: string): Promise<LexiconEntryResponse> {

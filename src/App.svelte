@@ -18,6 +18,7 @@
   } from "./lib/bookmarks";
   import AlignmentReview from "./lib/components/AlignmentReview.svelte";
   import CrossVerseAlignmentModal from "./lib/components/CrossVerseAlignmentModal.svelte";
+  import AutoAlignChapterButton from "./lib/components/AutoAlignChapterButton.svelte";
   import {
     closeCrossVerse, crossVerseAnchor, crossVerseInitialVerses, crossVerseOpen, crossVerseRequest, openCrossVerse,
   } from "./lib/alignmentUi";
@@ -1159,6 +1160,12 @@
           >
             Cross-verse alignment{#if $selectedVerseSet.length > 1}&nbsp;({$selectedVerseSet.length}){/if}
           </button>
+          <AutoAlignChapterButton
+            chapter={$currentChapter}
+            disabled={Boolean(activeJobId)}
+            onOpenReview={(verse, verses) => openCrossVerse(verse, verses)}
+            onFinished={() => { void activateChapter($currentChapter); }}
+          />
           <span class="toolbar-divider" aria-hidden="true" />
           <button class="whole-book-btn" class:on={$referencePanelOpen} aria-pressed={$referencePanelOpen}
             title="Show a reference Bible (an Old Version) beside the text"

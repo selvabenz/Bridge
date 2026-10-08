@@ -660,6 +660,14 @@ def alignment_state_digest(project: Any, *, content_digest: str | None = None) -
     if cross_verse is not None:
         digest_builder.update("␟crossVerse␟".encode("utf-8"))
         digest_builder.update(cross_verse.digest().encode("utf-8"))
+    # #216: null decisions too. Folded only when the book has any, so every
+    # existing project keeps the digest -- and the cached runs keyed on it --
+    # it had before the store existed.
+    nulls = getattr(project, "null_decisions", None)
+    null_digest = nulls.digest() if nulls is not None else ""
+    if null_digest:
+        digest_builder.update("␟nullDecisions␟".encode("utf-8"))
+        digest_builder.update(null_digest.encode("utf-8"))
     return digest_builder.hexdigest()
 
 

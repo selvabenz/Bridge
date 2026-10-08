@@ -168,6 +168,7 @@ class TranslationCoreProject:
         self._refuse_pre_cutover_project()
         self.workbench = WorkbenchRepository(self.companion_dir() / 'bridge-workbench.sqlite3')
         self._cross_verse_links = None  # CrossVerseLinkStore, built on first use (#117)
+        self._null_decisions = None  # NullDecisionStore, built on first use (#216)
         # Identity for every workbench write. Injectable so a test can stamp a
         # known actor without touching app-level state; resolved lazily
         # otherwise, because working it out opens the workspace database and
@@ -1356,6 +1357,15 @@ class TranslationCoreProject:
             from .cross_verse_links import CrossVerseLinkStore
             self._cross_verse_links = CrossVerseLinkStore(self)
         return self._cross_verse_links
+
+    @property
+    def null_decisions(self):
+        """The Bridge-private null alignment decisions (#216): a token with no
+        counterpart for a named reason. Lazy, like `cross_verse_links`."""
+        if self._null_decisions is None:
+            from .alignment_null_decisions import NullDecisionStore
+            self._null_decisions = NullDecisionStore(self)
+        return self._null_decisions
 
     @staticmethod
     def _bottom_signatures(raw: dict[str, Any]) -> set[str]:
@@ -2595,6 +2605,7 @@ class TranslationCoreProject:
             - self._bottom_signatures(new_alignment)
         )
         invalidated_links: list[dict[str, Any]] = []
+        invalidated_nulls: list[dict[str, Any]] = []
         if context_id is None:
             context_id = {'reference': {'bookId': self.book_id, 'chapter': int(chapter) if str(chapter).isdigit() else str(chapter), 'verse': int(verse) if str(verse).isdigit() else str(verse)}, 'tool': 'translationCoreAI', 'groupId': 'human-scripture-edit'}
         edit_record = {
@@ -2628,6 +2639,11 @@ class TranslationCoreProject:
             if removed_signatures:
                 invalidated_links = self.cross_verse_links.invalidate_missing_targets(
                     chapter, verse, removed_signatures,
+                )
+                # #216: a "grammar"/"explicitation" decision on a word the edit
+                # removed no longer applies either; same transaction.
+                invalidated_nulls = self.null_decisions.invalidate_missing(
+                    chapter, verse, "target", removed_signatures,
                 )
         except Exception as e:
             if semantic_intent and self.passage_semantic_runtime is not None:
@@ -2681,7 +2697,7 @@ class TranslationCoreProject:
             )
         except Exception:
             pass
-        return {'oldText': old_text, 'newText': new_text, 'backup': str(backup), 'verseEdit': str(edit_path), 'alignmentInvalid': str(invalid), 'indexesTouched': touched, 'semanticInvalidation': semantic_invalidation, 'journalTransactionId': journal_tx.transaction_id, 'crossVerseLinksInvalidated': [link['id'] for link in invalidated_links]}
+        return {'oldText': old_text, 'newText': new_text, 'backup': str(backup), 'verseEdit': str(edit_path), 'alignmentInvalid': str(invalid), 'indexesTouched': touched, 'semanticInvalidation': semantic_invalidation, 'journalTransactionId': journal_tx.transaction_id, 'crossVerseLinksInvalidated': [link['id'] for link in invalidated_links], 'nullDecisionsInvalidated': [item['id'] for item in invalidated_nulls]}
 
     def record_qa_decision(self, chapter: str | int, verse: str | int, issue_key: str, decision: str, note: str = '', issue: dict[str, Any] | None = None) -> str:
         iso, _ = self._timestamp()

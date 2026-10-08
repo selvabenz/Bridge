@@ -25,11 +25,23 @@ per-verse history but invisible to ``alignment.restore``, which only restores
 files. A link is marked ``invalid`` rather than deleted when a target text edit
 removes the word it pointed at: the reviewer's judgement is kept for the
 record and shown as no longer applicable.
+
+**Groups (#217).** Spec section 5: a 1:N, N:1 or N:M realization is *one*
+composite group, not several overlapping pairs. A row is still one
+(source, target) pair -- the unique pair index and every reader stay as they
+were -- and ``groupId`` in the payload says which rows form one group. It is
+derived from the members, so the same group lands on the same id everywhere.
+A group is written and removed as a unit: N x M rows and events, one history
+row. Membership never changes in place; extending a group is unlink-then-link,
+the same model tC uses when it rebuilds a group. A row written before groups
+existed has no ``groupId`` and is a group of one, keyed by its own id. All of a
+group's sources are in one verse and all its targets in one other verse.
 """
 from __future__ import annotations
 
+import hashlib
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterable
 
 from .alignment_engine import AlignmentError
 from .models import TokenRef
@@ -41,6 +53,30 @@ if TYPE_CHECKING:  # pragma: no cover
 TABLE = "alignment_cross_verse_links"
 STATE_ACTIVE = "active"
 STATE_INVALID = "invalid"
+
+
+def group_id_for(sources: Iterable[dict[str, Any]], targets: Iterable[dict[str, Any]]) -> str:
+    """Deterministic id of a link group, from its members' (chapter, verse, signature)."""
+    def keys(ends: Iterable[dict[str, Any]]) -> list[str]:
+        return sorted(f"{e['chapter']}:{e['verse']}:{e['signature']}" for e in ends)
+    raw = "␟".join(keys(sources)) + "|" + "␟".join(keys(targets))
+    return "xvg_" + hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def group_of(payload: dict[str, Any]) -> str:
+    """A row's group: its `groupId`, or its own id for a row written before groups."""
+    return str(payload.get("groupId") or payload.get("id") or "")
+
+
+def relation(source_count: int, target_count: int) -> str:
+    """The same labels `alignment_reliability.compile_link_proposal` gives tC groups."""
+    if source_count > 1 and target_count == 1:
+        return "many-to-one"
+    if source_count == 1 and target_count > 1:
+        return "one-to-many"
+    if source_count > 1 and target_count > 1:
+        return "many-to-many"
+    return "one-to-one"
 
 
 def _end(chapter: str | int, verse: str | int, token: TokenRef, *, source: bool) -> dict[str, Any]:
@@ -148,12 +184,13 @@ class CrossVerseLinkStore:
         self,
         source_chapter: str | int, source_verse: str | int, source_token: TokenRef,
         target_chapter: str | int, target_verse: str | int, target_token: TokenRef,
-        *, origin: str = "",
+        *, origin: str = "", run_id: str = "",
     ) -> dict[str, Any]:
         """Record that ``source_token`` (of verse A) is realized by ``target_token`` (of verse B).
 
-        Re-linking an ``invalid`` pair reactivates it; re-linking an ``active``
-        pair is refused, so a double drop cannot write two events.
+        A group of one (#217): see `link_group`. Re-linking an ``invalid`` pair
+        reactivates it; re-linking an ``active`` pair is refused, so a double
+        drop cannot write two events.
 
         ``origin`` records what produced the link -- ``"ai-auto"`` for one an
         agreed model proposal applied without a per-link click (#146). It rides
@@ -163,62 +200,144 @@ class CrossVerseLinkStore:
         and can never be edited, which is exactly the property "who decided
         this?" wants.
         """
-        source = _end(source_chapter, source_verse, source_token, source=True)
-        target = _end(target_chapter, target_verse, target_token, source=False)
-        row_id = self._row_id(
-            source["chapter"], source["verse"], source["signature"],
-            target["chapter"], target["verse"], target["signature"],
-        )
-        existing = self.get(row_id)
-        if existing is not None and existing.get("state") == STATE_ACTIVE:
-            raise AlignmentError(
-                f"{source['word']} ({source['chapter']}:{source['verse']}) is already linked to "
-                f"{target['word']} ({target['chapter']}:{target['verse']})."
-            )
-        now = self.project.workbench._now()
-        payload = {
-            "id": row_id,
-            "bookId": self.project.book_id,
-            "source": source,
-            "target": target,
-            "state": STATE_ACTIVE,
-            "createdAt": existing.get("createdAt", now) if existing else now,
-            "updatedAt": now,
-            "actorId": self._identity.actor_id,
-        }
-        self._write_row(payload)
-        self._event(
-            row_id, "crossVerseLink",
-            {**payload, "origin": origin} if origin else payload,
-        )
-        self._history(source["chapter"], source["verse"], "crossVerseLink", payload)
-        return payload
+        return self.link_group(
+            source_chapter, source_verse, [source_token],
+            target_chapter, target_verse, [target_token],
+            origin=origin, run_id=run_id,
+        )[0]
 
-    def unlink(self, link_id: str) -> dict[str, Any]:
-        payload = self.get(link_id)
+    def link_group(
+        self,
+        source_chapter: str | int, source_verse: str | int, source_tokens: list[TokenRef],
+        target_chapter: str | int, target_verse: str | int, target_tokens: list[TokenRef],
+        *, origin: str = "", run_id: str = "",
+    ) -> list[dict[str, Any]]:
+        """Write one composite group (#217): every (source, target) pair of it,
+        under one ``groupId``, with one history row. Returns the pair payloads.
+
+        Refused when any pair is already active, so nothing is half-written.
+        The caller (``link_cross_verse``) has already checked that no member
+        has a home elsewhere; this store only guards its own rows.
+        """
+        if not source_tokens or not target_tokens:
+            raise AlignmentError("A cross-verse group needs at least one source and one target word.")
+        sources = [_end(source_chapter, source_verse, t, source=True) for t in source_tokens]
+        targets = [_end(target_chapter, target_verse, t, source=False) for t in target_tokens]
+        if len({s["signature"] for s in sources}) != len(sources) or len({t["signature"] for t in targets}) != len(targets):
+            raise AlignmentError("A cross-verse group lists the same word twice.")
+        group_id = group_id_for(sources, targets)
+        rel = relation(len(sources), len(targets))
+        pairs: list[tuple[dict[str, Any], dict[str, Any], str, dict[str, Any] | None]] = []
+        for source in sources:
+            for target in targets:
+                row_id = self._row_id(
+                    source["chapter"], source["verse"], source["signature"],
+                    target["chapter"], target["verse"], target["signature"],
+                )
+                existing = self.get(row_id)
+                if existing is not None and existing.get("state") == STATE_ACTIVE:
+                    raise AlignmentError(
+                        f"{source['word']} ({source['chapter']}:{source['verse']}) is already linked to "
+                        f"{target['word']} ({target['chapter']}:{target['verse']})."
+                    )
+                pairs.append((source, target, row_id, existing))
+        now = self.project.workbench._now()
+        written: list[dict[str, Any]] = []
+        for source, target, row_id, existing in pairs:
+            payload = {
+                "id": row_id,
+                "bookId": self.project.book_id,
+                "groupId": group_id,
+                "relation": rel,
+                "source": source,
+                "target": target,
+                "state": STATE_ACTIVE,
+                "createdAt": existing.get("createdAt", now) if existing else now,
+                "updatedAt": now,
+                "actorId": self._identity.actor_id,
+            }
+            self._write_row(payload)
+            event = dict(payload)
+            if origin:
+                event["origin"] = origin
+            if run_id:
+                event["runId"] = run_id
+            self._event(row_id, "crossVerseLink", event)
+            written.append(payload)
+        self._history(
+            sources[0]["chapter"], sources[0]["verse"],
+            "crossVerseLink" if len(written) == 1 else "crossVerseLinkGroup",
+            written[0] if len(written) == 1 else self._group_record(written, origin),
+        )
+        return written
+
+    def group_members(self, link_or_group_id: str) -> list[dict[str, Any]]:
+        """Every row of the group a link belongs to (or of a group id), any state."""
+        payload = self.get(link_or_group_id)
+        if payload is not None:
+            group_id = group_of(payload)
+            chapter, verse = payload["source"]["chapter"], payload["source"]["verse"]
+        else:
+            group_id = link_or_group_id
+            found = [p for p in self._all_payloads() if group_of(p) == group_id]
+            if not found:
+                return []
+            chapter, verse = found[0]["source"]["chapter"], found[0]["source"]["verse"]
+        return [
+            p for p in self.links_for_verse(chapter, verse)
+            if group_of(p) == group_id and p["source"]["chapter"] == chapter and p["source"]["verse"] == verse
+        ]
+
+    def unlink(self, link_id: str, *, origin: str = "", extra: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Remove the link's whole group (#217): a composite group is one
+        realization, so taking one pair out of it would leave a different
+        claim nobody made. Returns the pair that was asked for."""
+        members = self.group_members(link_id)
+        payload = next((m for m in members if m["id"] == link_id), None)
         if payload is None:
             raise AlignmentError("That cross-verse link no longer exists. Reload before removing it.")
-        identity = self._identity
-        self.project.workbench._delete(
-            TABLE, link_id,
-            project_id=identity.project_id, book_id=self.project.book_id,
-            actor_id=identity.actor_id, device_id=identity.device_id,
-        )
-        self._event(link_id, "crossVerseUnlink", payload)
-        self._history(payload["source"]["chapter"], payload["source"]["verse"], "crossVerseUnlink", payload)
+        self._unlink_members(members, origin=origin, extra=extra)
         return payload
+
+    def unlink_group(self, group_id: str, *, origin: str = "", extra: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        members = self.group_members(group_id)
+        if not members:
+            raise AlignmentError("That cross-verse group no longer exists. Reload before removing it.")
+        self._unlink_members(members, origin=origin, extra=extra)
+        return members
+
+    def _unlink_members(self, members: list[dict[str, Any]], *, origin: str, extra: dict[str, Any] | None) -> None:
+        identity = self._identity
+        for member in members:
+            self.project.workbench._delete(
+                TABLE, member["id"],
+                project_id=identity.project_id, book_id=self.project.book_id,
+                actor_id=identity.actor_id, device_id=identity.device_id,
+            )
+            event = {**member, **(extra or {})}
+            if origin:
+                event["origin"] = origin
+            self._event(member["id"], "crossVerseUnlink", event)
+        first = members[0]
+        self._history(
+            first["source"]["chapter"], first["source"]["verse"],
+            "crossVerseUnlink" if len(members) == 1 else "crossVerseUnlinkGroup",
+            first if len(members) == 1 else self._group_record(members, origin),
+        )
 
     def invalidate_missing_targets(
         self, chapter: str | int, verse: str | int, missing_signatures: set[str],
     ) -> list[dict[str, Any]]:
         """Mark every active link whose *target* word in this verse was removed
-        by a text edit. Called by ``apply_scripture_edit`` with the signatures
-        the reconcile step dropped; a word that survives the edit under the
-        same signature keeps its link."""
+        by a text edit -- and, since #217, every other row of its group: a
+        composite group with a member gone is not the group anyone decided.
+        Called by ``apply_scripture_edit`` with the signatures the reconcile
+        step dropped; a word that survives the edit under the same signature
+        keeps its link."""
         if not missing_signatures:
             return []
         chapter, verse = str(chapter), str(verse)
-        invalidated: list[dict[str, Any]] = []
+        hit_groups: dict[str, str] = {}
         for payload in self.links_for_verse(chapter, verse):
             target = payload.get("target", {})
             if payload.get("state") != STATE_ACTIVE:
@@ -227,17 +346,50 @@ class CrossVerseLinkStore:
                 continue
             if target.get("signature") not in missing_signatures:
                 continue
-            updated = dict(payload)
-            updated["state"] = STATE_INVALID
-            updated["invalidReason"] = (
-                f"{target.get('word', '')} is no longer in the text of {chapter}:{verse}."
-            )
-            updated["updatedAt"] = self.project.workbench._now()
-            self._write_row(updated)
-            self._event(updated["id"], "crossVerseInvalidate", updated)
-            self._history(updated["source"]["chapter"], updated["source"]["verse"], "crossVerseInvalidate", updated)
-            invalidated.append(updated)
+            hit_groups.setdefault(group_of(payload), str(target.get("word", "")))
+        invalidated: list[dict[str, Any]] = []
+        for group_id, word in hit_groups.items():
+            members = [m for m in self.group_members(group_id) if m.get("state") == STATE_ACTIVE]
+            for member in members:
+                updated = dict(member)
+                updated["state"] = STATE_INVALID
+                updated["invalidReason"] = f"{word} is no longer in the text of {chapter}:{verse}."
+                updated["updatedAt"] = self.project.workbench._now()
+                self._write_row(updated)
+                self._event(updated["id"], "crossVerseInvalidate", updated)
+                invalidated.append(updated)
+            if members:
+                self._history(
+                    members[0]["source"]["chapter"], members[0]["source"]["verse"], "crossVerseInvalidate",
+                    invalidated[-1] if len(members) == 1 else self._group_record(invalidated[-len(members):], ""),
+                )
         return invalidated
+
+    def _all_payloads(self) -> list[dict[str, Any]]:
+        identity = self._identity
+        return [
+            p for p in self.project.workbench.payloads(
+                TABLE, project_id=identity.project_id, book_id=self.project.book_id,
+            ) if isinstance(p, dict) and p.get("id")
+        ]
+
+    @staticmethod
+    def _group_record(members: list[dict[str, Any]], origin: str) -> dict[str, Any]:
+        """The history row's view of a group: who, what, and the row ids."""
+        sources = {m["source"]["signature"]: m["source"] for m in members}
+        targets = {m["target"]["signature"]: m["target"] for m in members}
+        record = {
+            "id": group_of(members[0]),
+            "groupId": group_of(members[0]),
+            "relation": relation(len(sources), len(targets)),
+            "sources": list(sources.values()),
+            "targets": list(targets.values()),
+            "links": [m["id"] for m in members],
+            "state": members[0].get("state"),
+        }
+        if origin:
+            record["origin"] = origin
+        return record
 
     # ---- the three writes -----------------------------------------------------
 
@@ -270,9 +422,12 @@ class CrossVerseLinkStore:
         # Same table and id shape as `_record_alignment_history`, deliberately
         # without `backupPath`: nothing on disk changed, so there is nothing to
         # restore, and `_alignment_history_entries` skips it for that reason.
+        # The record's id is part of the history id (#217): `_timestamp` has
+        # millisecond resolution, and the automatic pass writes many groups of
+        # one verse in a burst, which would otherwise overwrite each other.
         identity = self._identity
         iso, safe = self.project._timestamp()
-        history_id = f"{safe}_{operation}.json"
+        history_id = f"{safe}_{operation}_{str(link.get('id', ''))[:12]}.json"
         payload = {
             "id": history_id,
             "bookId": self.project.book_id,

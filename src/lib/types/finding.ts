@@ -232,6 +232,9 @@ export interface CrossVerseLinkEnd {
 export interface CrossVerseLink {
   id: string;
   bookId: string;
+  /** #217: absent on a link written before groups, which is a group of one. */
+  groupId?: string;
+  relation?: CrossVerseRelation;
   source: CrossVerseLinkEnd;
   target: CrossVerseLinkEnd;
   state: "active" | "invalid";
@@ -249,6 +252,29 @@ export interface CrossVerseLinkResult {
   link: CrossVerseLink;
   source: AlignmentContext;
   target: AlignmentContext;
+  /** #217: the composite group the call wrote. `extended` when a single pair
+   *  was dropped onto a word already in a group between the same two verses. */
+  group?: { groupId: string; relation: CrossVerseRelation; linkIds: string[]; extended: boolean };
+}
+
+export type CrossVerseRelation = "one-to-one" | "one-to-many" | "many-to-one" | "many-to-many";
+
+/** #217: one cross-verse realization -- every pair row sharing a groupId,
+ *  written and removed as a unit. Sources are all in one verse and targets all
+ *  in one other verse. Ids are set only on the side this context describes. */
+export interface CrossVerseGroup {
+  groupId: string;
+  state: "active" | "invalid";
+  relation: CrossVerseRelation;
+  sourceChapter: string;
+  sourceVerse: string;
+  targetChapter: string;
+  targetVerse: string;
+  sources: { word: string; topId: string | null }[];
+  targets: { word: string; bottomId: string | null }[];
+  sourceTopIds: string[];
+  targetBottomIds: string[];
+  linkIds: string[];
 }
 
 /** One scored component behind a cross-verse proposal (#138). `rawScore` and
@@ -335,15 +361,207 @@ export interface AlignmentContext {
   /** Gaps net of cross-verse links: a linked word is no longer a gap. */
   gaps: AlignmentGaps;
   crossVerseLinks: CrossVerseLink[];
+  /** The same links folded into their composite groups (#217). */
+  crossVerseGroups: CrossVerseGroup[];
   /** Bottom ids of this verse whose word is the target of an active link. */
   crossVerseAccountedIds: string[];
   /** Top ids of this verse whose token is realized in another verse. */
   crossVerseRealizedIds: string[];
   crossVerseAccounted: number;
   crossVerseRealized: number;
-  /** Every remaining gap is covered by a link. `status` and `completionState`
-   *  still tell the translationCore truth: the verse is not complete. */
+  /** Every remaining gap is covered by a link or a null decision. `status` and
+   *  `completionState` still tell the translationCore truth: the verse is not
+   *  complete. */
   fullyAccounted: boolean;
+  /** #216: this verse's null decisions, active and invalid, per side. */
+  nullDecisions: { source: NullDecisionEntry[]; target: NullDecisionEntry[] };
+  /** How many tokens each kind of home accounts for (#216). */
+  accountedBy: { tc: number; crossVerse: number; null: number };
+  /** Every token has a home -- a tC group, a cross-verse link or a reasoned
+   *  null -- and the verse has a source and no structural issue. Bridge's
+   *  "nothing left to do"; `status` stays translationCore's own state. */
+  accounted: boolean;
+  /** #219: the last automatic pass on this verse, if any. */
+  autoAlign?: AutoAlignSummary | null;
+}
+
+/** #216: why a word has no counterpart. Source words are implicit or
+ *  grammatical; target words are grammatical or explicitation. No decision at
+ *  all means unaligned -- that is never stored. */
+export type NullSide = "source" | "target";
+export type NullReason = "IMPLICIT" | "GRAMMATICAL" | "EXPLICITATION";
+export type NullOrigin = "human" | "ai-auto" | "ai-proposed-accepted";
+
+export interface NullDecision {
+  id: string;
+  bookId: string;
+  chapter: string;
+  verse: string;
+  side: NullSide;
+  token: { word: string; occurrence: number; occurrences: number; signature: string; strong?: string; lemma?: string; morph?: string };
+  reason: NullReason;
+  note: string;
+  state: "active" | "invalid";
+  origin: NullOrigin;
+  previousReason?: NullReason;
+  invalidReason?: string;
+  createdAt: string;
+  updatedAt: string;
+  actorId: string;
+}
+
+/** A null decision as one verse's context reports it, with this load's id. */
+export interface NullDecisionEntry {
+  /** Positional id in this verse, or null when the token can't be resolved. */
+  id: string | null;
+  decisionId: string;
+  word: string;
+  reason: NullReason;
+  note: string;
+  origin: NullOrigin;
+  state: "active" | "invalid";
+  invalidReason?: string | null;
+  /** Active, but this load cannot find the token: the source pack changed. */
+  stale: boolean;
+}
+
+/** #219: what the automatic two-pass alignment concluded about one verse. */
+export type AutoAlignVerdictKind = "ALIGNED_CLEAN" | "NEEDS_REVIEW" | "UNAVAILABLE" | "REVERTED";
+
+/** One end of a suggestion or issue, resolved to this load's positional id. */
+export interface AutoAlignTokenEnd {
+  side: NullSide;
+  chapter: string;
+  verse: string;
+  signature: string;
+  word: string;
+  /** Positional id in its verse now, or null if the word is gone. */
+  id: string | null;
+}
+
+/** A word neither pass could place. Never aligned; reported for the reviewer. */
+export interface AutoAlignIssue {
+  kind: "POSSIBLE_OMISSION" | "POSSIBLE_ADDITION";
+  side: NullSide;
+  signature: string;
+  word: string;
+  id: string | null;
+  /** The model's own words about what is missing or added. */
+  note: string;
+}
+
+/** A claim only one pass made, or that agreement could not settle. Accepting
+ *  one goes through the ordinary writers (realign / crossVerse.link / null.set). */
+export interface AutoAlignSuggestion {
+  kind: "link" | "null";
+  status: "UNCERTAIN" | "CORPUS_DISAGREES" | "CONFLICTS_WITH_HUMAN";
+  votes: Record<string, boolean>;
+  source: AutoAlignTokenEnd | null;
+  target: AutoAlignTokenEnd | null;
+  /** For a null suggestion: the word it is about. */
+  token: AutoAlignTokenEnd | null;
+  reason: string;
+  note: string;
+  confidence: number;
+}
+
+/** The ledger of what one automatic pass wrote in a verse -- what a re-run
+ *  supersedes and "Undo a verse" removes. */
+export interface AutoAlignApplied {
+  groups: { tops: string[]; bottoms: string[]; relation?: string }[];
+  links: string[];
+  nulls: string[];
+}
+
+export interface AutoAlignVerseResult {
+  verse: string;
+  verdict: AutoAlignVerdictKind;
+  applied: AutoAlignApplied;
+  issues: AutoAlignIssue[];
+  suggestions: AutoAlignSuggestion[];
+  context: AlignmentContext;
+}
+
+export interface AutoAlignWindowResult {
+  chapter: string;
+  verses: string[];
+  runId: string;
+  calibrationVersion: string;
+  corpus?: { checked: boolean; reason: string };
+  results: AutoAlignVerseResult[];
+  usage?: { calls: number; totalTokens: number; estimatedCostUSD: number };
+  notes?: string[];
+  failures?: string[];
+  unavailable?: { reason: string; message: string };
+}
+
+/** The stored verdict of the last automatic pass on a verse. */
+export interface AutoAlignVerdict {
+  chapter: string;
+  verse: string;
+  verdict: AutoAlignVerdictKind;
+  runId: string;
+  jobId?: string;
+  applyRequested: boolean;
+  issues: AutoAlignIssue[];
+  suggestions: AutoAlignSuggestion[];
+  applied: AutoAlignApplied;
+  window: string[];
+  createdAt: string;
+  usage?: { calls: number; totalTokens: number; estimatedCostUSD: number };
+}
+
+/** #221: the chapter / book job over overlapping windows. */
+export interface AutoAlignJobStatus {
+  jobId: string;
+  scope: "chapter" | "book";
+  apply: boolean;
+  state: "queued" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled";
+  stage: string;
+  chapters: string[];
+  windowsTotal: number;
+  windowsDone: number;
+  windowsFailed: number;
+  percent: number;
+  currentWindow: { chapter: string; verses: string[] } | null;
+  /** Counts by verdict, e.g. { ALIGNED_CLEAN: 24, NEEDS_REVIEW: 6 }. */
+  verdictCounts: Record<string, number>;
+  verdicts: Record<string, AutoAlignVerdictKind>;
+  usage: { calls: number; totalTokens: number; estimatedCostUSD: number };
+  error: string | null;
+  unavailable: { reason: string; message: string } | null;
+  resumeOf: string;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+/** What a job would cost, worked out offline before the click. */
+export interface AutoAlignEstimate {
+  scope: "chapter" | "book";
+  chapters: string[];
+  windows: number;
+  calls: number;
+  estimatedInputTokens: number;
+  estimatedOutputTokens: number;
+  estimatedCostUSD: number;
+  model: string;
+  hasApiKey: boolean;
+}
+
+/** The verdict summary each alignment context carries. */
+export interface AutoAlignSummary {
+  verdict: AutoAlignVerdictKind;
+  runId: string;
+  createdAt: string;
+  /** The verse or its alignment changed after the pass. */
+  stale: boolean;
+  issues: number;
+  suggestions: number;
+}
+
+export interface NullDecisionResult {
+  decision: NullDecision;
+  context: AlignmentContext;
 }
 
 /** alignment.getRange: one context per requested verse, in the caller's

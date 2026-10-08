@@ -189,7 +189,7 @@ def test_workbench_v1_to_v2_keeps_v1_rows_readable_and_the_log_immutable(tmp_pat
         conn.close()
 
     repo = WorkbenchRepository(path)
-    assert repo.schema_version() == WORKBENCH_SCHEMA_VERSION == 6
+    assert repo.schema_version() == WORKBENCH_SCHEMA_VERSION == 7
     assert json.loads(repo.get("check_cache", "c1")["payload_json"]) == {"v": 1}
     [event] = _events(repo)
     assert event["columns_json"] is None and event["event_id"] == "e1"
@@ -245,7 +245,7 @@ def test_workbench_v2_to_v3_adds_the_cross_verse_link_table_and_keeps_v2_data(tm
         conn.close()
 
     repo = WorkbenchRepository(path)
-    assert repo.schema_version() == WORKBENCH_SCHEMA_VERSION == 6
+    assert repo.schema_version() == WORKBENCH_SCHEMA_VERSION == 7
     assert json.loads(repo.get("alignment_history", "a1")["payload_json"]) == {"operation": "realign"}
     [event] = _events(repo)
     assert event["event_id"] == "e1" and json.loads(event["columns_json"]) == {"chapter": "1"}
@@ -285,7 +285,7 @@ def test_workbench_v3_to_v4_adds_the_language_qa_cache_one_row_per_chapter(tmp_p
     finally:
         conn.close()
     repo = WorkbenchRepository(path)
-    assert repo.schema_version() == WORKBENCH_SCHEMA_VERSION == 6
+    assert repo.schema_version() == WORKBENCH_SCHEMA_VERSION == 7
     assert list((tmp_path / "backups").glob("pre-workbench-v4-*"))
     _write(repo, "language_qa_cache", "c1", payload={"verses": {}}, extra_columns={"chapter": "1"})
     assert repo.get("language_qa_cache", "c1")["chapter"] == "1"
@@ -319,7 +319,7 @@ def test_workbench_v4_to_v5_rebuilds_human_decisions_keeping_every_row_and_allow
     finally:
         conn.close()
     repo = WorkbenchRepository(path)
-    assert repo.schema_version() == WORKBENCH_SCHEMA_VERSION == 6
+    assert repo.schema_version() == WORKBENCH_SCHEMA_VERSION == 7
     assert list((tmp_path / "backups").glob("pre-workbench-v5-*"))
     row = repo.get("human_decisions", "d1")
     assert (row["revision"], row["kind"], row["chapter"], row["verse"], row["key"], row["decision"],

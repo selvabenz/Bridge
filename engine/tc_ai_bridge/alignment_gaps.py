@@ -59,6 +59,8 @@ def gap_ids(
     *,
     realized_ids: Collection[str] = (),
     accounted_ids: Collection[str] = (),
+    null_source_ids: Collection[str] = (),
+    null_target_ids: Collection[str] = (),
 ) -> tuple[list[str], list[str]]:
     """(unmatched source ids, unaccounted target ids), in inventory order.
 
@@ -70,12 +72,16 @@ def gap_ids(
 
     `realized_ids` / `accounted_ids` are this verse's active cross-verse link
     ends, already resolved to positional ids by the caller (they are stored as
-    signatures and never as ids, #117).
+    signatures and never as ids, #117). `null_source_ids` / `null_target_ids`
+    are its active null decisions (#216): a token with no counterpart *for a
+    named reason* is accounted for, not a gap. An empty tC group is still a
+    gap -- only a decision row says "and that is correct".
     """
     groups = list(groups)
     matched_top = {token_id for group in groups if group["bottomIds"] for token_id in group["topIds"]}
     grouped_bottom = {token_id for group in groups for token_id in group["bottomIds"]}
-    realized, accounted = set(realized_ids), set(accounted_ids)
+    realized = set(realized_ids) | set(null_source_ids)
+    accounted = set(accounted_ids) | set(null_target_ids)
     remaining_sources = [
         token_id for token_id in inventory.top_ids
         if token_id not in matched_top and token_id not in realized

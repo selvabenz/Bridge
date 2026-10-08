@@ -113,12 +113,12 @@ flowchart TB
       CD["checkData/ and tools/wordAlignment/completed, invalid"]
     end
     subgraph AIdir[".apps/translationCoreAI/ (Bridge-private)"]
-      WB["bridge-workbench.sqlite3, schema v5, 22 tables<br/>human_decisions, issue_resolutions, ai_review_results, alignment_history,<br/>alignment_cross_verse_links (#117), alignment_diagnostics, check_findings, check_cache, triage_verdicts,<br/>language_qa_cache (#169),<br/>progress_chapters, progress_findings, progress_totals, metrics_events, metrics_counters,<br/>semantic_mappings, semantic_validation_runs, project_state, team_members,<br/>team_assignments, file_backups, change_log (append-only, trigger-guarded)"]
+      WB["bridge-workbench.sqlite3, schema v7, 27 tables<br/>human_decisions, issue_resolutions, ai_review_results, alignment_history,<br/>alignment_cross_verse_links (#117), alignment_null_decisions, alignment_verdicts (#216), alignment_diagnostics, check_findings, check_cache, triage_verdicts,<br/>language_qa_cache (#169), language_qa_batches, language_qa_learned_fixes, language_qa_flags,<br/>progress_chapters, progress_findings, progress_totals, metrics_events, metrics_counters,<br/>semantic_mappings, semantic_validation_runs, project_state, team_members,<br/>team_assignments, file_backups, change_log (append-only, trigger-guarded)"]
       SEM["passageSemantic/bridge-semantic.sqlite3, schema v16, 49 tables<br/>Stage 4 foundation: token_lineages, token_instances, passage_records,<br/>record_dependencies, pending_invalidations, source_resource_locks<br/>Stage 5 to 8 run tables, 9A review_records and analysis_jobs,<br/>9B correction_proposals, _events, _intents, _verifications"]
       TX["transactions/ (pre-write journal), backups/, paratextNotes/"]
     end
     subgraph Bdir[".bridge/ (plain JSON, read before any database exists)"]
-      BJ["project.json, import.json, collection.json, lazy-import.json, original-manifest.json"]
+      BJ["project.json, import.json, collection.json (sibling links; qaRuns[] and qaFinalStage: the collection QA runner's per-book last run, keyed by a sha256 of the book's chapter files, #169 / #215), lazy-import.json, original-manifest.json"]
     end
   end
   subgraph Res["engine/resources/ (bundled, read-only, about 170 MB)"]
@@ -130,7 +130,7 @@ flowchart TB
 
 Three independent schema ladders, each with its own version constant and migration blocks
 in one module: `passage_semantic_repository.py` (`DATABASE_SCHEMA_VERSION = 16`),
-`workbench_repository.py` (`WORKBENCH_SCHEMA_VERSION = 5`), `workspace_repository.py`
+`workbench_repository.py` (`WORKBENCH_SCHEMA_VERSION = 7`), `workspace_repository.py`
 (`WORKSPACE_SCHEMA_VERSION = 2`). A bump on one is never a bump on another. The
 pre-cutover JSON store directories are listed in `tc_project.py`'s `_PRE_CUTOVER_STORE_DIRS`;
 a project carrying any of them refuses to open and is re-imported (no migration, by the
@@ -245,7 +245,7 @@ re-judges 7; 9B.4 never re-judges 7 and never sets `CORRECTED` on `PASSED` alone
 ```mermaid
 flowchart TB
   Home["home: ImportScreen<br/>project list, import wizard, file drop"] --> Dash
-  Dash["dashboard: ProjectDashboard<br/>book list with progress, per-book project.report panel"] --> Report["report: ProjectReportScreen<br/>collection-wide report.generate, filters, charts, export, triage overlay"]
+  Dash["dashboard: ProjectDashboard<br/>book list with progress, per-book project.report panel,<br/>CollectionQaPanel (multi-book only): collection.runChecks / qaStatus / pauseChecks / cancelChecks, never automatic (#215)"] --> Report["report: ProjectReportScreen<br/>collection-wide report.generate, filters, charts, export, triage overlay"]
   Dash --> Editor["editor: VerseList + ReviewPanel"]
   Editor --> AR["review: AlignmentReview shell<br/>tabs Word, Semantic, Passage, QA"]
   Editor --> AM["AlignmentModal (Align words)<br/>translationCore-compatible word alignment"]

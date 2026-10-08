@@ -18,6 +18,7 @@ import atexit
 import copy
 import hashlib
 import json
+import uuid
 import os
 import re
 import shutil
@@ -87,13 +88,15 @@ from tc_ai_bridge.language_packs.reference_text import ReferenceHolder, detect a
 from tc_ai_bridge.language_packs.related_words import RelatedWords
 from tc_ai_bridge.language_packs.registry import packs_dir
 from tc_ai_bridge.language_packs.registry import available as available_language_packs
-from tc_ai_bridge.workbench_repository import WorkbenchConflict, WorkbenchValidationError
+from tc_ai_bridge.workbench_repository import WorkbenchConflict, WorkbenchValidationError, natural_row_id
 from tc_ai_bridge.alignment_engine import (
     AlignmentError, apply_proposal, make_inventory, realign, unalign_bottom,
     validate_preparation_proposal,
 )
 from tc_ai_bridge.aligned_usfm import AlignedUsfmError, render_aligned_verse
-from tc_ai_bridge.alignment_reliability import structural_issues
+from tc_ai_bridge.alignment_reliability import (
+    alignment_fingerprint, compile_link_proposal, structural_issues, target_token_fingerprint,
+)
 from tc_ai_bridge.ai_client import AIError, OpenAIResponsesClient, Transport
 from tc_ai_bridge.correction_wording import (
     ConfiguredCorrectionSuggestionProvider,
@@ -115,6 +118,10 @@ from tc_ai_bridge.usfm_verse import WHITESPACE_TOKEN_TRIM_CHARS, lift_verse
 from tc_ai_bridge.usfm_parser import UsfmParseError, parse_usfm, read_usfm_text
 from tc_ai_bridge import versification as versification_tool
 from tc_ai_bridge import alignment_gaps
+from tc_ai_bridge import alignment_null_decisions as null_decisions_tool
+from tc_ai_bridge import cross_verse_links as cross_verse_tool
+from tc_ai_bridge import alignment_agreement, alignment_gap_checks, alignment_window
+from tc_ai_bridge.plugins import PluginRegistry
 from tc_ai_bridge import alignment_statistics as corpus_stats_tool
 from tc_ai_bridge import cross_verse_proposals, cross_verse_ai_proposals
 from tc_ai_bridge.reporting import LANGUAGE_QA_MEDIUM_ADVISORY, ReportService, publication_gate
@@ -137,6 +144,8 @@ from check_jobs import (
     CheckJobSpec,
     LANGUAGE_QA_CHECK,
 )
+import alignment_auto_align_jobs as auto_align_jobs
+from tc_ai_bridge.model_router import estimate_cost
 from ai_review_jobs import (
     AIReviewJobConflict,
     AIReviewJobError,
@@ -425,6 +434,16 @@ class Methods:
     ALIGNMENT_CROSS_VERSE_AI_PROPOSE = "alignment.crossVerse.aiPropose"
     ALIGNMENT_CROSS_VERSE_LINK = "alignment.crossVerse.link"
     ALIGNMENT_CROSS_VERSE_UNLINK = "alignment.crossVerse.unlink"
+    ALIGNMENT_NULL_SET = "alignment.null.set"
+    ALIGNMENT_NULL_CLEAR = "alignment.null.clear"
+    ALIGNMENT_WINDOW_AUTO_ALIGN = "alignment.window.autoAlign"
+    ALIGNMENT_AUTO_ALIGN_REVERT = "alignment.autoAlign.revert"
+    ALIGNMENT_AUTO_ALIGN_VERDICT = "alignment.autoAlign.verdict"
+    ALIGNMENT_AUTO_ALIGN_START = "alignment.autoAlign.start"
+    ALIGNMENT_AUTO_ALIGN_STATUS = "alignment.autoAlign.status"
+    ALIGNMENT_AUTO_ALIGN_CANCEL = "alignment.autoAlign.cancel"
+    ALIGNMENT_AUTO_ALIGN_RETRY = "alignment.autoAlign.retry"
+    ALIGNMENT_AUTO_ALIGN_ESTIMATE = "alignment.autoAlign.estimate"
     ALIGNMENT_STATUS = "alignment.status"
     ALIGNMENT_REALIGN = "alignment.realign"
     ALIGNMENT_UNALIGN = "alignment.unalign"
@@ -603,6 +622,7 @@ class BridgeEngine:
         self._housestyle_learner = HouseStyleLearner()
         self._language_qa = LanguageQaManager()
         self._ai_review_jobs = AIReviewJobManager()
+        self._auto_align_jobs = auto_align_jobs.AutoAlignJobManager()  # #221
         self._analysis_jobs = AnalysisJobManager()
         self._correction_application_service: CorrectionApplicationService | None = None
         self._correction_affected_analysis_service: CorrectionAffectedAnalysisService | None = None
@@ -1799,14 +1819,35 @@ class BridgeEngine:
         # is what lets the editors drop the "not fully aligned" flag while
         # `status` / `completionState` keep telling the tC truth.
         cross = self._cross_verse_annotations(str(chapter), str(verse), inventory)
+        # #216: null decisions close a gap the same way a link does -- the
+        # token is accounted for, by a named reason, with no tC group.
+        nulls = self._null_annotations(str(chapter), str(verse), inventory)
         remaining_sources, remaining_targets = alignment_gaps.gap_ids(
             inventory, groups,
             realized_ids=cross["realizedIds"], accounted_ids=cross["accountedIds"],
+            null_source_ids=nulls["sourceIds"], null_target_ids=nulls["targetIds"],
         )
         gaps = {"sourceUnmatched": len(remaining_sources), "targetUnmatched": len(remaining_targets)}
         fully_accounted = (
             not remaining_sources and not remaining_targets
-            and bool(cross["accountedIds"] or cross["realizedIds"])
+            and bool(cross["accountedIds"] or cross["realizedIds"] or nulls["sourceIds"] or nulls["targetIds"])
+        )
+        tc_matched = (
+            sum(1 for group in groups if group["bottomIds"] for _ in group["topIds"])
+            + sum(len(group["bottomIds"]) for group in groups)
+        )
+        accounted_by = {
+            "tc": tc_matched,
+            "crossVerse": len(cross["realizedIds"]) + len(cross["accountedIds"]),
+            "null": len(nulls["sourceIds"]) + len(nulls["targetIds"]),
+        }
+        # The Bridge-level "nothing left to do" (#216): every token has a home
+        # -- a tC group, a cross-verse link or a reasoned null -- and the verse
+        # has a source and no structural problem. `status` and
+        # `completionState` keep telling the translationCore truth beside it.
+        accounted = (
+            source_available and not issues
+            and not remaining_sources and not remaining_targets
         )
         return {
             "chapter": str(chapter), "verse": str(verse),
@@ -1814,11 +1855,16 @@ class BridgeEngine:
             "topTokens": top_tokens, "bottomTokens": bottom_tokens, "groups": groups,
             "status": work_state,
             "crossVerseLinks": cross["links"],
+            "crossVerseGroups": cross["groups"],
             "crossVerseAccountedIds": cross["accountedIds"],
             "crossVerseRealizedIds": cross["realizedIds"],
             "crossVerseAccounted": len(cross["accountedIds"]),
             "crossVerseRealized": len(cross["realizedIds"]),
             "fullyAccounted": fully_accounted,
+            "nullDecisions": {"source": nulls["source"], "target": nulls["target"]},
+            "accountedBy": accounted_by,
+            "accounted": accounted,
+            "autoAlign": self._auto_align_summary(str(chapter), str(verse), alignment),
             "completionState": self.project.word_alignment_state(chapter, verse),
             "sourceAvailable": source_available,
             "sourceMessage": "" if source_available else (
@@ -1908,8 +1954,19 @@ class BridgeEngine:
             accounted_by_verse.setdefault(
                 (str(target.get("chapter") or ""), str(target.get("verse") or "")), [],
             ).append(str(target.get("signature") or ""))
+        # #216: and one read of the null decisions, for the same reason.
+        null_by_verse: dict[tuple[str, str, str], list[str]] = {}
+        try:
+            active_nulls = self.project.null_decisions.active_decisions()
+        except Exception:
+            active_nulls = []
+        for decision in active_nulls:
+            null_by_verse.setdefault(
+                (str(decision.get("chapter") or ""), str(decision.get("verse") or ""), str(decision.get("side") or "")), [],
+            ).append(str((decision.get("token") or {}).get("signature") or ""))
 
         verses: list[dict[str, Any]] = []
+        total_null = 0
         total_source = total_target = verses_with_gaps = 0
         for verse in self.project.verses(chapter):
             raw = chapter_data.get(verse)
@@ -1936,10 +1993,20 @@ class BridgeEngine:
                 token_id for signature in accounted_by_verse.get((chapter, verse), ())
                 if (token_id := inventory.bottom_sig_to_id.get(signature))
             ]
+            null_source = [
+                token_id for signature in null_by_verse.get((chapter, verse, "source"), ())
+                if (token_id := inventory.top_sig_to_id.get(signature))
+            ]
+            null_target = [
+                token_id for signature in null_by_verse.get((chapter, verse, "target"), ())
+                if (token_id := inventory.bottom_sig_to_id.get(signature))
+            ]
             source_ids, target_ids = alignment_gaps.gap_ids(
                 inventory, alignment_gaps.group_views(alignment, inventory),
                 realized_ids=realized, accounted_ids=accounted,
+                null_source_ids=null_source, null_target_ids=null_target,
             )
+            total_null += len(null_source) + len(null_target)
             total_source += len(source_ids)
             total_target += len(target_ids)
             if source_ids or target_ids:
@@ -1950,6 +2017,7 @@ class BridgeEngine:
                 "targetGaps": alignment_gaps.describe_tokens(inventory, target_ids, bottom=True),
                 "gaps": {"sourceUnmatched": len(source_ids), "targetUnmatched": len(target_ids)},
                 "crossVerseRealized": len(realized), "crossVerseAccounted": len(accounted),
+                "nullDecided": {"source": len(null_source), "target": len(null_target)},
                 "sourceAvailable": bool(inventory.top_ids),
             })
         return {
@@ -1957,6 +2025,7 @@ class BridgeEngine:
             "totals": {
                 "sourceUnmatched": total_source, "targetUnmatched": total_target,
                 "versesWithGaps": verses_with_gaps, "verses": len(verses),
+                "nullDecided": total_null,
             },
         }
 
@@ -2155,7 +2224,138 @@ class BridgeEngine:
                 if entry["targetBottomId"]:
                     accounted_ids.append(entry["targetBottomId"])
             links.append(entry)
-        return {"links": links, "accountedIds": accounted_ids, "realizedIds": realized_ids}
+        # #217: the same rows, folded into their composite groups. A pair is a
+        # row; a group is what the reviewer decided.
+        groups: dict[str, dict[str, Any]] = {}
+        for entry in links:
+            group_id = cross_verse_tool.group_of(entry)
+            group = groups.setdefault(group_id, {
+                "groupId": group_id, "state": entry.get("state"),
+                "sourceChapter": entry["source"]["chapter"], "sourceVerse": entry["source"]["verse"],
+                "targetChapter": entry["target"]["chapter"], "targetVerse": entry["target"]["verse"],
+                "sources": {}, "targets": {}, "linkIds": [],
+            })
+            group["sources"].setdefault(entry["source"]["signature"], {
+                "word": entry["source"]["word"], "topId": entry["sourceTopId"],
+            })
+            group["targets"].setdefault(entry["target"]["signature"], {
+                "word": entry["target"]["word"], "bottomId": entry["targetBottomId"],
+            })
+            group["linkIds"].append(entry["id"])
+        group_list = []
+        for group in groups.values():
+            sources, targets = list(group.pop("sources").values()), list(group.pop("targets").values())
+            group.update({
+                "sources": sources, "targets": targets,
+                "relation": cross_verse_tool.relation(len(sources), len(targets)),
+                "sourceTopIds": [s["topId"] for s in sources if s["topId"]],
+                "targetBottomIds": [t["bottomId"] for t in targets if t["bottomId"]],
+            })
+            group_list.append(group)
+        return {
+            "links": links, "groups": group_list,
+            "accountedIds": list(dict.fromkeys(accounted_ids)),
+            "realizedIds": list(dict.fromkeys(realized_ids)),
+        }
+
+    def _null_annotations(self, chapter: str, verse: str, inventory) -> dict[str, Any]:
+        """One verse's null decisions (#216), with positional ids resolved from
+        the stored signatures. Only an *active* decision closes a gap. A source
+        decision whose signature this load cannot resolve is reported `stale`
+        rather than dropped: no edit path removes a source token, so it means
+        the source pack itself changed, and the reviewer should see that."""
+        found: dict[str, list[dict[str, Any]]] = {"source": [], "target": []}
+        ids: dict[str, list[str]] = {"source": [], "target": []}
+        for decision in self.project.null_decisions.decisions_for_verse(chapter, verse):
+            side = decision.get("side")
+            if side not in found:
+                continue
+            signature = (decision.get("token") or {}).get("signature", "")
+            lookup = inventory.top_sig_to_id if side == "source" else inventory.bottom_sig_to_id
+            token_id = lookup.get(signature)
+            active = decision.get("state") == "active"
+            found[side].append({
+                "id": token_id, "decisionId": decision.get("id"),
+                "word": (decision.get("token") or {}).get("word", ""),
+                "reason": decision.get("reason"), "note": decision.get("note", ""),
+                "origin": decision.get("origin", "human"), "state": decision.get("state"),
+                "invalidReason": decision.get("invalidReason"),
+                "stale": active and token_id is None,
+            })
+            if active and token_id:
+                ids[side].append(token_id)
+        return {
+            "source": found["source"], "target": found["target"],
+            "sourceIds": ids["source"], "targetIds": ids["target"],
+        }
+
+    def _null_ref(self, ref: Any) -> tuple[str, str, str, str]:
+        if not isinstance(ref, dict):
+            raise ProjectError("A null decision needs {chapter, verse, side, id}.")
+        chapter, verse = str(ref.get("chapter") or ""), str(ref.get("verse") or "")
+        side, token_id = str(ref.get("side") or ""), str(ref.get("id") or "")
+        if not chapter or not verse or not side or not token_id:
+            raise ProjectError("A null decision needs chapter, verse, side and the token id.")
+        if chapter not in self.project.chapters():
+            raise ProjectError(f"Chapter {chapter} does not exist in this project.")
+        if verse not in set(self.project.verses(chapter)):
+            raise ProjectError(f"Verse {chapter}:{verse} does not exist in this project.")
+        return chapter, verse, side, token_id
+
+    def set_null_decision(self, params: Any, *, origin: str = "human") -> dict[str, Any]:
+        """alignment.null.set (#216): record that one token has no counterpart,
+        for a reason. Refused when the token already has a counterpart -- a
+        source word in a group with target words, a target word in any group, or
+        either end of an active cross-verse link: a null is a home of its own,
+        and a token has one home."""
+        self._require_project()
+        chapter, verse, side, token_id = self._null_ref(params)
+        side, reason = null_decisions_tool.validate(side, str(params.get("reason") or ""), origin)
+        alignment = self.project.load_verse_alignment(chapter, verse)
+        inventory = make_inventory(alignment)
+        token = (inventory.top_ids if side == "source" else inventory.bottom_ids).get(token_id)
+        if token is None:
+            raise AlignmentError("That word is not in this verse any more. Reload before marking it.")
+        if side == "source":
+            if any(group.bottom_words and any(t.signature == token.signature for t in group.top_words)
+                   for group in alignment.alignments):
+                raise AlignmentError(
+                    f"{token.word} is already aligned within {chapter}:{verse}; unalign it before marking it {reason.lower()}."
+                )
+        else:
+            if any(t.signature == token.signature for t in alignment.aligned_bottom()):
+                raise AlignmentError(
+                    f"{token.word} is already aligned within {chapter}:{verse}; unalign it before marking it {reason.lower()}."
+                )
+            current = {t.signature for t in self._target_token_inventory(self.project.target_verse_text(chapter, verse))}
+            if token.signature not in current:
+                raise AlignmentError(f"{token.word} is no longer in the text of {chapter}:{verse}.")
+        cross = self._cross_verse_annotations(chapter, verse, inventory)
+        if token_id in (cross["realizedIds"] if side == "source" else cross["accountedIds"]):
+            raise AlignmentError(
+                f"{token.word} is linked to another verse; remove that link before marking it {reason.lower()}."
+            )
+        decision = self.project.null_decisions.set(
+            chapter, verse, side, token, reason, note=str(params.get("note") or ""), origin=origin,
+        )
+        return self._null_result(decision)
+
+    def clear_null_decision(self, decision_id: str) -> dict[str, Any]:
+        self._require_project()
+        if not decision_id:
+            raise ProjectError("Clearing a null decision needs its decisionId.")
+        decision = self.project.null_decisions.clear(decision_id)
+        return self._null_result(decision)
+
+    def _null_result(self, decision: dict[str, Any]) -> dict[str, Any]:
+        # A null decision is alignment state Stage 6B/8 read (#218), so it
+        # stales downstream records exactly as a link change does.
+        if self.passage_semantic_runtime is not None:
+            self.passage_semantic_runtime.synchronize_alignment_state()
+        return {
+            "decision": decision,
+            "context": self._alignment_context(decision["chapter"], decision["verse"]),
+        }
 
     def _cross_verse_ref(self, ref: Any, id_key: str) -> tuple[str, str, str]:
         if not isinstance(ref, dict):
@@ -2182,56 +2382,852 @@ class BridgeEngine:
             "target": self._alignment_context(target["chapter"], target["verse"]),
         }
 
-    def link_cross_verse(self, source: Any, target: Any, origin: str = "") -> dict[str, Any]:
-        """Record that a source token of one verse is realized by a target word
-        of another verse (#117). Refused when either token is already aligned
-        within its own verse, when both ends are the same verse (that is what
-        alignment.realign is for), or when the target word is not in the
-        current text. Nothing in alignmentData/ changes.
+    def link_cross_verse(
+        self, source: Any, target: Any, origin: str = "", *,
+        sources: Any = None, targets: Any = None, run_id: str = "",
+    ) -> dict[str, Any]:
+        """Record that source token(s) of one verse are realized by target
+        word(s) of another verse (#117), as one composite group (#217).
+
+        Two shapes: the original single pair `{source, target}`, or
+        `{sources: [...], targets: [...]}` for a 1:N, N:1 or N:M group. Either
+        way every end must have no other home -- not aligned within its own
+        verse, not marked null, not at either end of a different active link.
+
+        A single pair onto a source or target that is *already* in a group
+        between the same two verses extends that group (unlink, then link the
+        union): dragging a second word onto a cross-verse realization means
+        "this one too", and refusing it would make the drag useless. A group
+        reaching a third verse is refused instead -- one group spans exactly
+        two verses.
+
+        Refused when both ends are the same verse (that is what
+        alignment.realign is for), or when a target word is not in the current
+        text. Nothing in alignmentData/ changes.
         """
         self._require_project()
-        s_chapter, s_verse, top_id = self._cross_verse_ref(source, "topId")
-        t_chapter, t_verse, bottom_id = self._cross_verse_ref(target, "bottomId")
+        source_refs = list(sources) if isinstance(sources, list) and sources else [source]
+        target_refs = list(targets) if isinstance(targets, list) and targets else [target]
+        parsed_sources = [self._cross_verse_ref(ref, "topId") for ref in source_refs]
+        parsed_targets = [self._cross_verse_ref(ref, "bottomId") for ref in target_refs]
+        if len({(c, v) for c, v, _ in parsed_sources}) != 1 or len({(c, v) for c, v, _ in parsed_targets}) != 1:
+            raise AlignmentError(
+                "A cross-verse group links words of one source verse to words of one other verse."
+            )
+        s_chapter, s_verse, _ = parsed_sources[0]
+        t_chapter, t_verse, _ = parsed_targets[0]
         if (s_chapter, s_verse) == (t_chapter, t_verse):
             raise AlignmentError(
                 "Both words are in the same verse; align them in that verse instead of linking across verses."
             )
         s_alignment = self.project.load_verse_alignment(s_chapter, s_verse)
         s_inventory = make_inventory(s_alignment)
-        s_token = s_inventory.top_ids.get(top_id)
-        if s_token is None:
-            raise AlignmentError("The source token id is not in that verse any more. Reload before linking.")
-        for group in s_alignment.alignments:
-            if group.bottom_words and any(t.signature == s_token.signature for t in group.top_words):
-                raise AlignmentError(
-                    f"{s_token.word} is already aligned within {s_chapter}:{s_verse}; unalign it there first."
-                )
         t_alignment = self.project.load_verse_alignment(t_chapter, t_verse)
         t_inventory = make_inventory(t_alignment)
-        t_token = t_inventory.bottom_ids.get(bottom_id)
-        if t_token is None:
-            raise AlignmentError("The target word id is not in that verse any more. Reload before linking.")
-        if any(t.signature == t_token.signature for t in t_alignment.aligned_bottom()):
-            raise AlignmentError(
-                f"{t_token.word} is already aligned within {t_chapter}:{t_verse}; unalign it there first."
-            )
+        s_tokens = []
+        for _, _, top_id in parsed_sources:
+            token = s_inventory.top_ids.get(top_id)
+            if token is None:
+                raise AlignmentError("The source token id is not in that verse any more. Reload before linking.")
+            s_tokens.append(token)
+        t_tokens = []
+        for _, _, bottom_id in parsed_targets:
+            token = t_inventory.bottom_ids.get(bottom_id)
+            if token is None:
+                raise AlignmentError("The target word id is not in that verse any more. Reload before linking.")
+            t_tokens.append(token)
         current = {t.signature for t in self._target_token_inventory(self.project.target_verse_text(t_chapter, t_verse))}
-        if t_token.signature not in current:
-            raise AlignmentError(
-                f"{t_token.word} is no longer in the text of {t_chapter}:{t_verse}."
+        for s_token in s_tokens:
+            self._refuse_if_null_decided(s_chapter, s_verse, "source", s_token)
+            for group in s_alignment.alignments:
+                if group.bottom_words and any(t.signature == s_token.signature for t in group.top_words):
+                    raise AlignmentError(
+                        f"{s_token.word} is already aligned within {s_chapter}:{s_verse}; unalign it there first."
+                    )
+        for t_token in t_tokens:
+            self._refuse_if_null_decided(t_chapter, t_verse, "target", t_token)
+            if any(t.signature == t_token.signature for t in t_alignment.aligned_bottom()):
+                raise AlignmentError(
+                    f"{t_token.word} is already aligned within {t_chapter}:{t_verse}; unalign it there first."
+                )
+            if t_token.signature not in current:
+                raise AlignmentError(
+                    f"{t_token.word} is no longer in the text of {t_chapter}:{t_verse}."
+                )
+
+        # One home (#217): an end already in an active group either extends
+        # that group (same two verses, single-pair call) or is refused.
+        store = self.project.cross_verse_links
+        existing_groups: dict[str, list[dict[str, Any]]] = {}
+        for s_token in s_tokens:
+            for link in self._active_links_for_end(s_chapter, s_verse, "source", s_token.signature):
+                existing_groups.setdefault(cross_verse_tool.group_of(link), []).append(link)
+        for t_token in t_tokens:
+            for link in self._active_links_for_end(t_chapter, t_verse, "target", t_token.signature):
+                existing_groups.setdefault(cross_verse_tool.group_of(link), []).append(link)
+        extend: list[dict[str, Any]] = []
+        for group_id in existing_groups:
+            members = [m for m in store.group_members(group_id) if m.get("state") == "active"]
+            if not members:
+                continue
+            first = members[0]
+            same_verses = (
+                (first["source"]["chapter"], first["source"]["verse"]) == (s_chapter, s_verse)
+                and (first["target"]["chapter"], first["target"]["verse"]) == (t_chapter, t_verse)
             )
-        link = self.project.cross_verse_links.link(
-            s_chapter, s_verse, s_token, t_chapter, t_verse, t_token,
-            origin=str(origin or ""),
+            if not same_verses or len(s_tokens) > 1 or len(t_tokens) > 1:
+                held = existing_groups[group_id][0]
+                src, tgt = held["source"], held["target"]
+                raise AlignmentError(
+                    f"{src['word']} ({src['chapter']}:{src['verse']}) is already linked to "
+                    f"{tgt['word']} ({tgt['chapter']}:{tgt['verse']}); remove that link first."
+                )
+            extend.extend(members)
+        if extend:
+            held_sources = {m["source"]["signature"] for m in extend}
+            held_targets = {m["target"]["signature"] for m in extend}
+            source_sigs = held_sources | {t.signature for t in s_tokens}
+            target_sigs = held_targets | {t.signature for t in t_tokens}
+            if source_sigs == held_sources and target_sigs == held_targets:
+                held = extend[0]
+                raise AlignmentError(
+                    f"{held['source']['word']} ({s_chapter}:{s_verse}) is already linked to "
+                    f"{held['target']['word']} ({t_chapter}:{t_verse})."
+                )
+            s_tokens = [t for t in s_inventory.top_ids.values() if t.signature in source_sigs]
+            t_tokens = [t for t in t_inventory.bottom_ids.values() if t.signature in target_sigs]
+            if len(s_tokens) != len(source_sigs) or len(t_tokens) != len(target_sigs):
+                raise AlignmentError("A word of that cross-verse group is no longer in its verse. Reload first.")
+            group_ids = {cross_verse_tool.group_of(m) for m in extend}
+            for group_id in group_ids:
+                store.unlink_group(group_id, origin=str(origin or ""), extra={"extendedInto": True})
+        written = store.link_group(
+            s_chapter, s_verse, s_tokens, t_chapter, t_verse, t_tokens,
+            origin=str(origin or ""), run_id=run_id,
         )
+        result = self._cross_verse_result(written[0])
+        result["group"] = {
+            "groupId": written[0]["groupId"], "relation": written[0]["relation"],
+            "linkIds": [w["id"] for w in written], "extended": bool(extend),
+        }
+        return result
+
+    def _active_links_for_end(self, chapter: str, verse: str, side: str, signature: str) -> list[dict[str, Any]]:
+        found = []
+        for link in self.project.cross_verse_links.links_for_verse(chapter, verse):
+            end = link.get(side, {})
+            if (link.get("state") == "active" and end.get("chapter") == chapter
+                    and end.get("verse") == verse and end.get("signature") == signature):
+                found.append(link)
+        return found
+
+    def _refuse_if_homed_elsewhere(
+        self, chapter: str, verse: str, current: VerseAlignment, proposed: VerseAlignment,
+    ) -> None:
+        """One token, one home (#217). A token that *gains* a counterpart in
+        this save -- a source word entering a group with target words, a target
+        word entering any group -- must not already be at an end of an active
+        cross-verse link or carry an active null decision. Tokens leaving a
+        group never conflict, and a token that was already grouped before this
+        save is left alone (a pre-existing double home is reported by the
+        verse context, not made worse or silently repaired here)."""
+        def grouped_tops(alignment: VerseAlignment) -> set[str]:
+            return {t.signature for g in alignment.alignments if g.bottom_words for t in g.top_words}
+
+        def grouped_bottoms(alignment: VerseAlignment) -> set[str]:
+            return {t.signature for t in alignment.aligned_bottom()}
+
+        gained_tops = grouped_tops(proposed) - grouped_tops(current)
+        gained_bottoms = grouped_bottoms(proposed) - grouped_bottoms(current)
+        if not gained_tops and not gained_bottoms:
+            return
+        words = {t.signature: t.word for t in proposed.all_top()}
+        words.update({t.signature: t.word for t in proposed.all_bottom()})
+        for link in self.project.cross_verse_links.links_for_verse(chapter, verse):
+            if link.get("state") != "active":
+                continue
+            for side, gained in (("source", gained_tops), ("target", gained_bottoms)):
+                end = link.get(side, {})
+                if end.get("chapter") == chapter and end.get("verse") == verse and end.get("signature") in gained:
+                    other = link["target"] if side == "source" else link["source"]
+                    raise AlignmentError(
+                        f"{end.get('word')} in {chapter}:{verse} is linked to {other.get('word')} in "
+                        f"{other.get('chapter')}:{other.get('verse')}; remove that link before aligning it here."
+                    )
+        for decision in self.project.null_decisions.decisions_for_verse(chapter, verse):
+            if decision.get("state") != "active":
+                continue
+            gained = gained_tops if decision.get("side") == "source" else gained_bottoms
+            signature = (decision.get("token") or {}).get("signature")
+            if signature in gained:
+                raise AlignmentError(
+                    f"{words.get(signature, (decision.get('token') or {}).get('word', ''))} in {chapter}:{verse} is marked "
+                    f"{str(decision.get('reason', '')).lower()}; clear that before aligning it."
+                )
+
+    def _refuse_if_null_decided(self, chapter: str, verse: str, side: str, token) -> None:
+        """A token marked as having no counterpart cannot also be linked
+        (#216): one token, one home. The reviewer clears the decision first."""
+        for decision in self.project.null_decisions.decisions_for_verse(chapter, verse):
+            if (decision.get("state") == "active" and decision.get("side") == side
+                    and (decision.get("token") or {}).get("signature") == token.signature):
+                raise AlignmentError(
+                    f"{token.word} in {chapter}:{verse} is marked {str(decision.get('reason', '')).lower()}; "
+                    "clear that first."
+                )
+
+    def unlink_cross_verse(self, link_id: str, group_id: str = "") -> dict[str, Any]:
+        """Remove a link's whole group (#217), by any of its link ids or by
+        its `groupId`. A composite group is one realization; removing one pair
+        of it would leave a claim nobody made."""
+        self._require_project()
+        if not link_id and not group_id:
+            raise ProjectError("A cross-verse unlink needs the link id or the group id.")
+        if link_id:
+            link = self.project.cross_verse_links.unlink(link_id)
+        else:
+            link = self.project.cross_verse_links.unlink_group(group_id)[0]
         return self._cross_verse_result(link)
 
-    def unlink_cross_verse(self, link_id: str) -> dict[str, Any]:
+    # ---- automatic two-pass alignment (#219) -----------------------------------
+
+    def _auto_window_verses(self, chapter: str, verses: Any) -> list[str]:
+        """Validate a window: 1..5 known verses of one chapter, contiguous in
+        the chapter's own order (verse strings stay opaque, gotcha 12)."""
+        if not isinstance(verses, list) or not verses:
+            raise ProjectError("Automatic alignment needs a list of verses.")
+        if chapter not in self.project.chapters():
+            raise ProjectError(f"Chapter {chapter} does not exist in this project.")
+        order = [str(v) for v in self.project.verses(chapter) if str(v) != "front"]
+        wanted = list(dict.fromkeys(str(v) for v in verses))
+        for verse in wanted:
+            if verse not in order:
+                raise ProjectError(f"Verse {chapter}:{verse} does not exist in this project.")
+        if len(wanted) > alignment_window.MAX_WINDOW_VERSES:
+            raise ProjectError(
+                f"Automatic alignment takes at most {alignment_window.MAX_WINDOW_VERSES} verses at a time; "
+                "use the chapter job for more."
+            )
+        positions = sorted(order.index(v) for v in wanted)
+        if positions[-1] - positions[0] + 1 != len(positions):
+            raise ProjectError("Automatic alignment needs consecutive verses.")
+        return [order[i] for i in positions]
+
+    def _auto_align_summary(self, chapter: str, verse: str, alignment) -> dict[str, Any] | None:
+        """The last automatic pass on this verse (#219), as every alignment
+        context reports it. `stale` when the verse or its alignment changed
+        after the pass, so its verdict may no longer describe it."""
+        try:
+            verdict = self._auto_verdict(chapter, verse)
+        except Exception:
+            return None
+        if not verdict:
+            return None
+        try:
+            stale = (
+                verdict.get("alignmentFingerprint") != alignment_fingerprint(alignment)
+                or verdict.get("targetFingerprint") != target_token_fingerprint(
+                    alignment, self.project.target_verse_text(chapter, verse))
+            )
+        except Exception:
+            stale = True
+        return {
+            "verdict": verdict.get("verdict"), "runId": verdict.get("runId", ""),
+            "createdAt": verdict.get("createdAt", ""), "stale": bool(stale) and verdict.get("verdict") != "REVERTED",
+            "issues": len(verdict.get("issues") or ()), "suggestions": len(verdict.get("suggestions") or ()),
+        }
+
+    def _auto_verdict(self, chapter: str, verse: str) -> dict[str, Any] | None:
+        identity = self.project.workbench_identity
+        row_id = natural_row_id(identity.project_id, self.project.book_id, "alignment_verdicts", str(chapter), str(verse))
+        row = self.project.workbench.get("alignment_verdicts", row_id)
+        if row is None:
+            return None
+        try:
+            payload = json.loads(row["payload_json"])
+        except (TypeError, ValueError):
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def _write_auto_verdict(self, chapter: str, verse: str, payload: dict[str, Any]) -> None:
+        identity = self.project.workbench_identity
+        row_id = natural_row_id(identity.project_id, self.project.book_id, "alignment_verdicts", str(chapter), str(verse))
+        self.project.workbench._write(
+            "alignment_verdicts", row_id,
+            project_id=identity.project_id, book_id=self.project.book_id, payload=payload,
+            actor_id=identity.actor_id, device_id=identity.device_id, expected_revision=None,
+            extra_columns={"chapter": str(chapter), "verse": str(verse)},
+        )
+
+    def _auto_owned(self, chapter: str, verses: list[str]) -> dict[str, set]:
+        """What earlier automatic passes wrote in these verses and is still
+        exactly as written, from their ledgers: tC groups (by their signature
+        sets), link groups and null decisions. Everything else a token is in is
+        a reviewer's home."""
+        owned: dict[str, set] = {"groups": set(), "links": set(), "nulls": set()}
+        for verse in verses:
+            ledger = (self._auto_verdict(chapter, verse) or {}).get("applied") or {}
+            for group in ledger.get("groups", ()):
+                owned["groups"].add((verse, frozenset(group.get("tops", ())), frozenset(group.get("bottoms", ()))))
+            owned["links"].update(str(g) for g in ledger.get("links", ()))
+            owned["nulls"].update(str(n) for n in ledger.get("nulls", ()))
+        return owned
+
+    def _build_auto_window(self, chapter: str, verses: list[str], owned: dict[str, set]):
+        """The window both passes see, with every token marked homed when a
+        reviewer (not an earlier automatic pass) gave it a home."""
+        window_verses = []
+        first_alignment = None
+        glosses_input: dict[str, Any] = {}
+        texts: list[str] = []
+        for verse in verses:
+            alignment = self.project.load_verse_alignment(chapter, verse)
+            first_alignment = first_alignment or alignment
+            inventory = make_inventory(alignment)
+            text = self.project.target_verse_text(chapter, verse)
+            texts.append(text)
+            human_tops: set[str] = set()
+            human_bottoms: set[str] = set()
+            for group in alignment.alignments:
+                tops = frozenset(t.signature for t in group.top_words)
+                bottoms = frozenset(t.signature for t in group.bottom_words)
+                if not bottoms:
+                    continue
+                if (verse, tops, bottoms) in owned["groups"]:
+                    continue
+                human_tops |= tops
+                human_bottoms |= bottoms
+            for link in self.project.cross_verse_links.links_for_verse(chapter, verse):
+                if link.get("state") != "active":
+                    continue
+                # An earlier pass's link group is this pass's to re-decide only
+                # when both its ends are inside this window; one reaching a verse
+                # this window cannot see stays put, as a fixed home.
+                inside = all(
+                    end.get("chapter") == chapter and end.get("verse") in verses
+                    for end in (link["source"], link["target"])
+                )
+                if cross_verse_tool.group_of(link) in owned["links"] and inside:
+                    continue
+                if (link["source"]["chapter"], link["source"]["verse"]) == (chapter, verse):
+                    human_tops.add(link["source"]["signature"])
+                if (link["target"]["chapter"], link["target"]["verse"]) == (chapter, verse):
+                    human_bottoms.add(link["target"]["signature"])
+            for decision in self.project.null_decisions.decisions_for_verse(chapter, verse):
+                if decision.get("state") != "active" or decision.get("id") in owned["nulls"]:
+                    continue
+                signature = (decision.get("token") or {}).get("signature")
+                (human_tops if decision.get("side") == "source" else human_bottoms).add(signature)
+            sources = [
+                alignment_window.WindowToken(
+                    alignment_agreement.TokenKey("source", verse, token.signature), token.word, token_id,
+                    strong=token.strong, lemma=token.lemma, morph=token.morph,
+                    homed=token.signature in human_tops,
+                )
+                for token_id, token in inventory.top_ids.items()
+            ]
+            targets = []
+            for token in self._target_token_inventory(text):
+                token_id = inventory.bottom_sig_to_id.get(token.signature)
+                if not token_id:
+                    continue
+                targets.append(alignment_window.WindowToken(
+                    alignment_agreement.TokenKey("target", verse, token.signature), token.word, token_id,
+                    homed=token.signature in human_bottoms,
+                ))
+            glosses_input[verse] = {"sourceGaps": [{"strong": t.strong, "morph": t.morph} for t in inventory.top_ids.values()]}
+            window_verses.append(alignment_window.WindowVerse(verse, strip_usfm(text), sources, targets))
+        language = PluginRegistry().detect_project(self.project, first_alignment, " ".join(texts))
+        reference = f"{self.project.book_id.upper()} {chapter}:{verses[0]}" + (f"-{verses[-1]}" if len(verses) > 1 else "")
+        window = alignment_window.build_window(
+            chapter, window_verses, reference=reference,
+            glosses=self._cross_verse_gloss_table(glosses_input),
+            source_language=getattr(language, "source_name", ""), target_language=getattr(language, "target_name", ""),
+        )
+        return window, str(getattr(language, "prompt_guidance", "") or "")
+
+    def _auto_corpus(self, chapter: str, verses: list[str]) -> "alignment_agreement.CorpusCheck":
+        try:
+            offline = self.propose_cross_verse(chapter, verses)
+        except Exception as exc:  # optional evidence: a failure costs the check, not the run
+            return alignment_agreement.CorpusCheck(checked=False, reason=f"error: {exc}")
+        if offline.get("unavailable"):
+            return alignment_agreement.CorpusCheck(
+                checked=False, reason=str((offline["unavailable"] or {}).get("reason") or "unavailable"),
+            )
+        check = alignment_agreement.CorpusCheck(checked=True)
+        for proposal in offline.get("proposals", ()) or ():
+            source, target = proposal.get("source") or {}, proposal.get("target") or {}
+            s_key = alignment_agreement.TokenKey("source", str(source.get("verse", "")), str(source.get("signature", "")))
+            t_key = alignment_agreement.TokenKey("target", str(target.get("verse", "")), str(target.get("signature", "")))
+            check.best.setdefault(s_key, t_key)
+            if proposal.get("contested"):
+                check.contested.add(t_key)
+        return check
+
+    def _token_id(self, chapter: str, verse: str, side: str, signature: str) -> str | None:
+        inventory = make_inventory(self.project.load_verse_alignment(chapter, verse))
+        lookup = inventory.top_sig_to_id if side == "source" else inventory.bottom_sig_to_id
+        return lookup.get(signature)
+
+    def _revert_auto_writes(
+        self, chapter: str, verse: str, ledger: dict[str, Any], *, run_id: str,
+        window: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Undo what one automatic pass wrote in one verse -- only what is still
+        exactly as it was written. A group, link or decision a reviewer has
+        since changed is left alone and reported in `skipped`."""
+        skipped: list[str] = []
+        kept_links: list[str] = []
+        extra = {"revertOf": ledger.get("runId", ""), "supersededBy": run_id} if run_id else {"revertOf": ledger.get("runId", "")}
+        store = self.project.cross_verse_links
+        for group_id in ledger.get("links", ()):
+            members = [m for m in store.group_members(str(group_id)) if m.get("state") == "active"]
+            if not members:
+                continue
+            if window is not None and not all(
+                m[end]["chapter"] == chapter and m[end]["verse"] in window
+                for m in members for end in ("source", "target")
+            ):
+                # Reaches outside the window that is re-deciding: not ours to undo.
+                kept_links.append(str(group_id))
+                continue
+            store.unlink_group(str(group_id), origin="ai-auto", extra=extra)
+        for decision_id in ledger.get("nulls", ()):
+            decision = self.project.null_decisions.get(str(decision_id))
+            if decision is None:
+                continue
+            if decision.get("origin") != "ai-auto":
+                skipped.append(f"null {decision_id}")
+                continue
+            self.project.null_decisions.clear(str(decision_id), origin="ai-auto", extra=extra)
+        groups = ledger.get("groups", ())
+        if groups:
+            current = self.project.load_verse_alignment(chapter, verse)
+            intact = {
+                (frozenset(t.signature for t in g.top_words), frozenset(t.signature for t in g.bottom_words))
+                for g in current.alignments if g.bottom_words
+            }
+            bottoms = set()
+            for group in groups:
+                key = (frozenset(group.get("tops", ())), frozenset(group.get("bottoms", ())))
+                if key in intact:
+                    bottoms |= set(key[1])
+                else:
+                    skipped.append("group " + "+".join(sorted(group.get("tops", ()))))
+            if bottoms:
+                proposed = unalign_bottom(current, [t for t in current.aligned_bottom() if t.signature in bottoms])
+                self._save_alignment(chapter, verse, proposed, current.to_dict(), "ai_auto_revert")
+        return {"skipped": skipped, "keptLinks": kept_links}
+
+    def auto_align_window(
+        self, chapter: str, verses: Any, *, apply: bool = True, run_id: str = "", job_id: str = "",
+        passes: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """alignment.window.autoAlign (#219): ask the window twice, write what
+        both passes agree on, suggest the rest, report what neither placed.
+
+        `passes` lets the chapter job (#221) hand in passes it already asked
+        for, so reconciling across windows needs no second request.
+        Returns a structured `unavailable` -- never raises -- when no provider
+        is configured: offline is a supported state. Nothing is ever sent on
+        open, import or check; this runs only on an explicit request.
+        """
         self._require_project()
-        if not link_id:
-            raise ProjectError("A cross-verse unlink needs the link id.")
-        link = self.project.cross_verse_links.unlink(link_id)
-        return self._cross_verse_result(link)
+        chapter = str(chapter)
+        ordered = self._auto_window_verses(chapter, verses)
+        run_id = run_id or f"aa-{uuid.uuid4().hex[:12]}"
+        base = {
+            "chapter": chapter, "verses": ordered, "runId": run_id,
+            "calibrationVersion": alignment_agreement.AGREEMENT_CALIBRATION_VERSION,
+        }
+        owned = self._auto_owned(chapter, ordered)
+        window, guidance = self._build_auto_window(chapter, ordered, owned)
+        usage = {"calls": 0, "totalTokens": 0, "estimatedCostUSD": 0.0}
+        if passes is None:
+            try:
+                client = self._ai_client()
+            except AIError as exc:
+                return {**base, "results": [], "unavailable": {"reason": "no-api-key", "message": str(exc)}}
+
+            def call_model(instructions: str, input_text: str, direction: str) -> dict[str, Any]:
+                raw = client.propose_window_alignment(instructions, input_text, alignment_window.SCHEMA, direction)
+                tokens = int(getattr(getattr(client, "last_usage", None), "total_tokens", 0) or 0)
+                cost = float(getattr(client, "last_cost_usd", 0.0) or 0.0)
+                self.settings.record_ai_usage(tokens, cost)
+                usage["calls"] += 1
+                usage["totalTokens"] += tokens
+                usage["estimatedCostUSD"] = round(usage["estimatedCostUSD"] + cost, 6)
+                return raw
+
+            pass_a = alignment_window.ask(window, call_model, alignment_window.SOURCE_FIRST, guidance=guidance, error=AIError)
+            pass_b = alignment_window.ask(window, call_model, alignment_window.TARGET_FIRST, guidance=guidance, error=AIError)
+        else:
+            pass_a = alignment_window.decode(passes.get(alignment_window.SOURCE_FIRST), window, alignment_window.SOURCE_FIRST, error=AIError)
+            pass_b = alignment_window.decode(passes.get(alignment_window.TARGET_FIRST), window, alignment_window.TARGET_FIRST, error=AIError)
+        corpus = self._auto_corpus(chapter, ordered)
+        agreement = alignment_agreement.agree(
+            pass_a, pass_b, tokens=window.tokens(), corpus=corpus, homed=window.homed(),
+        )
+        return self._apply_agreement(
+            chapter, ordered, window, agreement, base=base, apply=apply, run_id=run_id, job_id=job_id,
+            usage=usage, notes=[*pass_a.notes, *pass_b.notes],
+        )
+
+    def _apply_agreement(
+        self, chapter: str, ordered: list[str], window, agreement, *, base: dict[str, Any], apply: bool,
+        run_id: str, job_id: str, usage: dict[str, Any], notes: list[str],
+    ) -> dict[str, Any]:
+        TokenKey = alignment_agreement.TokenKey
+        suggestions = list(agreement.suggestions)
+
+        # Partition agreed edges: same-verse ones become tC groups per verse;
+        # cross-verse ones become link groups, one per connected component. A
+        # component reaching more than one source or target verse cannot be one
+        # group (#217) and is offered instead.
+        same_verse: dict[str, list[tuple]] = {}
+        parent: dict[TokenKey, TokenKey] = {}
+
+        def find(x):
+            parent.setdefault(x, x)
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        cross_edges = []
+        for (source, target), info in agreement.agreed_edges.items():
+            if source.verse == target.verse:
+                same_verse.setdefault(source.verse, []).append((source, target, info))
+            else:
+                cross_edges.append((source, target, info))
+                parent[find(source)] = find(target)
+        components: dict[TokenKey, list[tuple]] = {}
+        for edge in cross_edges:
+            components.setdefault(find(edge[0]), []).append(edge)
+        cross_groups = []
+        for edges in components.values():
+            source_verses = {e[0].verse for e in edges}
+            target_verses = {e[1].verse for e in edges}
+            if len(source_verses) != 1 or len(target_verses) != 1:
+                for source, target, info in edges:
+                    suggestions.append(alignment_agreement.Suggestion(
+                        kind="link", status="UNCERTAIN",
+                        votes={alignment_window.SOURCE_FIRST: True, alignment_window.TARGET_FIRST: True},
+                        source=source, target=target, confidence=int(info.get("confidence", 0)),
+                        reason=alignment_agreement._join(info.get("reason"), "this realization spans more than two verses"),
+                    ))
+                continue
+            cross_groups.append(edges)
+
+        applied = {verse: {"groups": [], "links": [], "nulls": []} for verse in ordered}
+        reverted: dict[str, Any] = {}
+        failures: list[str] = []
+        if apply:
+            with self._checker_lock:
+                # 1. Supersede the previous automatic pass's own writes.
+                for verse in ordered:
+                    ledger = (self._auto_verdict(chapter, verse) or {}).get("applied") or {}
+                    if any(ledger.get(k) for k in ("groups", "links", "nulls")):
+                        ledger = {**ledger, "runId": (self._auto_verdict(chapter, verse) or {}).get("runId", "")}
+                        reverted[verse] = self._revert_auto_writes(chapter, verse, ledger, run_id=run_id, window=ordered)
+                for verse, outcome in reverted.items():
+                    applied[verse]["links"].extend(outcome.get("keptLinks", ()))
+                # 2. Same-verse groups: compile agreed edges into legal tC groups.
+                #    Thresholds are 0.0 on purpose: agreement is the gate, and
+                #    AUTO_LINK_THRESHOLD (the AI review's own gate) is untouched.
+                for verse, edges in same_verse.items():
+                    current = self.project.load_verse_alignment(chapter, verse)
+                    inventory = make_inventory(current)
+                    links = []
+                    for source, target, info in edges:
+                        top_id = inventory.top_sig_to_id.get(source.signature)
+                        bottom_id = inventory.bottom_sig_to_id.get(target.signature)
+                        if top_id and bottom_id:
+                            links.append({"top_id": top_id, "bottom_id": bottom_id,
+                                          "confidence": int(info.get("confidence", 0)) / 100.0,
+                                          "reason": info.get("reason", "")})
+                    if not links:
+                        continue
+                    try:
+                        proposal = compile_link_proposal(
+                            current, {"links": links, "implicit_top_ids": [], "target_only_ids": []},
+                            mode="gap_fill", auto_threshold=0.0, review_threshold=0.0,
+                        )
+                        if proposal.get("conflicts"):
+                            raise AlignmentError("a compiled group would touch an existing reviewer group")
+                        validate_preparation_proposal(current, proposal)
+                        proposed = apply_proposal(current, proposal)
+                        if proposed.to_dict() != current.to_dict():
+                            self._save_alignment(chapter, verse, proposed, current.to_dict(), "ai_auto_align")
+                    except AlignmentError as exc:
+                        failures.append(f"{chapter}:{verse}: {exc}")
+                        for source, target, info in edges:
+                            suggestions.append(alignment_agreement.Suggestion(
+                                kind="link", status="UNCERTAIN",
+                                votes={alignment_window.SOURCE_FIRST: True, alignment_window.TARGET_FIRST: True},
+                                source=source, target=target, confidence=int(info.get("confidence", 0)),
+                                reason=alignment_agreement._join(info.get("reason"), f"not applied: {exc}"),
+                            ))
+                        continue
+                    for group in proposal.get("groups", ()):
+                        if group.get("origin") == "ai_compiled" and group.get("bottom_ids"):
+                            applied[verse]["groups"].append({
+                                "tops": sorted(inventory.top_ids[t].signature for t in group["top_ids"]),
+                                "bottoms": sorted(inventory.bottom_ids[b].signature for b in group["bottom_ids"]),
+                                "relation": group.get("relation", ""),
+                            })
+                # 3. Cross-verse groups, through the one link writer.
+                for edges in cross_groups:
+                    sources = sorted({e[0] for e in edges})
+                    targets = sorted({e[1] for e in edges})
+                    s_verse, t_verse = sources[0].verse, targets[0].verse
+                    try:
+                        s_refs = [{"chapter": chapter, "verse": s_verse,
+                                   "topId": self._token_id(chapter, s_verse, "source", k.signature)} for k in sources]
+                        t_refs = [{"chapter": chapter, "verse": t_verse,
+                                   "bottomId": self._token_id(chapter, t_verse, "target", k.signature)} for k in targets]
+                        if any(not r["topId"] for r in s_refs) or any(not r["bottomId"] for r in t_refs):
+                            raise AlignmentError("a word is no longer in its verse")
+                        linked = self.link_cross_verse(
+                            None, None, "ai-auto", sources=s_refs, targets=t_refs, run_id=run_id,
+                        )
+                    except (AlignmentError, ProjectError) as exc:
+                        failures.append(f"{chapter}:{s_verse}->{t_verse}: {exc}")
+                        for source, target, info in edges:
+                            suggestions.append(alignment_agreement.Suggestion(
+                                kind="link", status="UNCERTAIN",
+                                votes={alignment_window.SOURCE_FIRST: True, alignment_window.TARGET_FIRST: True},
+                                source=source, target=target, confidence=int(info.get("confidence", 0)),
+                                reason=alignment_agreement._join(info.get("reason"), f"not applied: {exc}"),
+                            ))
+                        continue
+                    group_id = linked["group"]["groupId"]
+                    applied[s_verse]["links"].append(group_id)
+                    if group_id not in applied[t_verse]["links"]:
+                        applied[t_verse]["links"].append(group_id)
+                # 4. Agreed nulls.
+                by_key = window.by_key()
+                for key, info in agreement.agreed_nulls.items():
+                    inventory = make_inventory(self.project.load_verse_alignment(chapter, key.verse))
+                    lookup = inventory.top_sig_to_id if key.side == "source" else inventory.bottom_sig_to_id
+                    pool = inventory.top_ids if key.side == "source" else inventory.bottom_ids
+                    token_id = lookup.get(key.signature)
+                    if not token_id or key not in by_key:
+                        continue
+                    try:
+                        decision = self.project.null_decisions.set(
+                            chapter, key.verse, key.side, pool[token_id], info["reason"],
+                            note=info.get("note", ""), origin="ai-auto", run_id=run_id,
+                        )
+                    except AlignmentError as exc:
+                        failures.append(f"{chapter}:{key.verse}: {exc}")
+                        continue
+                    applied[key.verse]["nulls"].append(decision["id"])
+            if self.passage_semantic_runtime is not None:
+                self.passage_semantic_runtime.synchronize_alignment_state()
+
+        # Verdicts, one per verse.
+        results = []
+        for verse in ordered:
+            context = self._alignment_context(chapter, verse)
+            verse_tokens = {k for k in window.tokens() if k.verse == verse}
+            issues = []
+            remaining = self._remaining_gap_signatures(context)
+            for key, notes_for in agreement.unplaced.items():
+                if key.verse != verse:
+                    continue
+                if apply and key.signature not in remaining[key.side]:
+                    continue
+                token = window.by_key().get(key)
+                issues.append({
+                    "kind": "POSSIBLE_OMISSION" if key.side == "source" else "POSSIBLE_ADDITION",
+                    "side": key.side, "signature": key.signature,
+                    "word": token.word if token else "", "id": self._token_id(chapter, verse, key.side, key.signature),
+                    "note": " · ".join(notes_for) or (
+                        "Neither pass found this meaning anywhere in the passage." if key.side == "source"
+                        else "Neither pass found a source word for this."
+                    ),
+                })
+            verse_suggestions = [
+                self._suggestion_view(chapter, s, window) for s in suggestions
+                if any(t.verse == verse for t in s.tokens())
+            ]
+            if not apply:
+                settled = (
+                    {k for k in verse_tokens if k in window.homed()}
+                    | {k for pair in agreement.agreed_edges for k in pair}
+                    | set(agreement.agreed_nulls)
+                )
+                clean = not issues and not verse_suggestions and verse_tokens <= settled
+            else:
+                clean = not issues and not verse_suggestions and bool(context.get("accounted"))
+            verdict = "ALIGNED_CLEAN" if clean else "NEEDS_REVIEW"
+            alignment = self.project.load_verse_alignment(chapter, verse)
+            payload = {
+                "chapter": chapter, "verse": verse, "verdict": verdict, "runId": run_id,
+                "jobId": job_id, "applyRequested": apply,
+                "calibrationVersion": alignment_agreement.AGREEMENT_CALIBRATION_VERSION,
+                "corpus": agreement.corpus, "issues": issues, "suggestions": verse_suggestions,
+                "applied": applied[verse] if apply else {"groups": [], "links": [], "nulls": []},
+                "reverted": reverted.get(verse, {}),
+                "alignmentFingerprint": alignment_fingerprint(alignment),
+                "targetFingerprint": target_token_fingerprint(alignment, self.project.target_verse_text(chapter, verse)),
+                "window": ordered, "usage": usage, "createdAt": self.project.workbench._now(),
+            }
+            self._write_auto_verdict(chapter, verse, payload)
+            results.append({
+                "verse": verse, "verdict": verdict, "applied": payload["applied"], "issues": issues,
+                "suggestions": verse_suggestions, "context": self._alignment_context(chapter, verse),
+            })
+        return {
+            **base, "corpus": agreement.corpus, "results": results, "usage": usage,
+            "notes": notes, "failures": failures,
+        }
+
+    @staticmethod
+    def _remaining_gap_signatures(context: dict[str, Any]) -> dict[str, set[str]]:
+        """The signatures of a context's live gaps, per side -- net of tC
+        groups, links and nulls, exactly as `gap_ids` counts them."""
+        top_sig = {t["id"]: f"{t['word']}␟{t['occurrence']}␟{t['occurrences']}" for t in context["topTokens"]}
+        bottom_sig = {t["id"]: f"{t['word']}␟{t['occurrence']}␟{t['occurrences']}" for t in context["bottomTokens"]}
+        matched_top = {i for g in context["groups"] if g["bottomIds"] for i in g["topIds"]}
+        grouped_bottom = {i for g in context["groups"] for i in g["bottomIds"]}
+        nulls = context.get("nullDecisions") or {"source": [], "target": []}
+        realized = set(context.get("crossVerseRealizedIds") or ()) | {
+            n["id"] for n in nulls["source"] if n.get("state") == "active" and n.get("id")}
+        accounted = set(context.get("crossVerseAccountedIds") or ()) | {
+            n["id"] for n in nulls["target"] if n.get("state") == "active" and n.get("id")}
+        return {
+            "source": {s for i, s in top_sig.items() if i not in matched_top and i not in realized},
+            "target": {s for i, s in bottom_sig.items() if i not in grouped_bottom and i not in accounted},
+        }
+
+    def _suggestion_view(self, chapter: str, suggestion, window) -> dict[str, Any]:
+        by_key = window.by_key()
+
+        def end(key):
+            if key is None:
+                return None
+            token = by_key.get(key)
+            return {
+                "side": key.side, "chapter": chapter, "verse": key.verse, "signature": key.signature,
+                "word": token.word if token else "", "id": self._token_id(chapter, key.verse, key.side, key.signature),
+            }
+
+        return {
+            "kind": suggestion.kind, "status": suggestion.status, "votes": suggestion.votes,
+            "source": end(suggestion.source), "target": end(suggestion.target), "token": end(suggestion.token),
+            "reason": suggestion.reason, "note": suggestion.note, "confidence": suggestion.confidence,
+        }
+
+    def auto_align_revert(self, chapter: str, verse: str) -> dict[str, Any]:
+        """alignment.autoAlign.revert: undo what the last automatic pass wrote
+        in one verse, where it is still exactly as written."""
+        self._require_project()
+        chapter, verse = str(chapter), str(verse)
+        verdict = self._auto_verdict(chapter, verse)
+        if verdict is None:
+            raise AlignmentError(f"No automatic alignment has run on {chapter}:{verse}.")
+        ledger = {**(verdict.get("applied") or {}), "runId": verdict.get("runId", "")}
+        with self._checker_lock:
+            outcome = self._revert_auto_writes(chapter, verse, ledger, run_id="")
+        if self.passage_semantic_runtime is not None:
+            self.passage_semantic_runtime.synchronize_alignment_state()
+        verdict.update({"verdict": "REVERTED", "applied": {"groups": [], "links": [], "nulls": []},
+                        "revertedAt": self.project.workbench._now(), "reverted": outcome})
+        self._write_auto_verdict(chapter, verse, verdict)
+        return {"chapter": chapter, "verse": verse, "skipped": outcome["skipped"],
+                "context": self._alignment_context(chapter, verse)}
+
+    def auto_align_verdict(self, chapter: str, verse: str) -> dict[str, Any]:
+        self._require_project()
+        return {"chapter": str(chapter), "verse": str(verse), "verdict": self._auto_verdict(str(chapter), str(verse))}
+
+    # ---- chapter / book job (#221) ------------------------------------------------
+
+    def _auto_job_windows(self, scope: str, chapters: Any) -> dict[str, list[list[str]]]:
+        self._require_project()
+        if scope not in {"chapter", "book"}:
+            raise ProjectError("Automatic alignment runs on a chapter or a book.")
+        if scope == "book":
+            wanted = [str(c) for c in self.project.chapters()]
+        else:
+            if not isinstance(chapters, list) or not chapters:
+                raise ProjectError("A chapter job needs the chapter to align.")
+            wanted = [str(c) for c in chapters]
+        known = set(str(c) for c in self.project.chapters())
+        windows: dict[str, list[list[str]]] = {}
+        for chapter in wanted:
+            if chapter not in known:
+                raise ProjectError(f"Chapter {chapter} does not exist in this project.")
+            verses = [str(v) for v in self.project.verses(chapter) if str(v) != "front"]
+            windows[chapter] = auto_align_jobs.windows_for(verses, window=3, overlap=1)
+        return windows
+
+    def auto_align_estimate(self, scope: str = "chapter", chapters: Any = None) -> dict[str, Any]:
+        """alignment.autoAlign.estimate: what a job would cost, worked out
+        offline from the real window payloads. About three characters per token
+        for the mixed Greek/Hebrew/Tamil text is a rough rule, so this is an
+        estimate to show before the click, not a quote."""
+        windows = self._auto_job_windows(scope, chapters)
+        count = sum(len(w) for w in windows.values())
+        input_tokens = 0
+        for chapter, chapter_windows in windows.items():
+            for window in chapter_windows:
+                built, guidance = self._build_auto_window(chapter, window, {"groups": set(), "links": set(), "nulls": set()})
+                chars = len(json.dumps(built.payload, ensure_ascii=False)) + len(alignment_window.INSTRUCTIONS[alignment_window.SOURCE_FIRST]) + len(guidance)
+                input_tokens += 2 * (chars // 3 + 1)
+        output_tokens = count * 2 * 1500
+        model = self.settings.model
+        try:
+            cost = estimate_cost(model, input_tokens, output_tokens)
+        except Exception:
+            cost = 0.0
+        return {
+            "scope": scope, "chapters": list(windows), "windows": count, "calls": count * 2,
+            "estimatedInputTokens": input_tokens, "estimatedOutputTokens": output_tokens,
+            "estimatedCostUSD": round(cost, 4), "model": model,
+            "hasApiKey": bool(self.settings.get_api_key()),
+        }
+
+    def start_auto_align_job(self, scope: str = "chapter", chapters: Any = None, apply: bool = True) -> dict[str, Any]:
+        windows = self._auto_job_windows(scope, chapters)
+        try:
+            self._ai_client()
+        except AIError as exc:
+            return {"state": "failed", "unavailable": {"reason": "no-api-key", "message": str(exc)}}
+        spec = auto_align_jobs.AutoAlignJobSpec(
+            scope=scope, chapters=tuple(windows), windows=windows, apply=bool(apply),
+        )
+        return self._start_auto_align(spec)
+
+    def _start_auto_align(self, spec) -> dict[str, Any]:
+        def run_window(chapter: str, verses: list[str], job_id: str) -> dict[str, Any]:
+            return self.auto_align_window(chapter, verses, apply=spec.apply, job_id=job_id)
+        try:
+            return self._auto_align_jobs.start(spec, run_window=run_window)
+        except auto_align_jobs.AutoAlignJobConflict as exc:
+            raise ProjectError(str(exc)) from exc
+
+    def auto_align_job_status(self, job_id: str = "") -> dict[str, Any]:
+        try:
+            return self._auto_align_jobs.status(job_id)
+        except auto_align_jobs.AutoAlignJobNotFound as exc:
+            raise ProjectError(str(exc)) from exc
+
+    def cancel_auto_align_job(self, job_id: str = "") -> dict[str, Any]:
+        try:
+            return self._auto_align_jobs.cancel(job_id)
+        except auto_align_jobs.AutoAlignJobNotFound as exc:
+            raise ProjectError(str(exc)) from exc
+
+    def retry_auto_align_job(self, job_id: str) -> dict[str, Any]:
+        try:
+            spec = self._auto_align_jobs.spec_for_retry(job_id)
+        except (auto_align_jobs.AutoAlignJobNotFound, auto_align_jobs.AutoAlignJobConflict) as exc:
+            raise ProjectError(str(exc)) from exc
+        return self._start_auto_align(spec)
 
     def get_lexicon_entry(self, strong: str, morph: str) -> dict[str, Any]:
         """Look up lexicon glosses + decoded morphology for one source token.
@@ -2329,6 +3325,7 @@ class BridgeEngine:
     ) -> dict[str, Any]:
         current = self.project.load_verse_alignment(chapter, verse)
         self._validate_alignment_identity(current, proposed)
+        self._refuse_if_homed_elsewhere(str(chapter), str(verse), current, proposed)
         self.project.save_verse_alignment(
             chapter, verse, proposed,
             expected_original=expected_original,
@@ -3609,6 +4606,18 @@ class BridgeEngine:
         if "local" in checks or "tN" in checks or "tW" in checks or "alignment" in checks:
             alignment = project.load_verse_alignment(chapter, verse)
             issues = run_local_qa(project, chapter, verse, alignment)
+            if "local" in checks or "alignment" in checks:
+                # #220: what the automatic pass could not place, as findings the
+                # editor shows. Quiet on a verse no pass has run on; a live gap
+                # only, so a reviewer's link or decision silences it at once.
+                try:
+                    issues = [*issues, *alignment_gap_checks.gap_issues(
+                        project, chapter, verse, alignment, target_text,
+                    )]
+                except Exception:
+                    # Optional evidence: a problem here must never sink the
+                    # verse's ordinary checks.
+                    pass
             resource_versions = self._pinned_resource_versions(project)
             for issue in issues:
                 findings.append(_qaissue_to_finding(
@@ -5578,10 +6587,43 @@ class BridgeEngine:
             if m == Methods.ALIGNMENT_CROSS_VERSE_LINK:
                 return EngineResponse.ok(request.id, result=self.link_cross_verse(
                     p.get("source"), p.get("target"), p.get("origin", ""),
+                    sources=p.get("sources"), targets=p.get("targets"),
                 ))
             if m == Methods.ALIGNMENT_CROSS_VERSE_UNLINK:
                 return EngineResponse.ok(request.id, result=self.unlink_cross_verse(
-                    str(p.get("linkId") or ""),
+                    str(p.get("linkId") or ""), str(p.get("groupId") or ""),
+                ))
+            if m == Methods.ALIGNMENT_NULL_SET:
+                return EngineResponse.ok(request.id, result=self.set_null_decision(p))
+            if m == Methods.ALIGNMENT_NULL_CLEAR:
+                return EngineResponse.ok(request.id, result=self.clear_null_decision(
+                    str(p.get("decisionId") or ""),
+                ))
+            if m == Methods.ALIGNMENT_WINDOW_AUTO_ALIGN:
+                return EngineResponse.ok(request.id, result=self.auto_align_window(
+                    str(p.get("chapter") or ""), p.get("verses"), apply=bool(p.get("apply", True)),
+                ))
+            if m == Methods.ALIGNMENT_AUTO_ALIGN_REVERT:
+                return EngineResponse.ok(request.id, result=self.auto_align_revert(
+                    str(p.get("chapter") or ""), str(p.get("verse") or ""),
+                ))
+            if m == Methods.ALIGNMENT_AUTO_ALIGN_VERDICT:
+                return EngineResponse.ok(request.id, result=self.auto_align_verdict(
+                    str(p.get("chapter") or ""), str(p.get("verse") or ""),
+                ))
+            if m == Methods.ALIGNMENT_AUTO_ALIGN_START:
+                return EngineResponse.ok(request.id, result=self.start_auto_align_job(
+                    str(p.get("scope") or "chapter"), p.get("chapters"), bool(p.get("apply", True)),
+                ))
+            if m == Methods.ALIGNMENT_AUTO_ALIGN_STATUS:
+                return EngineResponse.ok(request.id, result=self.auto_align_job_status(str(p.get("jobId") or "")))
+            if m == Methods.ALIGNMENT_AUTO_ALIGN_CANCEL:
+                return EngineResponse.ok(request.id, result=self.cancel_auto_align_job(str(p.get("jobId") or "")))
+            if m == Methods.ALIGNMENT_AUTO_ALIGN_RETRY:
+                return EngineResponse.ok(request.id, result=self.retry_auto_align_job(str(p.get("jobId") or "")))
+            if m == Methods.ALIGNMENT_AUTO_ALIGN_ESTIMATE:
+                return EngineResponse.ok(request.id, result=self.auto_align_estimate(
+                    str(p.get("scope") or "chapter"), p.get("chapters"),
                 ))
             if m == Methods.LEXICON_GET_ENTRY:
                 return EngineResponse.ok(

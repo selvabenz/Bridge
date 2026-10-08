@@ -321,6 +321,17 @@ class OpenAIResponsesClient:
         """
         return self._post_structured(instructions, input_text, 'cross_verse_links', schema)
 
+    def propose_window_alignment(
+        self, instructions: str, input_text: str, schema: dict[str, Any], direction: str,
+    ) -> dict[str, Any]:
+        """One pass of the automatic window alignment (#219). Thin on purpose,
+        like `propose_cross_verse_links`: the prompt, the schema and the
+        agreement rules belong to `alignment_window` / `alignment_agreement`.
+        Structured, so a provider that ignores the schema fails loudly rather
+        than being parsed into a guess."""
+        name = 'window_alignment_' + ''.join(ch if ch.isalnum() else '_' for ch in direction)
+        return self._post_structured(instructions, input_text, name, schema)
+
     def test_connection(self) -> dict[str, Any]:
         """Authenticate the API key and confirm the configured model is accessible without generating tokens."""
         url = f'{self.models_endpoint}/{urllib.parse.quote(self.model, safe="")}'

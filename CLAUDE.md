@@ -165,6 +165,16 @@ same uncontested pair, and only on an explicit "Suggest with AI" click. Two
 methods agreeing is the gate; a confidence threshold on one number is still not,
 anywhere. Nothing about Scripture, tC alignment data or findings changed.
 
+The second (#219, maintainer sign-off 2026-10-08, DECISIONS.md) is the
+**automatic window alignment**: on an explicit "Align automatically" click, the
+same verse window is asked twice (source-first and target-first), and what both
+passes agree on is written. That covers tC same-verse groups, cross-verse link
+groups and reasoned null decisions, each with `origin: "ai-auto"`. A
+single-pass claim is a suggestion. A word neither pass placed is a *possible*
+omission or addition and is never forced. A reviewer's existing alignment is
+never written over. Scripture text and findings are still untouched by any
+automatic path, and widening to them is still a fresh question.
+
 ### Two different vendoring shapes for the same upstream repo
 
 Both the USFM structural checker (`engine/vendor/greekroom-usfm/`) and
@@ -232,17 +242,21 @@ A raw Scripture import becomes a translationCore-compatible book project:
 <project>/.apps/translationCore/index/{translationNotes,translationWords}/<book>/
 <project>/.bridge/import.json                   SHA-256 provenance + per-tool capability status
 <project>/.apps/translationCoreAI/bridge-workbench.sqlite3
-                                                schema v6. Every Bridge-private store lives here:
+                                                schema v7. Every Bridge-private store lives here:
                                                 the human-owned ones (#76), the derived ones
                                                 (#77) -- progress rollup, check-finding snapshots,
                                                 check cache, triage verdicts, metrics, backups index --
                                                 the cross-verse alignment links (#117), which
                                                 tC alignmentData cannot hold because its groups are
                                                 verse-local, the persisted Language QA scan
-                                                (`language_qa_cache`, #169), and the reviewer's
+                                                (`language_qa_cache`, #169), the reviewer's
                                                 Language QA correction batches, learned fixes
-                                                and flags (v6). A batch only groups ordinary
-                                                journalled verse edits; it never writes Scripture.
+                                                and flags (v6; a batch only groups ordinary
+                                                journalled verse edits, it never writes Scripture),
+                                                null alignment decisions (`alignment_null_decisions`: a word with
+                                                no counterpart for a named reason, #216 -- no row
+                                                means unaligned) and the per-verse automatic
+                                                alignment verdicts (`alignment_verdicts`, #216).
 <project>/.apps/translationCoreAI/backups/      the backup files themselves, indexed by the DB
 %LOCALAPPDATA%\Bridge\data\workspace.sqlite3    app-level, schema v2 (#77): users, devices, the
                                                 project registry, non-secret settings (bookmarks and
@@ -300,6 +314,15 @@ folder/Paratext project with several books as one project **per book**,
 linked via `.bridge/collection.json` on every sibling. Only the first book
 is normalized eagerly; the rest carry `.bridge/lazy-import.json` and
 normalize on first open (this is why a 66-book import is ~5s, not minutes).
+
+The dashboard's **Collection QA** panel (`collection.runChecks`, Benz, 2026-09-24,
+documented in #215) checks every book of a collection in turn, unattended, with the
+ordinary check job: local tN/tW/alignment, Greek Room and Language QA. It is never
+started automatically, and the app is read-only while it runs. Each finished book is
+upserted into `.bridge/collection.json` `qaRuns[]` with a sha256 of its chapter files,
+so an unchanged book is skipped on the next run and a cancelled or crashed run resumes;
+the whole-collection stage's summary lands in `qaFinalStage`. Engine:
+`engine/collection_jobs.py`; UI: `CollectionQaPanel.svelte`.
 
 ## Hard invariants
 
@@ -372,11 +395,12 @@ translation team that database *is* months of work, and no reset is available.
 
 This same discipline now has two more, independent ladders. `bridge-workbench.sqlite3`
 (`WorkbenchRepository`, `engine/tc_ai_bridge/workbench_repository.py`,
-`WORKBENCH_SCHEMA_VERSION`, currently v6 — v2 added `change_log.columns_json` for
+`WORKBENCH_SCHEMA_VERSION`, currently v7 — v2 added `change_log.columns_json` for
 sync and rebuilt the immutability trigger; v3 added `alignment_cross_verse_links`,
 #117; v4 added `language_qa_cache`, #169; v5 rebuilt `human_decisions` to admit the `housestyle` kind, #169;
 v6 added `language_qa_batches`, `language_qa_learned_fixes` and `language_qa_flags`, indic-qa editor
-features) and `workspace.sqlite3`
+features, carried verbatim from `indic-qa-editor` so both branches share one ladder;
+v7 added `alignment_null_decisions` and `alignment_verdicts`, #216) and `workspace.sqlite3`
 (`WorkspaceRepository`, `engine/tc_ai_bridge/workspace_repository.py`,
 `WORKSPACE_SCHEMA_VERSION`, currently v2 — v1 is exactly the unversioned
 devices/users the first cut created, kept as `IF NOT EXISTS` so an existing
@@ -647,10 +671,11 @@ raise it as a question in the issue rather than deciding it in a commit:
   runtime path a translator hits
 - Re-baselining either golden
 - Changing the confidence thresholds or the auto-apply behaviour. Still on this
-  list after #146: that decision was taken once, for cross-verse links only, on
-  an agreement-between-two-methods gate. Widening it — to Scripture, to tC
-  alignment data, to findings, or to any single-score threshold — is a fresh
-  question, not a precedent already set
+  list after #146 and #219: those decisions were taken for cross-verse links
+  (#146) and for the two-pass window alignment of tC groups, links and null
+  decisions (#219), each on an agreement-between-two-methods gate. Widening it —
+  to Scripture, to findings, to a single pass, or to any single-score threshold —
+  is a fresh question, not a precedent already set
 - A second Scripture writer, or an alternative path for applying corrections to
   the text — Stage 9B.3b's authorized write behind an explicit human confirmation
   is deliberately the only one. (A scoped Language QA correction, 2026-10-07,

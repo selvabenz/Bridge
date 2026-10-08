@@ -244,11 +244,17 @@ verify repository reality against this document before relying on it
 - Verse numbers are reference anchors, not semantic boundaries.
 - Never rewrite Scripture automatically or reuse stale imported wording.
 - Never silently move, replace, or approve human work.
-- Never equate unaligned, null-aligned, not-located, and missing.
+- Never equate unaligned, null-aligned, not-located, and missing. A null
+  alignment is a stored, reasoned row (`alignment_null_decisions`, #216); the
+  absence of a row means unaligned, and an empty tC group is never read as
+  null-aligned.
 - Never convert search/computation failure into omission/addition.
 - Never treat embeddings or translation helps as proof.
 - Never manufacture same-verse translationCore alignment for cross-verse
   meaning.
+- One token, one home: a tC group, a cross-verse link group or a null decision,
+  never two (#217). A cross-verse 1:N/N:1/N:M realization is one group, written
+  and removed as a unit.
 - Persistent spans remain half-open Unicode code-point offsets over raw text.
 - Correction Apply requires exact reference, span, current text,
   revision/hash, CAS, and explicit human action; normalized text is never an

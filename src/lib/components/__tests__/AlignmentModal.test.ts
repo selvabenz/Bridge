@@ -57,11 +57,15 @@ function context(extra: Partial<AlignmentContext> = {}): AlignmentContext {
     chapterStatus: { complete: 0, partial: 3, untouched: 28, invalid: 0 },
     gaps: { sourceUnmatched: 1, targetUnmatched: 2 },
     crossVerseLinks: [],
+    crossVerseGroups: [],
     crossVerseAccountedIds: [],
     crossVerseRealizedIds: [],
     crossVerseAccounted: 0,
     crossVerseRealized: 0,
     fullyAccounted: false,
+    nullDecisions: { source: [], target: [] },
+    accountedBy: { tc: 0, crossVerse: 0, null: 0 },
+    accounted: false,
     ...extra,
   };
 }
