@@ -4603,7 +4603,10 @@ class BridgeEngine:
                         with timings.step("preflight.resource_indexes"):
                             self._ensure_resource_indexes(project)
                     findings = self._run_verse_checks_for_project(project, chapter, verse, checks)
-        check_timing.trace(f"verse.runChecks {chapter}:{verse} {list(checks)}", timings)
+        # Every verse selection runs this: trace only a slow one, as for RPCs,
+        # so the diagnostics log is not one line per click.
+        if timings.elapsed() >= 0.1:
+            check_timing.trace(f"verse.runChecks {chapter}:{verse} {list(checks)}", timings)
         return findings
 
     def _run_verse_checks_for_project(

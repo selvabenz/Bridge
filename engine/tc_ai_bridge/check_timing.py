@@ -69,7 +69,7 @@ class Timings:
         items = sorted(self._items(), key=lambda item: -item[1][0])
         return {name: {"ms": round(seconds * 1000, 1), "calls": calls} for name, (seconds, calls) in items}
 
-    def summary(self, limit: int = 40) -> str:
+    def summary(self, limit: int = 12) -> str:
         parts = [f"{name}={entry['ms']:.0f}ms/{entry['calls']}" for name, entry in list(self.as_dict().items())[:limit]]
         return f"total={self.elapsed():.2f}s " + " ".join(parts)
 
@@ -107,4 +107,6 @@ def activate(timings: Timings) -> Iterator[Timings]:
 def trace(label: str, timings: Timings) -> None:
     """One `[trace]` line on stderr, the channel `bridge_service._trace` uses:
     the Rust shell relays it to the diagnostics panel and engine-events.log."""
+    # Slowest steps only: the desktop shell records every stderr line as a
+    # diagnostics entry, and the full set is on the job's or pass's `timings`.
     print(f"[trace] timing {label}: {timings.summary()}", file=sys.stderr, flush=True)

@@ -8,6 +8,7 @@ regex cannot make this test pass accidentally.
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import os
 import queue
@@ -162,6 +163,19 @@ def main() -> int:
 
         threading.Thread(target=read_stdout, daemon=True).start()
 
+        # stderr must be drained too: it is a pipe, and once its buffer (a few
+        # KB on Windows) is full the engine blocks on its next diagnostic line,
+        # mid-request. The desktop shell reads it continuously (sidecar.rs);
+        # the timing traces (2026-10-08) made this harness the first to fill it.
+        stderr_tail: "collections.deque[str]" = collections.deque(maxlen=200)
+
+        def read_stderr() -> None:
+            assert process.stderr is not None
+            for line in process.stderr:
+                stderr_tail.append(line.rstrip("\n"))
+
+        threading.Thread(target=read_stderr, daemon=True).start()
+
         def request(request_id: str, method: str, params: dict, timeout: float = 30) -> dict:
             assert process.stdin is not None
             process.stdin.write(json.dumps({"id": request_id, "method": method, "params": params}) + "\n")
@@ -174,7 +188,8 @@ def main() -> int:
                     break
                 if response.get("id") == request_id:
                     return response
-            raise SystemExit(f"Request {request_id} timed out")
+            tail = "\n".join(list(stderr_tail)[-5:])
+            raise SystemExit(f"Request {request_id} timed out" + (f"; engine stderr ends:\n{tail}" if tail else ""))
 
         try:
             info = request("info", "engine.info", {})
