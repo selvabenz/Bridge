@@ -14526,3 +14526,26 @@ fake transport (`tests/service/test_auto_align_window.py`). They cover:
 Rust: the 540 s timeout is pinned in `sidecar::tests`; `cargo test` passes
 (10). Full engine suite with `-n auto` on this part: 4773 passed, 1 skipped,
 3 xfailed. `npm run check` is clean.
+
+## 2026-10-08 — Automatic cross-verse alignment, part 5: possible omission/addition in the verse editor (#220)
+
+`alignment_gap_checks.gap_issues` runs inside `_run_verse_checks_for_project`
+whenever `local` or `alignment` checks run. It uses the `project` handle it is
+given, not `self.project`, because check jobs open their own handles.
+
+- **When it fires.** Only for live gaps, and only on a verse with a non-reverted
+  verdict or a translationCore completion. Firing on every unaligned verse would
+  repeat `ALIGN_UNALIGNED_*` once per word and bury the verse.
+- **Codes.** `ALIGN_POSSIBLE_OMISSION` / `_ADDITION` keep the `ALIGN_` prefix,
+  so `_categorize_qaissue` files them under Alignment.
+- **Spans.** A target finding gets a highlight-only span: offsets and the
+  original text, no replacement. The span comes from `_first_token_span`
+  generalised to the n-th occurrence, so a repeated word underlines the right
+  copy.
+- **Failure handling.** A failure inside the gap check is swallowed, so a
+  verse's ordinary checks are never sunk by optional evidence.
+
+QA matrix rows A97–A101 now cover parts 1–5, all at source level only.
+
+**Verified.** 6 new protocol tests. Full engine suite with `-n auto`: 4779 passed,
+1 skipped, 3 xfailed.

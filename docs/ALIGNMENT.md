@@ -226,6 +226,22 @@ signature):
   error rate, it does not bound it. Every number is uncalibrated
   (`two-pass-agreement-v1`). No real-provider run has been recorded yet (#131).
 
+### In the verse editor (#220)
+
+The ordinary `alignment` check engine (and `local`) raises
+`alignment.possible_omission` (high) and `alignment.possible_addition` (medium)
+for every live gap of a verse that an automatic pass has run on, or that
+translationCore marks completed. A gap is live when the word is not in a tC
+group with a counterpart, not at either end of an active link and not
+null-decided. Nothing is raised on a verse nobody has aligned, where
+`ALIGN_UNALIGNED_*` already applies, or on one that was reverted.
+
+- The finding id is stable: `group_id` is the token signature, so decisions are
+  re-applied as usual.
+- A target finding carries the word's raw span, so the editor underlines it.
+- The explanation carries the model's note. If the verse changed after the
+  pass, it says to run the pass again instead.
+
 ## What Stage 6B and Stage 8 read from all this (#218)
 
 - A cross-verse **group** reaches Stage 6B as one `WORD_ALIGNMENT` precedent

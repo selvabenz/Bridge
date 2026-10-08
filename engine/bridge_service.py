@@ -109,7 +109,7 @@ from tc_ai_bridge import versification as versification_tool
 from tc_ai_bridge import alignment_gaps
 from tc_ai_bridge import alignment_null_decisions as null_decisions_tool
 from tc_ai_bridge import cross_verse_links as cross_verse_tool
-from tc_ai_bridge import alignment_agreement, alignment_window
+from tc_ai_bridge import alignment_agreement, alignment_gap_checks, alignment_window
 from tc_ai_bridge.plugins import PluginRegistry
 from tc_ai_bridge import alignment_statistics as corpus_stats_tool
 from tc_ai_bridge import cross_verse_proposals, cross_verse_ai_proposals
@@ -4428,6 +4428,18 @@ class BridgeEngine:
         if "local" in checks or "tN" in checks or "tW" in checks or "alignment" in checks:
             alignment = project.load_verse_alignment(chapter, verse)
             issues = run_local_qa(project, chapter, verse, alignment)
+            if "local" in checks or "alignment" in checks:
+                # #220: what the automatic pass could not place, as findings the
+                # editor shows. Quiet on a verse no pass has run on; a live gap
+                # only, so a reviewer's link or decision silences it at once.
+                try:
+                    issues = [*issues, *alignment_gap_checks.gap_issues(
+                        project, chapter, verse, alignment, target_text,
+                    )]
+                except Exception:
+                    # Optional evidence: a problem here must never sink the
+                    # verse's ordinary checks.
+                    pass
             resource_versions = self._pinned_resource_versions(project)
             for issue in issues:
                 findings.append(_qaissue_to_finding(
