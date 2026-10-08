@@ -56,6 +56,10 @@ class _CheckJob:
         self.completed_steps = 0
         self.total_steps = 0
         self.results: dict[str, dict[str, Any]] = {}
+        # Keys of `results` in the order they were written: the cursor a
+        # status poll passes back (`since`) indexes this list, so a poll copies
+        # only the verses finished since the last one (#229).
+        self.result_order: list[str] = []
         self.error: Optional[str] = None
         self.created_at = _now()
         self.finished_at: Optional[str] = None
@@ -66,8 +70,18 @@ class _CheckJob:
         # code the stages call. Reported as `timings` on the snapshot.
         self.timings = check_timing.Timings()
 
-    def snapshot(self) -> dict[str, Any]:
+    def snapshot(self, since: Optional[int] = None) -> dict[str, Any]:
+        """The job as JSON. `results` holds every verse finished so far, or
+        with `since`, only those finished after the first `since` (the
+        `resultsCursor` of an earlier snapshot). Copying every verse's findings
+        on every poll held this lock -- which the job writes results under --
+        for seconds on a whole book (#229)."""
         with self.lock:
+            if since is None:
+                results = copy.deepcopy(self.results)
+            else:
+                start = max(0, min(int(since), len(self.result_order)))
+                results = {key: copy.deepcopy(self.results[key]) for key in self.result_order[start:]}
             total_verses = sum(len(v) for v in self.spec.chapter_verses.values())
             completed_verses = sum(
                 1 for item in self.results.values()
@@ -94,7 +108,9 @@ class _CheckJob:
                 "currentChapter": self.current_chapter,
                 "currentVerse": self.current_verse,
                 "currentStage": self.current_stage,
-                "results": copy.deepcopy(self.results),
+                "results": results,
+                "resultsSince": 0 if since is None else start,
+                "resultsCursor": len(self.result_order),
                 "error": self.error,
                 "createdAt": self.created_at,
                 "finishedAt": self.finished_at,
@@ -146,13 +162,13 @@ class CheckJobManager:
             job = self._jobs.get(self._active_job_id or "")
             return job is not None and job.state not in TERMINAL_STATES
 
-    def status(self, job_id: str = "") -> dict[str, Any]:
+    def status(self, job_id: str = "", since: Optional[int] = None) -> dict[str, Any]:
         with self._lock:
             resolved_id = job_id or self._active_job_id or ""
             job = self._jobs.get(resolved_id)
         if job is None:
             raise CheckJobNotFound(f"Unknown check job '{resolved_id}'.")
-        return job.snapshot()
+        return job.snapshot(since)
 
     def cancel(self, job_id: str = "") -> dict[str, Any]:
         with self._lock:
@@ -205,7 +221,8 @@ class CheckJobManager:
         # a check-job failure.
         if on_complete is not None:
             try:
-                on_complete(job)
+                with job.timings.step("on_complete"):
+                    on_complete(job)
             except Exception:
                 pass
 
@@ -270,6 +287,8 @@ class CheckJobManager:
                         if verse_error:
                             break
                     with job.lock:
+                        if key not in job.results:
+                            job.result_order.append(key)
                         job.results[key] = {
                             "chapter": chapter,
                             "verse": verse,

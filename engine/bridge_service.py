@@ -4897,12 +4897,15 @@ class BridgeEngine:
             if language_qa is not None:
                 language_qa.bind(project, autostart=False)
             snapshot = self._start_check_job_from_spec(spec, project, language_qa=language_qa, check_jobs=manager)
+            # Progress polls ask for no results at all (a cursor past every
+            # verse); the full set is read once, after the job ends (#229).
+            unbounded = sum(len(v) for v in spec.chapter_verses.values())
             while snapshot["state"] not in {"succeeded", "failed", "cancelled"}:
                 if cancel_event.is_set():
                     manager.cancel(snapshot["jobId"])
-                # A snapshot deep-copies every verse's results; poll gently.
                 time.sleep(0.2)
-                snapshot = manager.status(snapshot["jobId"])
+                snapshot = manager.status(snapshot["jobId"], since=unbounded)
+            snapshot = manager.status(snapshot["jobId"])
         finally:
             if language_qa is not None:
                 language_qa.unbind()
@@ -5076,8 +5079,10 @@ class BridgeEngine:
         except Exception:
             pass
 
-    def check_job_status(self, job_id: str = "") -> dict[str, Any]:
-        snapshot = self._check_jobs.status(job_id)
+    def check_job_status(self, job_id: str = "", since: Optional[int] = None) -> dict[str, Any]:
+        """checks.status. `since`: only the verses finished after that many
+        (the previous snapshot's `resultsCursor`); omitted, every verse (#229)."""
+        snapshot = self._check_jobs.status(job_id, since)
         if LANGUAGE_QA_CHECK in snapshot.get("checks", []):
             # The main progress bar's view of the Language QA stage; the panel
             # keeps languageQa.status for its book-level lists.
@@ -6595,8 +6600,11 @@ class BridgeEngine:
                     checks=p.get("checks"),
                 ))
             if m == Methods.CHECKS_STATUS:
+                since = p.get("since")
+                if since is not None and (isinstance(since, bool) or not isinstance(since, int) or since < 0):
+                    raise ValueError("since must be a non-negative integer")
                 return EngineResponse.ok(
-                    request.id, result=self.check_job_status(p.get("jobId", "")),
+                    request.id, result=self.check_job_status(p.get("jobId", ""), since),
                 )
             if m == Methods.CHECKS_CANCEL:
                 return EngineResponse.ok(

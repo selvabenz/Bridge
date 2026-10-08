@@ -1160,7 +1160,13 @@ export interface CheckJobSnapshot {
   currentChapter: string | null;
   currentVerse: string | null;
   currentStage: string;
+  /** Every verse finished so far, or with checks.status `since`, only those
+   *  finished after it (#229). */
   results: Record<string, CheckJobVerseResult>;
+  /** Where `results` starts and ends in the job's finish order: pass
+   *  `resultsCursor` back as `since` to get only what is new. */
+  resultsSince?: number;
+  resultsCursor?: number;
   error: string | null;
   createdAt: string;
   finishedAt: string | null;

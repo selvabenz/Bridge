@@ -16827,3 +16827,61 @@ which check: Benz will decide ownership from these numbers. The fixes are
 listed as candidates in the chat handoff, in order of measured cost: the
 status snapshot, Wildebeest text-hash cache, one decisions read per verse,
 the chapter-job pass, the names cache key.
+
+## 2026-10-08 — checks.status returns only new verses (#229)
+
+**Problem.** Every `checks.status` poll deep-copied every verse result so far
+under the job's lock, and the transport then serialised all of it. On a
+whole book the polls grew to 15.7 MB each, stalled the stdio dispatcher, and
+slowed the job itself, because the job thread writes its results under the
+same lock.
+
+**Change.**
+- `_CheckJob.result_order` records the order verses finish in.
+- `snapshot(since)` copies only the verses after `since` and reports
+  `resultsSince`/`resultsCursor`.
+- Without `since`, a poll returns every verse as before. Tests, retry and the
+  `cancelChecks` reply rely on that.
+- `checks.status` refuses a `since` that is not a non-negative integer, rather
+  than reading it as "everything".
+- `App.svelte` `monitorJob` passes the cursor back and keeps a per-job tally
+  of verse statuses. The end-of-job bookkeeping (failed/cancelled marks,
+  `loadedChapters`) reads the tally, not `snapshot.results`.
+- `stopActiveJob` waits without copying results, then reads them all once.
+- The collection runner polls with a cursor past every verse and reads the
+  full set once, after the job ends.
+- `check_jobs` times the completion hook (`on_complete`).
+
+**Measured.** GEN copy (1,533 verses), one whole-book job,
+`local+greekroom+languageQa`, polled every 750 ms. That is App.svelte's
+real interval; the previous entry's "every 500 ms" was wrong. Each mode ran
+in its own process with nothing else running:
+
+| | full snapshot (before) | cursor (after) |
+|---|---|---|
+| job wall time | 136.5 s | 104.4 s |
+| dispatcher blocked by the 130 polls | 37.9 s | 6.4 s |
+| mean poll | 292 ms | 49 ms |
+| JSON produced by polls | 870 MB | 17 MB |
+| Wildebeest per verse inside the job | 45.9 ms | 32.8 ms |
+
+An earlier pair of runs gave 188 s vs 104 s, but `npm run test` was running
+during the "full" run, so it is not used.
+
+**Found, not fixed (#235).** The last poll of every whole-book job took
+4.5-5.0 s in both modes. That poll was at stage "Complete" and carried
+140 KB. `_fire_on_complete` writes the rollup and every chapter's findings
+snapshot while holding the job lock, by design: a poll must never see
+"succeeded" first. The dispatcher waits on that lock.
+
+**Verified.**
+- Engine: pytest over tests/jobs, test_bridge_service, test_language_qa,
+  test_stdio_e2e, test_qa_report and the timing tests: 445 passed. New:
+  `tests/jobs/test_check_job_cursor.py`, where incremental polls during a
+  held job add up to exactly the full result set in order, and
+  `tests/service/test_check_status_cursor_protocol.py`, covering the
+  protocol and refusals.
+- Frontend: `npm run check` 0/0, `npm run test` 639 passed, `npm run build`
+  ok.
+- The `App.svelte` monitor change has no unit test; App.svelte has none.
+- Desktop not run.

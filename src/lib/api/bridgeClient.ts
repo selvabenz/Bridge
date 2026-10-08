@@ -692,8 +692,10 @@ export const bridge = {
     return call("checks.start", { scope, chapters, checks });
   },
 
-  checkStatus(jobId: string): Promise<CheckJobSnapshot> {
-    return call("checks.status", { jobId });
+  /** `since`: the previous snapshot's resultsCursor, to receive only the
+   *  verses finished after it (#229). Omitted: every verse. */
+  checkStatus(jobId: string, since?: number): Promise<CheckJobSnapshot> {
+    return call("checks.status", since === undefined ? { jobId } : { jobId, since });
   },
 
   cancelChecks(jobId: string): Promise<CheckJobSnapshot> {
