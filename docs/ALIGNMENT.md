@@ -99,6 +99,46 @@ alignment.crossVerse.unlink              {linkId}
   weight as completed same-verse alignment, and a link change stales the
   downstream Stage 6B/7/8 records (#119).
 
+## Null decisions: a word with no counterpart, for a reason (#216)
+
+translationCore can say "this source word has these target words" or nothing.
+An empty group and a word left in the word bank both mean *not aligned yet*.
+Bridge records a third statement, the spec's NULL_ALIGNED: this word has no
+counterpart, and that is correct. It is stored in `alignment_null_decisions`
+(workbench v6), beside the link table, and never in `alignmentData/`.
+
+```text
+alignment.null.set    {chapter, verse, side: "source"|"target", id, reason, note?}
+alignment.null.clear  {decisionId}
+```
+
+- **The reason set is closed and depends on the side.** A source word is
+  `IMPLICIT` (context carries it) or `GRAMMATICAL` (an ending or word order, with
+  no separate word). A target word is `GRAMMATICAL` (the language requires it)
+  or `EXPLICITATION` (it states what the source implies). Nothing else is
+  accepted.
+- **No row means unaligned.** "Unresolved" is never stored, and an empty tC
+  group is never read as a null.
+- **One token, one home.** A word already aligned in its own verse, or at
+  either end of an active link, cannot be marked. A marked word cannot be
+  linked. Clear one home first.
+- **Same discipline as a link.** Each change makes three writes: the row, a
+  `nullDecide` / `nullClear` / `nullInvalidate` event, and a history row without
+  a backup. A different reason is an explicit update that keeps
+  `previousReason`. A text edit that removes a decided target word marks the
+  decision `invalid`, inside the edit's journal transaction. `origin` (`human`
+  or `ai-auto`) is kept on the row as well as on the event, so an automatic
+  re-run can supersede its own decisions and never a reviewer's.
+- **Status.** A null-decided token is not a gap. The verse context reports
+  `nullDecisions`, `accountedBy {tc, crossVerse, null}` and `accounted`, which
+  is true when every token has some home and there is a source and no
+  structural issue. `status`, `completionState` and `canComplete` keep telling
+  the translationCore truth, so a verse whose only remaining tokens are nulls is
+  still `partial` there.
+- The decisions' digest is folded into `alignment_state_digest`, so a change
+  stales Stage 6B/7/8. It is folded only when a book has decisions, so existing
+  projects keep their digests.
+
 ## Finding the gaps, and suggesting what fills them (#137–#139)
 
 A **gap** is a source token with no target word in its own verse, or a target

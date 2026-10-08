@@ -341,9 +341,63 @@ export interface AlignmentContext {
   crossVerseRealizedIds: string[];
   crossVerseAccounted: number;
   crossVerseRealized: number;
-  /** Every remaining gap is covered by a link. `status` and `completionState`
-   *  still tell the translationCore truth: the verse is not complete. */
+  /** Every remaining gap is covered by a link or a null decision. `status` and
+   *  `completionState` still tell the translationCore truth: the verse is not
+   *  complete. */
   fullyAccounted: boolean;
+  /** #216: this verse's null decisions, active and invalid, per side. */
+  nullDecisions: { source: NullDecisionEntry[]; target: NullDecisionEntry[] };
+  /** How many tokens each kind of home accounts for (#216). */
+  accountedBy: { tc: number; crossVerse: number; null: number };
+  /** Every token has a home -- a tC group, a cross-verse link or a reasoned
+   *  null -- and the verse has a source and no structural issue. Bridge's
+   *  "nothing left to do"; `status` stays translationCore's own state. */
+  accounted: boolean;
+}
+
+/** #216: why a word has no counterpart. Source words are implicit or
+ *  grammatical; target words are grammatical or explicitation. No decision at
+ *  all means unaligned -- that is never stored. */
+export type NullSide = "source" | "target";
+export type NullReason = "IMPLICIT" | "GRAMMATICAL" | "EXPLICITATION";
+export type NullOrigin = "human" | "ai-auto" | "ai-proposed-accepted";
+
+export interface NullDecision {
+  id: string;
+  bookId: string;
+  chapter: string;
+  verse: string;
+  side: NullSide;
+  token: { word: string; occurrence: number; occurrences: number; signature: string; strong?: string; lemma?: string; morph?: string };
+  reason: NullReason;
+  note: string;
+  state: "active" | "invalid";
+  origin: NullOrigin;
+  previousReason?: NullReason;
+  invalidReason?: string;
+  createdAt: string;
+  updatedAt: string;
+  actorId: string;
+}
+
+/** A null decision as one verse's context reports it, with this load's id. */
+export interface NullDecisionEntry {
+  /** Positional id in this verse, or null when the token can't be resolved. */
+  id: string | null;
+  decisionId: string;
+  word: string;
+  reason: NullReason;
+  note: string;
+  origin: NullOrigin;
+  state: "active" | "invalid";
+  invalidReason?: string | null;
+  /** Active, but this load cannot find the token: the source pack changed. */
+  stale: boolean;
+}
+
+export interface NullDecisionResult {
+  decision: NullDecision;
+  context: AlignmentContext;
 }
 
 /** alignment.getRange: one context per requested verse, in the caller's

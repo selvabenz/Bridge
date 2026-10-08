@@ -244,7 +244,10 @@ verify repository reality against this document before relying on it
 - Verse numbers are reference anchors, not semantic boundaries.
 - Never rewrite Scripture automatically or reuse stale imported wording.
 - Never silently move, replace, or approve human work.
-- Never equate unaligned, null-aligned, not-located, and missing.
+- Never equate unaligned, null-aligned, not-located, and missing. A null
+  alignment is a stored, reasoned row (`alignment_null_decisions`, #216); the
+  absence of a row means unaligned, and an empty tC group is never read as
+  null-aligned.
 - Never convert search/computation failure into omission/addition.
 - Never treat embeddings or translation helps as proof.
 - Never manufacture same-verse translationCore alignment for cross-verse

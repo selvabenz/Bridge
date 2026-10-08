@@ -77,6 +77,9 @@ function context(verse: string, sources: string[], targets: string[], aligned: n
     crossVerseAccounted: 0,
     crossVerseRealized: 0,
     fullyAccounted: false,
+    nullDecisions: { source: [], target: [] },
+    accountedBy: { tc: 0, crossVerse: 0, null: 0 },
+    accounted: false,
   };
 }
 

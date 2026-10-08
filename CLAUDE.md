@@ -207,14 +207,18 @@ A raw Scripture import becomes a translationCore-compatible book project:
 <project>/.apps/translationCore/index/{translationNotes,translationWords}/<book>/
 <project>/.bridge/import.json                   SHA-256 provenance + per-tool capability status
 <project>/.apps/translationCoreAI/bridge-workbench.sqlite3
-                                                schema v5. Every Bridge-private store lives here:
+                                                schema v6. Every Bridge-private store lives here:
                                                 the human-owned ones (#76), the derived ones
                                                 (#77) -- progress rollup, check-finding snapshots,
                                                 check cache, triage verdicts, metrics, backups index --
                                                 the cross-verse alignment links (#117), which
                                                 tC alignmentData cannot hold because its groups are
-                                                verse-local, and the persisted Language QA scan
-                                                (`language_qa_cache`, #169).
+                                                verse-local, the persisted Language QA scan
+                                                (`language_qa_cache`, #169), null alignment
+                                                decisions (`alignment_null_decisions`: a word with
+                                                no counterpart for a named reason, #216 -- no row
+                                                means unaligned) and the per-verse automatic
+                                                alignment verdicts (`alignment_verdicts`, #216).
 <project>/.apps/translationCoreAI/backups/      the backup files themselves, indexed by the DB
 %LOCALAPPDATA%\Bridge\data\workspace.sqlite3    app-level, schema v2 (#77): users, devices, the
                                                 project registry, non-secret settings, and one cached
@@ -349,9 +353,10 @@ translation team that database *is* months of work, and no reset is available.
 
 This same discipline now has two more, independent ladders. `bridge-workbench.sqlite3`
 (`WorkbenchRepository`, `engine/tc_ai_bridge/workbench_repository.py`,
-`WORKBENCH_SCHEMA_VERSION`, currently v5 — v2 added `change_log.columns_json` for
+`WORKBENCH_SCHEMA_VERSION`, currently v6 — v2 added `change_log.columns_json` for
 sync and rebuilt the immutability trigger; v3 added `alignment_cross_verse_links`,
-#117; v4 added `language_qa_cache`, #169; v5 rebuilt `human_decisions` to admit the `housestyle` kind, #169) and `workspace.sqlite3`
+#117; v4 added `language_qa_cache`, #169; v5 rebuilt `human_decisions` to admit the `housestyle` kind, #169;
+v6 added `alignment_null_decisions` and `alignment_verdicts`, #216) and `workspace.sqlite3`
 (`WorkspaceRepository`, `engine/tc_ai_bridge/workspace_repository.py`,
 `WORKSPACE_SCHEMA_VERSION`, currently v2 — v1 is exactly the unversioned
 devices/users the first cut created, kept as `IF NOT EXISTS` so an existing

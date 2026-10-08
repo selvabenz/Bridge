@@ -33,6 +33,9 @@ import type {
   AlignmentStatusResponse,
   CrossVerseLinkResult,
   CrossVerseAiProposalResult,
+  NullDecisionResult,
+  NullReason,
+  NullSide,
   CrossVerseProposalResult,
   BookProgressEntry,
   CheckJobSnapshot,
@@ -217,6 +220,8 @@ export type EngineMethod =
   | "alignment.crossVerse.link"
   | "alignment.crossVerse.propose"
   | "alignment.crossVerse.unlink"
+  | "alignment.null.set"
+  | "alignment.null.clear"
   | "alignment.gapScan"
   | "alignment.get"
   | "alignment.getRange"
@@ -642,6 +647,18 @@ export const bridge = {
 
   crossVerseUnlink(linkId: string): Promise<CrossVerseLinkResult> {
     return call("alignment.crossVerse.unlink", { linkId });
+  },
+
+  /** #216: record that a word has no counterpart, for a reason. Refused when
+   *  the word is already aligned or linked: one token, one home. */
+  nullSet(
+    chapter: string, verse: string, side: NullSide, id: string, reason: NullReason, note = "",
+  ): Promise<NullDecisionResult> {
+    return call("alignment.null.set", { chapter, verse, side, id, reason, note });
+  },
+
+  nullClear(decisionId: string): Promise<NullDecisionResult> {
+    return call("alignment.null.clear", { decisionId });
   },
 
   getLexiconEntry(strong: string, morph: string): Promise<LexiconEntryResponse> {

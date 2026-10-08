@@ -113,7 +113,7 @@ flowchart TB
       CD["checkData/ and tools/wordAlignment/completed, invalid"]
     end
     subgraph AIdir[".apps/translationCoreAI/ (Bridge-private)"]
-      WB["bridge-workbench.sqlite3, schema v5, 22 tables<br/>human_decisions, issue_resolutions, ai_review_results, alignment_history,<br/>alignment_cross_verse_links (#117), alignment_diagnostics, check_findings, check_cache, triage_verdicts,<br/>language_qa_cache (#169),<br/>progress_chapters, progress_findings, progress_totals, metrics_events, metrics_counters,<br/>semantic_mappings, semantic_validation_runs, project_state, team_members,<br/>team_assignments, file_backups, change_log (append-only, trigger-guarded)"]
+      WB["bridge-workbench.sqlite3, schema v6, 24 tables<br/>human_decisions, issue_resolutions, ai_review_results, alignment_history,<br/>alignment_cross_verse_links (#117), alignment_null_decisions, alignment_verdicts (#216), alignment_diagnostics, check_findings, check_cache, triage_verdicts,<br/>language_qa_cache (#169),<br/>progress_chapters, progress_findings, progress_totals, metrics_events, metrics_counters,<br/>semantic_mappings, semantic_validation_runs, project_state, team_members,<br/>team_assignments, file_backups, change_log (append-only, trigger-guarded)"]
       SEM["passageSemantic/bridge-semantic.sqlite3, schema v16, 49 tables<br/>Stage 4 foundation: token_lineages, token_instances, passage_records,<br/>record_dependencies, pending_invalidations, source_resource_locks<br/>Stage 5 to 8 run tables, 9A review_records and analysis_jobs,<br/>9B correction_proposals, _events, _intents, _verifications"]
       TX["transactions/ (pre-write journal), backups/, paratextNotes/"]
     end
@@ -130,7 +130,7 @@ flowchart TB
 
 Three independent schema ladders, each with its own version constant and migration blocks
 in one module: `passage_semantic_repository.py` (`DATABASE_SCHEMA_VERSION = 16`),
-`workbench_repository.py` (`WORKBENCH_SCHEMA_VERSION = 5`), `workspace_repository.py`
+`workbench_repository.py` (`WORKBENCH_SCHEMA_VERSION = 6`), `workspace_repository.py`
 (`WORKSPACE_SCHEMA_VERSION = 2`). A bump on one is never a bump on another. The
 pre-cutover JSON store directories are listed in `tc_project.py`'s `_PRE_CUTOVER_STORE_DIRS`;
 a project carrying any of them refuses to open and is re-imported (no migration, by the

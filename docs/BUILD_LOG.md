@@ -14351,3 +14351,55 @@ now has one, pointing at LANGUAGE_QA_PLAN. Not touched, already stale and noted 
 
 **Verified.** The six engine test files `affected_tests.py` selects for a docs-only
 change (165 tests) pass. No code changed.
+
+## 2026-10-08 — Automatic cross-verse alignment, part 1: null alignment decisions (#216)
+
+The first of seven parts of automatic cross-verse alignment (#216–#222, extending
+#214; plan agreed with Benz 2026-10-07/08, mockup
+https://claude.ai/artifact/C75bSQPQEfCUEAs2dyNZXc). This part gives Bridge
+somewhere to say "this word has no counterpart, and that is correct". Before it,
+a Greek article with no Tamil word, or a Tamil word that is pure grammar, could
+only stay a gap, and Stage 8 could only read it as a possible omission or
+addition.
+
+**Storage: workbench v5 → v6.** Two tables. `alignment_null_decisions` is a
+sibling of v3's link table: chapter, verse, side, signature, reason and state are
+lifted, and it is unique on (book, chapter, verse, side, signature).
+`alignment_verdicts` is the per-verse cache the automatic pass (#219–#221) will
+write; it is created now so the series needs one bump, not two. Neither carries a
+CHECK on side or reason. v5 shows that widening a CHECK costs a table rebuild;
+both sets are validated in `alignment_null_decisions.validate`. **Schema-number
+collision:** `indic-qa-editor` (not on main) also takes v6 for its Language QA
+batch tables. Whichever branch merges second renumbers its block to v7.
+
+**Store.** `alignment_null_decisions.py` mirrors `cross_verse_links.py`: three
+writes per change, history without a backup, and invalidation on a text edit
+inside `apply_scripture_edit`'s transaction (reported as
+`nullDecisionsInvalidated`). Decisions on the source side are never invalidated
+by an edit, because no edit removes a source token. A source signature the load
+cannot resolve is reported `stale` on read, not written. Two differences from
+the link store, both deliberate:
+- `origin` is on the row, not only the event, so the automatic pass can
+  supersede only its own rows;
+- the history id includes the row id. `_timestamp` has millisecond resolution,
+  and a burst of decisions in one verse would otherwise overwrite each other's
+  history row. The link store has the same latent collision; the automatic
+  pass's link groups (part 2) will need the same fix there.
+
+**Service.** `alignment.null.set` / `.clear`. A token that already has a home (a
+group with target words, any target group, or either end of an active link)
+cannot be marked, and a marked token cannot be linked. `gap_ids` takes
+`null_source_ids` / `null_target_ids`, so `_alignment_context` and `gapScan`
+share one definition. The context gains `nullDecisions`, `accountedBy` and
+`accounted`. `fullyAccounted` now counts nulls as well as links. The digest is
+folded into `alignment_state_digest` only when a book has decisions, so every
+existing project keeps the digest, and the cached runs, it had.
+
+**Not in this part.** `_save_alignment` (realign / save / aiApplyProposal) does
+not yet refuse a token that has a null or a link. That is part 2 (#217), with
+the N:M link groups.
+
+**Verified.** 13 new tests (`tests/alignment/test_alignment_null_decisions.py`,
+`tests/service/test_alignment_null_rpc.py`) pass. Full engine suite with
+`-n auto`: 4735 passed, 1 skipped, 3 xfailed. `npm run check` is clean. Neither
+golden moved. Frozen sidecars not rebuilt for this part.

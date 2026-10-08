@@ -104,6 +104,7 @@ from tc_ai_bridge.usfm_verse import WHITESPACE_TOKEN_TRIM_CHARS, lift_verse
 from tc_ai_bridge.usfm_parser import UsfmParseError, parse_usfm, read_usfm_text
 from tc_ai_bridge import versification as versification_tool
 from tc_ai_bridge import alignment_gaps
+from tc_ai_bridge import alignment_null_decisions as null_decisions_tool
 from tc_ai_bridge import alignment_statistics as corpus_stats_tool
 from tc_ai_bridge import cross_verse_proposals, cross_verse_ai_proposals
 from tc_ai_bridge.reporting import LANGUAGE_QA_MEDIUM_ADVISORY, ReportService, publication_gate
@@ -395,6 +396,8 @@ class Methods:
     ALIGNMENT_CROSS_VERSE_AI_PROPOSE = "alignment.crossVerse.aiPropose"
     ALIGNMENT_CROSS_VERSE_LINK = "alignment.crossVerse.link"
     ALIGNMENT_CROSS_VERSE_UNLINK = "alignment.crossVerse.unlink"
+    ALIGNMENT_NULL_SET = "alignment.null.set"
+    ALIGNMENT_NULL_CLEAR = "alignment.null.clear"
     ALIGNMENT_STATUS = "alignment.status"
     ALIGNMENT_REALIGN = "alignment.realign"
     ALIGNMENT_UNALIGN = "alignment.unalign"
@@ -1714,14 +1717,35 @@ class BridgeEngine:
         # is what lets the editors drop the "not fully aligned" flag while
         # `status` / `completionState` keep telling the tC truth.
         cross = self._cross_verse_annotations(str(chapter), str(verse), inventory)
+        # #216: null decisions close a gap the same way a link does -- the
+        # token is accounted for, by a named reason, with no tC group.
+        nulls = self._null_annotations(str(chapter), str(verse), inventory)
         remaining_sources, remaining_targets = alignment_gaps.gap_ids(
             inventory, groups,
             realized_ids=cross["realizedIds"], accounted_ids=cross["accountedIds"],
+            null_source_ids=nulls["sourceIds"], null_target_ids=nulls["targetIds"],
         )
         gaps = {"sourceUnmatched": len(remaining_sources), "targetUnmatched": len(remaining_targets)}
         fully_accounted = (
             not remaining_sources and not remaining_targets
-            and bool(cross["accountedIds"] or cross["realizedIds"])
+            and bool(cross["accountedIds"] or cross["realizedIds"] or nulls["sourceIds"] or nulls["targetIds"])
+        )
+        tc_matched = (
+            sum(1 for group in groups if group["bottomIds"] for _ in group["topIds"])
+            + sum(len(group["bottomIds"]) for group in groups)
+        )
+        accounted_by = {
+            "tc": tc_matched,
+            "crossVerse": len(cross["realizedIds"]) + len(cross["accountedIds"]),
+            "null": len(nulls["sourceIds"]) + len(nulls["targetIds"]),
+        }
+        # The Bridge-level "nothing left to do" (#216): every token has a home
+        # -- a tC group, a cross-verse link or a reasoned null -- and the verse
+        # has a source and no structural problem. `status` and
+        # `completionState` keep telling the translationCore truth beside it.
+        accounted = (
+            source_available and not issues
+            and not remaining_sources and not remaining_targets
         )
         return {
             "chapter": str(chapter), "verse": str(verse),
@@ -1734,6 +1758,9 @@ class BridgeEngine:
             "crossVerseAccounted": len(cross["accountedIds"]),
             "crossVerseRealized": len(cross["realizedIds"]),
             "fullyAccounted": fully_accounted,
+            "nullDecisions": {"source": nulls["source"], "target": nulls["target"]},
+            "accountedBy": accounted_by,
+            "accounted": accounted,
             "completionState": self.project.word_alignment_state(chapter, verse),
             "sourceAvailable": source_available,
             "sourceMessage": "" if source_available else (
@@ -1823,8 +1850,19 @@ class BridgeEngine:
             accounted_by_verse.setdefault(
                 (str(target.get("chapter") or ""), str(target.get("verse") or "")), [],
             ).append(str(target.get("signature") or ""))
+        # #216: and one read of the null decisions, for the same reason.
+        null_by_verse: dict[tuple[str, str, str], list[str]] = {}
+        try:
+            active_nulls = self.project.null_decisions.active_decisions()
+        except Exception:
+            active_nulls = []
+        for decision in active_nulls:
+            null_by_verse.setdefault(
+                (str(decision.get("chapter") or ""), str(decision.get("verse") or ""), str(decision.get("side") or "")), [],
+            ).append(str((decision.get("token") or {}).get("signature") or ""))
 
         verses: list[dict[str, Any]] = []
+        total_null = 0
         total_source = total_target = verses_with_gaps = 0
         for verse in self.project.verses(chapter):
             raw = chapter_data.get(verse)
@@ -1851,10 +1889,20 @@ class BridgeEngine:
                 token_id for signature in accounted_by_verse.get((chapter, verse), ())
                 if (token_id := inventory.bottom_sig_to_id.get(signature))
             ]
+            null_source = [
+                token_id for signature in null_by_verse.get((chapter, verse, "source"), ())
+                if (token_id := inventory.top_sig_to_id.get(signature))
+            ]
+            null_target = [
+                token_id for signature in null_by_verse.get((chapter, verse, "target"), ())
+                if (token_id := inventory.bottom_sig_to_id.get(signature))
+            ]
             source_ids, target_ids = alignment_gaps.gap_ids(
                 inventory, alignment_gaps.group_views(alignment, inventory),
                 realized_ids=realized, accounted_ids=accounted,
+                null_source_ids=null_source, null_target_ids=null_target,
             )
+            total_null += len(null_source) + len(null_target)
             total_source += len(source_ids)
             total_target += len(target_ids)
             if source_ids or target_ids:
@@ -1865,6 +1913,7 @@ class BridgeEngine:
                 "targetGaps": alignment_gaps.describe_tokens(inventory, target_ids, bottom=True),
                 "gaps": {"sourceUnmatched": len(source_ids), "targetUnmatched": len(target_ids)},
                 "crossVerseRealized": len(realized), "crossVerseAccounted": len(accounted),
+                "nullDecided": {"source": len(null_source), "target": len(null_target)},
                 "sourceAvailable": bool(inventory.top_ids),
             })
         return {
@@ -1872,6 +1921,7 @@ class BridgeEngine:
             "totals": {
                 "sourceUnmatched": total_source, "targetUnmatched": total_target,
                 "versesWithGaps": verses_with_gaps, "verses": len(verses),
+                "nullDecided": total_null,
             },
         }
 
@@ -2072,6 +2122,105 @@ class BridgeEngine:
             links.append(entry)
         return {"links": links, "accountedIds": accounted_ids, "realizedIds": realized_ids}
 
+    def _null_annotations(self, chapter: str, verse: str, inventory) -> dict[str, Any]:
+        """One verse's null decisions (#216), with positional ids resolved from
+        the stored signatures. Only an *active* decision closes a gap. A source
+        decision whose signature this load cannot resolve is reported `stale`
+        rather than dropped: no edit path removes a source token, so it means
+        the source pack itself changed, and the reviewer should see that."""
+        found: dict[str, list[dict[str, Any]]] = {"source": [], "target": []}
+        ids: dict[str, list[str]] = {"source": [], "target": []}
+        for decision in self.project.null_decisions.decisions_for_verse(chapter, verse):
+            side = decision.get("side")
+            if side not in found:
+                continue
+            signature = (decision.get("token") or {}).get("signature", "")
+            lookup = inventory.top_sig_to_id if side == "source" else inventory.bottom_sig_to_id
+            token_id = lookup.get(signature)
+            active = decision.get("state") == "active"
+            found[side].append({
+                "id": token_id, "decisionId": decision.get("id"),
+                "word": (decision.get("token") or {}).get("word", ""),
+                "reason": decision.get("reason"), "note": decision.get("note", ""),
+                "origin": decision.get("origin", "human"), "state": decision.get("state"),
+                "invalidReason": decision.get("invalidReason"),
+                "stale": active and token_id is None,
+            })
+            if active and token_id:
+                ids[side].append(token_id)
+        return {
+            "source": found["source"], "target": found["target"],
+            "sourceIds": ids["source"], "targetIds": ids["target"],
+        }
+
+    def _null_ref(self, ref: Any) -> tuple[str, str, str, str]:
+        if not isinstance(ref, dict):
+            raise ProjectError("A null decision needs {chapter, verse, side, id}.")
+        chapter, verse = str(ref.get("chapter") or ""), str(ref.get("verse") or "")
+        side, token_id = str(ref.get("side") or ""), str(ref.get("id") or "")
+        if not chapter or not verse or not side or not token_id:
+            raise ProjectError("A null decision needs chapter, verse, side and the token id.")
+        if chapter not in self.project.chapters():
+            raise ProjectError(f"Chapter {chapter} does not exist in this project.")
+        if verse not in set(self.project.verses(chapter)):
+            raise ProjectError(f"Verse {chapter}:{verse} does not exist in this project.")
+        return chapter, verse, side, token_id
+
+    def set_null_decision(self, params: Any, *, origin: str = "human") -> dict[str, Any]:
+        """alignment.null.set (#216): record that one token has no counterpart,
+        for a reason. Refused when the token already has a counterpart -- a
+        source word in a group with target words, a target word in any group, or
+        either end of an active cross-verse link: a null is a home of its own,
+        and a token has one home."""
+        self._require_project()
+        chapter, verse, side, token_id = self._null_ref(params)
+        side, reason = null_decisions_tool.validate(side, str(params.get("reason") or ""), origin)
+        alignment = self.project.load_verse_alignment(chapter, verse)
+        inventory = make_inventory(alignment)
+        token = (inventory.top_ids if side == "source" else inventory.bottom_ids).get(token_id)
+        if token is None:
+            raise AlignmentError("That word is not in this verse any more. Reload before marking it.")
+        if side == "source":
+            if any(group.bottom_words and any(t.signature == token.signature for t in group.top_words)
+                   for group in alignment.alignments):
+                raise AlignmentError(
+                    f"{token.word} is already aligned within {chapter}:{verse}; unalign it before marking it {reason.lower()}."
+                )
+        else:
+            if any(t.signature == token.signature for t in alignment.aligned_bottom()):
+                raise AlignmentError(
+                    f"{token.word} is already aligned within {chapter}:{verse}; unalign it before marking it {reason.lower()}."
+                )
+            current = {t.signature for t in self._target_token_inventory(self.project.target_verse_text(chapter, verse))}
+            if token.signature not in current:
+                raise AlignmentError(f"{token.word} is no longer in the text of {chapter}:{verse}.")
+        cross = self._cross_verse_annotations(chapter, verse, inventory)
+        if token_id in (cross["realizedIds"] if side == "source" else cross["accountedIds"]):
+            raise AlignmentError(
+                f"{token.word} is linked to another verse; remove that link before marking it {reason.lower()}."
+            )
+        decision = self.project.null_decisions.set(
+            chapter, verse, side, token, reason, note=str(params.get("note") or ""), origin=origin,
+        )
+        return self._null_result(decision)
+
+    def clear_null_decision(self, decision_id: str) -> dict[str, Any]:
+        self._require_project()
+        if not decision_id:
+            raise ProjectError("Clearing a null decision needs its decisionId.")
+        decision = self.project.null_decisions.clear(decision_id)
+        return self._null_result(decision)
+
+    def _null_result(self, decision: dict[str, Any]) -> dict[str, Any]:
+        # A null decision is alignment state Stage 6B/8 read (#218), so it
+        # stales downstream records exactly as a link change does.
+        if self.passage_semantic_runtime is not None:
+            self.passage_semantic_runtime.synchronize_alignment_state()
+        return {
+            "decision": decision,
+            "context": self._alignment_context(decision["chapter"], decision["verse"]),
+        }
+
     def _cross_verse_ref(self, ref: Any, id_key: str) -> tuple[str, str, str]:
         if not isinstance(ref, dict):
             raise ProjectError("A cross-verse link needs source and target as {chapter, verse, id} objects.")
@@ -2116,6 +2265,7 @@ class BridgeEngine:
         s_token = s_inventory.top_ids.get(top_id)
         if s_token is None:
             raise AlignmentError("The source token id is not in that verse any more. Reload before linking.")
+        self._refuse_if_null_decided(s_chapter, s_verse, "source", s_token)
         for group in s_alignment.alignments:
             if group.bottom_words and any(t.signature == s_token.signature for t in group.top_words):
                 raise AlignmentError(
@@ -2126,6 +2276,7 @@ class BridgeEngine:
         t_token = t_inventory.bottom_ids.get(bottom_id)
         if t_token is None:
             raise AlignmentError("The target word id is not in that verse any more. Reload before linking.")
+        self._refuse_if_null_decided(t_chapter, t_verse, "target", t_token)
         if any(t.signature == t_token.signature for t in t_alignment.aligned_bottom()):
             raise AlignmentError(
                 f"{t_token.word} is already aligned within {t_chapter}:{t_verse}; unalign it there first."
@@ -2140,6 +2291,17 @@ class BridgeEngine:
             origin=str(origin or ""),
         )
         return self._cross_verse_result(link)
+
+    def _refuse_if_null_decided(self, chapter: str, verse: str, side: str, token) -> None:
+        """A token marked as having no counterpart cannot also be linked
+        (#216): one token, one home. The reviewer clears the decision first."""
+        for decision in self.project.null_decisions.decisions_for_verse(chapter, verse):
+            if (decision.get("state") == "active" and decision.get("side") == side
+                    and (decision.get("token") or {}).get("signature") == token.signature):
+                raise AlignmentError(
+                    f"{token.word} in {chapter}:{verse} is marked {str(decision.get('reason', '')).lower()}; "
+                    "clear that first."
+                )
 
     def unlink_cross_verse(self, link_id: str) -> dict[str, Any]:
         self._require_project()
@@ -4817,6 +4979,12 @@ class BridgeEngine:
             if m == Methods.ALIGNMENT_CROSS_VERSE_UNLINK:
                 return EngineResponse.ok(request.id, result=self.unlink_cross_verse(
                     str(p.get("linkId") or ""),
+                ))
+            if m == Methods.ALIGNMENT_NULL_SET:
+                return EngineResponse.ok(request.id, result=self.set_null_decision(p))
+            if m == Methods.ALIGNMENT_NULL_CLEAR:
+                return EngineResponse.ok(request.id, result=self.clear_null_decision(
+                    str(p.get("decisionId") or ""),
                 ))
             if m == Methods.LEXICON_GET_ENTRY:
                 return EngineResponse.ok(
