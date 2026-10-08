@@ -49,7 +49,10 @@ from .source_semantic_inventory import source_token_identity
 # changes generally.
 # v3 (#119): cross-verse links join the evidence. A run fingerprinted under
 # v2 never saw them, so it must not be served as a cache hit once they exist.
-ALIGNMENT_EVIDENCE_VERSION = "tc-word-alignment-v3"
+# v4 (#218): a cross-verse link *group* is one precedent (N sources, M
+# targets) instead of N x M unrelated pairs, and null decisions are read as
+# Stage 8 evidence; both change what a run can conclude.
+ALIGNMENT_EVIDENCE_VERSION = "tc-word-alignment-v4"
 
 # Same "verse bridge" recognition rule as
 # original_language_resources.source_tokens_for_verse (e.g. "2-3").
@@ -353,31 +356,123 @@ def _cross_verse_precedents(
         verse_cache[key] = result
         return result
 
-    precedents: list[dict[str, Any]] = []
+    # #218: a composite group (#217) is one realization, so it is one
+    # precedent with all its sources and all its targets -- the shape a
+    # same-verse N:M tC group already has. A row written before groups is a
+    # group of one. Any member that does not resolve drops the whole group,
+    # the same all-or-nothing rule the same-verse path applies.
+    from .cross_verse_links import group_of
+    groups: dict[str, list[dict[str, Any]]] = {}
     for link in links:
-        source = link.get("source") or {}
-        target = link.get("target") or {}
-        s_key = (str(source.get("chapter") or ""), str(source.get("verse") or ""))
-        t_key = (str(target.get("chapter") or ""), str(target.get("verse") or ""))
+        groups.setdefault(group_of(link), []).append(link)
+
+    precedents: list[dict[str, Any]] = []
+    for members in groups.values():
+        first_source = members[0].get("source") or {}
+        first_target = members[0].get("target") or {}
+        s_key = (str(first_source.get("chapter") or ""), str(first_source.get("verse") or ""))
+        t_key = (str(first_target.get("chapter") or ""), str(first_target.get("verse") or ""))
         if s_key not in in_range and t_key not in in_range:
             continue
         if _VERSE_BRIDGE.fullmatch(s_key[1]) or _VERSE_BRIDGE.fullmatch(t_key[1]):
-            continue
-        source_id = resolve_source_token_id(resource, book, s_key[0], s_key[1], TokenRef.from_dict(source))
-        if source_id is None:
             continue
         context = verse_context(*t_key)
         if context is None:
             continue
         reference, text, text_revision = context
-        target_id = resolve_target_token_id(
-            project_id=runtime.project_id, book=book, displayed_reference=reference,
-            text_revision=text_revision, current_text=text, profile=DEFAULT_TOKENIZER,
-            ref=TokenRef.from_dict(target),
-        )
-        if target_id is None:
+        sources = {str((m.get("source") or {}).get("signature")): m.get("source") or {} for m in members}
+        targets = {str((m.get("target") or {}).get("signature")): m.get("target") or {} for m in members}
+        source_ids = [
+            resolve_source_token_id(resource, book, s_key[0], s_key[1], TokenRef.from_dict(end))
+            for end in sources.values()
+        ]
+        target_ids = [
+            resolve_target_token_id(
+                project_id=runtime.project_id, book=book, displayed_reference=reference,
+                text_revision=text_revision, current_text=text, profile=DEFAULT_TOKENIZER,
+                ref=TokenRef.from_dict(end),
+            )
+            for end in targets.values()
+        ]
+        if any(item is None for item in source_ids) or any(item is None for item in target_ids):
             continue
         precedents.append({
-            "sourceTokenInstanceIds": [source_id], "targetTokenInstanceIds": [target_id],
+            "sourceTokenInstanceIds": source_ids, "targetTokenInstanceIds": target_ids,
         })
     return precedents
+
+
+#: Null-decision reasons Stage 8 accepts as explaining an absence (#218).
+SOURCE_NULL_REASONS = frozenset({"GRAMMATICAL", "IMPLICIT"})
+TARGET_NULL_REASONS = frozenset({"GRAMMATICAL", "EXPLICITATION"})
+
+
+def null_precedents_for_range(
+    runtime: Any, chapter: str, verse: str, end_chapter: str = "", end_verse: str = "",
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Active null decisions (#216) in the range, keyed by token instance id.
+
+    ``{"source": {instanceId: {reason, origin, note}}, "target": {...}}``.
+    Resolved exactly the way an alignment group's tokens are -- exact NFC word
+    plus occurrence on the pinned pack for a source token, the current text
+    revision for a target word -- and a token that does not resolve is left
+    out rather than guessed at. Stage 8 reads this; Stage 6B does not, because
+    a null has no target span to locate.
+
+    Never raises: like every other alignment evidence, a problem costs the
+    evidence, not the audit.
+    """
+    from .original_language_resources import resource_for_book
+    from .passage_semantic_runtime import DEFAULT_TOKENIZER
+
+    found: dict[str, dict[str, dict[str, Any]]] = {"source": {}, "target": {}}
+    try:
+        decisions = runtime.project.null_decisions.active_decisions()
+    except Exception:
+        return found
+    if not decisions:
+        return found
+    resource = resource_for_book(runtime.book)
+    if resource is None:
+        return found
+    try:
+        passage = runtime.rebuild_current_passage(chapter, verse, end_chapter, end_verse)
+    except Exception:
+        return found
+    in_range: dict[tuple[str, str], tuple[str, str]] = {}
+    for reference, text in passage["targetTextByDisplayedReference"].items():
+        parsed = _reference_chapter_verse(reference)
+        if parsed is not None and not _VERSE_BRIDGE.fullmatch(parsed[1]):
+            in_range[parsed] = (reference, text)
+    revisions: dict[str, str | None] = {}
+    for decision in decisions:
+        key = (str(decision.get("chapter") or ""), str(decision.get("verse") or ""))
+        if key not in in_range:
+            continue
+        side = decision.get("side")
+        reason = str(decision.get("reason") or "")
+        token = decision.get("token") or {}
+        try:
+            ref = TokenRef.from_dict(token)
+            if side == "source" and reason in SOURCE_NULL_REASONS:
+                instance_id = resolve_source_token_id(resource, runtime.book, key[0], key[1], ref)
+            elif side == "target" and reason in TARGET_NULL_REASONS:
+                reference, text = in_range[key]
+                if reference not in revisions:
+                    row = runtime.repository.current_target_revision(runtime.project_id, runtime.book, reference)
+                    revisions[reference] = row["textRevision"] if row is not None else None
+                if revisions[reference] is None:
+                    continue
+                instance_id = resolve_target_token_id(
+                    project_id=runtime.project_id, book=runtime.book, displayed_reference=reference,
+                    text_revision=revisions[reference], current_text=text, profile=DEFAULT_TOKENIZER, ref=ref,
+                )
+            else:
+                continue
+        except Exception:
+            continue
+        if instance_id:
+            found[str(side)][instance_id] = {
+                "reason": reason, "origin": decision.get("origin", "human"), "note": decision.get("note", ""),
+            }
+    return found

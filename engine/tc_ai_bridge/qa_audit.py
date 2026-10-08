@@ -53,7 +53,11 @@ from .qa_target_hash import (
 # the broken writer are instead repaired the next time the run fingerprint
 # legitimately misses cache.  See docs/BUILD_LOG.md.
 QA_ENGINE_VERSION = "bridge-qa-audit-v1"
-QA_POLICY_VERSION = "qa-policy-v1"
+# v2 (#218): a reasoned null alignment decision explains an absence -- a source
+# meaning realised grammatically or implicitly is covered, and a target word
+# that is grammar or explicitation is supported -- before the NOT_LOCATED and
+# function-word heuristics are consulted.
+QA_POLICY_VERSION = "qa-policy-v2"
 QA_CONFIDENCE_POLICY_VERSION = "qa-confidence-v1"
 QA_CALIBRATION_VERSION = "qa-uncalibrated-v1"
 QA_MODEL_VERSION = "deterministic-coverage-support-synthesizer-v1"
@@ -168,7 +172,14 @@ class QaAuditPolicy:
     def source_coverage_for(
         cls, owner_unit: dict[str, Any] | None, relationships: list[dict[str, Any]],
         assessments_by_relationship: dict[str, dict[str, Any]], has_variant_evidence: bool,
+        null_precedent: dict[str, Any] | None = None,
     ) -> tuple[SourceCoverage, str]:
+        """`null_precedent` (#218) is an active null alignment decision covering
+        every token of the owner unit, from `null_precedents_for_range`. It
+        explains an *absence* only: a NOT_LOCATED (or relationship-less)
+        obligation becomes COVERED_BY_RESTRUCTURING, but an AMBIGUOUS or
+        incomplete search stays UNCERTAIN, and a located realization is still
+        judged on its own meaning. Stage 6B is never re-run here."""
         if owner_unit is None:
             return SourceCoverage.UNCERTAIN, "The audit owner unit could not be resolved."
         if (owner_unit.get("accountingRole") in _NON_AUDIT_ROLES
@@ -178,6 +189,8 @@ class QaAuditPolicy:
                 "This obligation is derived/aggregate-only and is not independently audit-eligible.",
             )
         if not relationships:
+            if null_precedent:
+                return SourceCoverage.COVERED_BY_RESTRUCTURING, cls._null_reason_text(null_precedent)
             return SourceCoverage.UNCERTAIN, "No source-to-target relationship references this obligation."
         outcomes = {relationship.get("locationOutcome") for relationship in relationships}
         if outcomes & _BLOCKING_OUTCOMES:
@@ -200,6 +213,8 @@ class QaAuditPolicy:
                 "A located target realization preserves the required source meaning.",
             )
         if outcomes == {_NOT_LOCATED}:
+            if null_precedent:
+                return SourceCoverage.COVERED_BY_RESTRUCTURING, cls._null_reason_text(null_precedent)
             if has_variant_evidence:
                 return (
                     SourceCoverage.UNCERTAIN,
@@ -214,6 +229,18 @@ class QaAuditPolicy:
             SourceCoverage.UNCERTAIN,
             "A target location exists but its meaning was not determined to preserve this obligation; "
             "see the related meaning-preservation finding.",
+        )
+
+    @staticmethod
+    def _null_reason_text(null_precedent: dict[str, Any]) -> str:
+        reason = str(null_precedent.get("reason") or "").lower()
+        origin = "the automatic alignment pass" if null_precedent.get("origin") == "ai-auto" else "a reviewer"
+        note = str(null_precedent.get("note") or "").strip()
+        return (
+            f"An alignment decision by {origin} records this meaning as realised {reason}ly, "
+            f"with no separate target word{': ' + note if note else ''}."
+        ) if reason in {"grammatical", "implicit"} else (
+            f"An alignment decision by {origin} marks this as {reason}{': ' + note if note else ''}."
         )
 
     @classmethod
@@ -235,6 +262,7 @@ class QaAuditPolicy:
     def target_support_for(
         cls, unit: dict[str, Any], relationships: list[dict[str, Any]],
         assessments_by_relationship: dict[str, dict[str, Any]],
+        null_precedent: dict[str, Any] | None = None,
     ) -> tuple[TargetSupport, str]:
         if (unit.get("accountingRole") in _NON_AUDIT_ROLES
                 or unit.get("auditEligibility") in _NON_AUDIT_ELIGIBILITY):
@@ -243,6 +271,19 @@ class QaAuditPolicy:
                 "This target contribution is derived/aggregate-only and is not independently audit-eligible.",
             )
         if not relationships:
+            # #218: a reasoned decision on this exact word comes before the
+            # hard-coded word lists, which only know English and a few Tamil
+            # forms.
+            if null_precedent and null_precedent.get("reason") == "GRAMMATICAL":
+                return (
+                    TargetSupport.GRAMMATICALLY_REQUIRED,
+                    "An alignment decision records this word as required by target-language grammar.",
+                )
+            if null_precedent and null_precedent.get("reason") == "EXPLICITATION":
+                return (
+                    TargetSupport.EXPLICITATION_SUPPORTED,
+                    "An alignment decision records this word as an explicitation of implied source meaning.",
+                )
             if cls._is_function_word(unit):
                 return (
                     TargetSupport.GRAMMATICALLY_REQUIRED,
@@ -363,6 +404,11 @@ class QaAuditEngine:
 
         source_units = {unit["id"]: unit for unit in source["units"]}
         target_units = {unit["id"]: unit for unit in target["units"]}
+        # #218: reasoned null alignment decisions, by token instance id. Read
+        # here, never re-derived from Stage 6B. Their digest is already part of
+        # the location run's fingerprint (alignment_state_digest), so a change
+        # to them reaches this run's fingerprint through the meaning run.
+        null_precedents = self._null_precedents(chapter, verse, end_chapter, end_verse)
         current_text = self._current_target_text()
         relationships_by_id = {item["id"]: item for item in location["relationships"]}
         assessments_by_relationship = {
@@ -408,6 +454,7 @@ class QaAuditEngine:
                     )
                     status, reason = self.policy.source_coverage_for(
                         owner_unit, relationships, assessments_by_relationship, has_variant_evidence,
+                        null_precedent=self._unit_null(owner_unit, null_precedents["source"]),
                     )
                     covered_by = tuple(
                         relationship["id"] for relationship in relationships
@@ -489,6 +536,7 @@ class QaAuditEngine:
                     relationships = relationships_by_target_unit.get(unit["id"], [])
                     status, reason = self.policy.target_support_for(
                         unit, relationships, assessments_by_relationship,
+                        null_precedent=self._unit_null(unit, null_precedents["target"]),
                     )
                     account = self._build_target_support_account(
                         unit, status, relationships, source, policy_binding,
@@ -553,6 +601,32 @@ class QaAuditEngine:
             meaning_run_id=meaning["id"], run_status=QaRunStatus.COMPLETE.value, payload=payload,
         )
         return payload
+
+    def _null_precedents(
+        self, chapter: str, verse: str, end_chapter: str, end_verse: str,
+    ) -> dict[str, dict[str, dict[str, Any]]]:
+        try:
+            from .word_alignment_evidence import null_precedents_for_range
+            return null_precedents_for_range(self.runtime, chapter, verse, end_chapter, end_verse)
+        except Exception:
+            return {"source": {}, "target": {}}
+
+    @staticmethod
+    def _unit_null(
+        unit: dict[str, Any] | None, by_token: dict[str, dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """The null decision covering a unit: every one of its tokens must carry
+        one, with the same reason. A unit with an undecided token is not
+        explained by a decision on its neighbour."""
+        if not unit or not by_token:
+            return None
+        tokens = [str(token) for token in unit.get("tokenInstanceIds") or ()]
+        if not tokens or any(token not in by_token for token in tokens):
+            return None
+        reasons = {by_token[token]["reason"] for token in tokens}
+        if len(reasons) != 1:
+            return None
+        return by_token[tokens[0]]
 
     def _save_semantic_relationship(
         self, relationship: dict[str, Any], assessment: dict[str, Any],

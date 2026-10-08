@@ -171,6 +171,33 @@ alignment.null.clear  {decisionId}
   stales Stage 6B/7/8. It is folded only when a book has decisions, so existing
   projects keep their digests.
 
+## What Stage 6B and Stage 8 read from all this (#218)
+
+- A cross-verse **group** reaches Stage 6B as one `WORD_ALIGNMENT` precedent
+  with all its sources and all its targets. That is the shape a same-verse N:M
+  tC group already has, so no weight or threshold changes. If any member does
+  not resolve, the whole group is dropped, the same all-or-nothing rule the
+  same-verse path uses.
+- A **null decision** has no target span, so Stage 6B never sees it.
+  `null_precedents_for_range` resolves the active decisions in a range to Stage
+  5/6A token instance ids, and Stage 8 reads them:
+  - A source unit whose every token carries the same `GRAMMATICAL` or
+    `IMPLICIT` decision is `COVERED_BY_RESTRUCTURING` instead of
+    `POSSIBLY_MISSING`. This applies only when Stage 6B found it `NOT_LOCATED`
+    or found no relationship. An `AMBIGUOUS` or incomplete search stays
+    `UNCERTAIN`, and a located realization is still judged on its meaning.
+  - A target unit whose every token carries the same `GRAMMATICAL` or
+    `EXPLICITATION` decision is `GRAMMATICALLY_REQUIRED` or
+    `EXPLICITATION_SUPPORTED`. The decision is checked before the hard-coded
+    function-word and specificity lists, which only know English and a few
+    Tamil forms.
+- Stage 8 still never re-runs Stage 6B. Decisions reach Stage 8's fingerprint
+  through `alignment_state_digest`, then the location run, then the meaning
+  run. `ALIGNMENT_EVIDENCE_VERSION` is `tc-word-alignment-v4` and
+  `QA_POLICY_VERSION` is `qa-policy-v2`, so every cached run goes stale once.
+- The Stage 6B golden has no alignment data, links or decisions, so it is
+  unaffected, and so is the Stage 5 golden.
+
 ## Finding the gaps, and suggesting what fills them (#137–#139)
 
 A **gap** is a source token with no target word in its own verse, or a target

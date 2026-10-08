@@ -14441,3 +14441,39 @@ exact-duplicate case refuses instead of "extending" into itself, which was the
 one bug the existing tests caught. Full engine suite with `-n auto`, run on this
 part alone (later parts stashed): 4743 passed, 1 skipped, 3 xfailed.
 `npm run check` is clean.
+
+## 2026-10-08 — Automatic cross-verse alignment, part 3: Stage 6B/8 read groups and null decisions (#218)
+
+**Why.** On a verse with no alignment, Stage 8 raises `POSSIBLE_OMISSION` for
+every unlocated content word. Parts 1 and 2 give a reviewer, or the automatic
+pass, a way to say "grammatical", "implicit" or "this whole group, across the
+verse boundary". Stage 8 still could not hear it: links reached Stage 6B only
+as 1:1 pairs, and decisions did not reach it at all.
+
+**Evidence.** `_cross_verse_precedents` folds rows by `groupId` into one
+precedent per group, with every member or none. The new
+`null_precedents_for_range` resolves active decisions in the range through the
+same resolvers the tC path uses: exact NFC word plus occurrence on the pinned
+pack for a source token, and the current text revision for a target word. It
+never raises.
+
+**Stage 8.** `source_coverage_for` and `target_support_for` take an optional
+`null_precedent`. `QaAuditEngine._unit_null` applies it to a unit only when
+every token of the unit carries a decision with the same reason, so a decision
+on one word never explains its neighbour. A source decision explains only an
+absence (NOT_LOCATED, or no relationship). AMBIGUOUS and SEARCH_INCOMPLETE stay
+UNCERTAIN; I didn't widen that. The plan listed "should a *human* null override
+AMBIGUOUS?" as a question, and it is still open. A target decision comes before
+the English and Tamil word lists.
+
+**Versions.** `tc-word-alignment-v4` and `qa-policy-v2`. Neither string appears
+in either golden. The three pins in `test_word_alignment_evidence.py` move with
+the bump, and that file's version test is renamed `..._is_v4`.
+
+**Verified.** 8 new tests (`tests/semantic/test_null_and_group_evidence.py`).
+The end-to-end test shows θεός, unlocated in a Tamil verse that does not name
+God, going from `POSSIBLE_OMISSION` to `COVERED_BY_RESTRUCTURING` once marked
+IMPLICIT. The run fingerprint moves, and every other unlocated word in the verse
+is still reported. Full engine suite with `-n auto`, run on this part with later
+parts' files ignored: 4751 passed, 1 skipped, 3 xfailed. Both golden tests pass
+unchanged.
