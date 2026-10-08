@@ -1489,7 +1489,15 @@ def test_recovery_block_cannot_be_resumed(tmp_path):
 
 
 def test_continuous_foreground_polling_does_not_starve_worker(tmp_path):
-    project = project_at(tmp_path, verses={str(n): "சரியான உரை" for n in range(50)})
+    # The first ta-irv pass in a process also loads the indic-qa layer's OV
+    # lexicon and IRV snapshot (~1.7 s, cached for the process). That is load
+    # time, not starvation, so a pass over another book pays it first and the
+    # deadline below times only the pass the foreground keeps interrupting.
+    warm = LanguageQaManager(debounce=0, yield_seconds=0)
+    warm.bind(project_at(tmp_path / "warm", book="rut", verses={"1": "சரியான உரை"}))
+    wait(warm)
+    warm.unbind()
+    project = project_at(tmp_path / "polled", verses={str(n): "சரியான உரை" for n in range(50)})
     manager = LanguageQaManager(debounce=0, yield_seconds=.001)
     manager.bind(project)
     deadline = time.monotonic() + 3

@@ -16340,3 +16340,55 @@ untouched:
 (`ai.review.status`, `navigation.poll`). The sidecar answers one request at a
 time, so a long request at that moment would delay both. Nothing in this fix
 targets them; if they recur after the fix, that needs its own look.
+
+## 2026-10-08 — Branches merged into `main`; the starvation test timed a cold load, not starvation
+
+**Merge.** `indic-qa-editor` (fast-forward) and then `auto-cross-verse` (merge
+`0a007d1`) are on `main`, together with upstream's #215 docs, which
+`auto-cross-verse` held, and upstream's Greek Room findings doc (`8d3a42f`).
+Every conflict was resolved by keeping both sides. Workbench is v7: v6 is
+`indic-qa-editor`'s block, identical on both branches. Two `indic-qa-editor`
+tests that merged without a textual conflict still asserted v6; `963c114` moves
+them to 7. Not merged, because each is already on `main` or replaced there:
+`fix/editor-toolbar-narrow-window`, `usfm-parser-91`,
+`upstream/fix/lqa-project-path` (#186, fixed by `canonical_path_key`),
+`upstream/chore/contribution-process` (#66), `submission-9b3b`,
+`backup/main-before-squash` and `beta14-stage3-semantic-mapping`.
+
+**The red CI.** `origin/main` CI has failed since `8604ad2` (the ta-irv indic-qa
+layer, run 37613130029) on
+`test_continuous_foreground_polling_does_not_starve_worker`, and nothing
+recorded it. The test fails 3 times out of 3 at `8604ad2` and passes at every
+earlier commit.
+
+**Cause.** The cause is load time, not starvation. A 50-verse Tamil pass, timed
+the way the test runs it:
+
+| | before `8604ad2` | after |
+|---|---|---|
+| first pass in a process | 1.5 s | 3.5 s |
+| later passes | 0.94 s | 0.95 s |
+
+Constant polling makes no difference to either. The extra 2 s is the layer's
+one-time load: `Lexicon.load` of the OV dictionary (0.8 s) and decoding
+`irv_state.json.gz` (0.9 s). Both are cached for the process (`_LEXICON_CACHE`,
+`_STATE_CACHE`), and a reload costs 0.17 s. The test's 3 s deadline was set
+when a cold pass took 1.5 s, so it now times the load.
+
+**Fix: the test only.** A pass over another book (`rut`) first warms the
+process caches. The deadline, unchanged at 3 s, then times only the polled pass.
+No engine code changed. In the app, the first Tamil pass of a session costs
+about 2 s more, on the background worker. Requests don't wait for it.
+
+**Verified.**
+- The test passes 5 times out of 5 alone.
+- `tests/service/test_language_qa.py`: 297 passed.
+- With the deferral cap in `_yield` removed (`and now - self._last_deferral >= .5`),
+  the test fails with "Frequent foreground requests starved Language QA". It
+  still detects real starvation.
+- Full engine suite, `-n auto`: 5,013 passed, 1 skipped, 3 xfailed, exit 0.
+  Before this fix it was 3 failed.
+
+**Not run:** CI itself, since `main` is not pushed yet; the frozen sidecar smoke
+on the merged result. Upstream's `main` has the same red test; this fix has not
+been offered there.
