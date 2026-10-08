@@ -14640,3 +14640,19 @@ and it is unrelated to this work.
 tests, including 28 modal, 4 toolbar and 7 helper tests. `npm run build`
 succeeds. **Not verified:** the 1366×768 rendering in the desktop app, because
 jsdom does not lay out. QA row A103 says so.
+
+**Frozen pair, 2026-10-08, after part 7.** `.\scripts\build-sidecars.ps1` rebuilt
+both sidecars from this branch, and `python scripts/smoke_sidecars.py
+engine/dist/bridge-engine.exe` passed. That run includes the two new
+automatic-alignment checks: the offline estimate (one window, two calls) and a
+no-key pass answering `unavailable`.
+
+Follow-ups filed:
+- #223: Stage 6B scores span containment, not coverage. A linked word ties with
+  the phrase around it. This may move the 6B golden.
+- #224: the `VerseList` click-budget test is load-sensitive.
+
+**Still not run:**
+- the desktop app at 1366×768;
+- a real-provider pass (#131). The precision of two-pass agreement on IRV is
+  unmeasured until someone runs it with a key.
