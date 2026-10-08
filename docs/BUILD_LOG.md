@@ -16885,3 +16885,66 @@ snapshot while holding the job lock, by design: a poll must never see
   ok.
 - The `App.svelte` monitor change has no unit test; App.svelte has none.
 - Desktop not run.
+
+## 2026-10-08 — Wildebeest cache (#230) and one decisions read per verse (#231)
+
+**#230.** `wb_ana.process(text, lang)` is pure for the package the process
+loaded. The adapter now keeps the three parts of the report it reads
+(`notable-token`, `non-canonical`, `block.ZERO_WIDTH`):
+- keyed by language and sha1 of the text;
+- bounded at 50,000 entries, oldest out;
+- for the life of the sidecar.
+
+Findings are still built on every call. A failed analysis is not cached.
+
+The cache is not persisted: `check_cache` rows go through the workbench
+writer, which appends to `change_log`, and a row per verse would flood the
+journal. For the same reason the issue's second half was not done. The
+alignment modals still ask for `greekroom`, which is now a cache hit.
+Dropping it would also have replaced the verse's findings list without its
+Wildebeest findings.
+
+**#231.** `run_stage` keeps a memo for the current verse only (`reads`).
+The verse's two QaFinding stages share one text read and one decisions read.
+The memo is cleared at the next verse, so a decision recorded mid-job on a
+later verse is still read when the job reaches it.
+
+**Measured.** GEN copy. Two whole-book jobs back to back in one process,
+`local+greekroom+languageQa`, cursor polls every 750 ms, #229-#231 all in:
+
+| | run 1 (cold) | run 2 (text unchanged) |
+|---|---|---|
+| wall | 95.8 s | 34.2 s |
+| Wildebeest | 49.5 s | 0.08 s |
+| decisions (1,533 reads) | 4.6 s | 5.3 s |
+| local stage | 23.6 s | 26.5 s |
+| preflight (names first time / cached) | 18.1 s | 1.0 s |
+| completion hook (#235) | 4.3 s | 6.4 s |
+
+Verse selection (`verse.runChecks ["greekroom"]`): 3.4-4.8 ms, was 33-55 ms.
+
+Against the first measurement of the day (295 s and 262 s, polled every
+100 ms) and the clean 750 ms baseline (136.5 s), a whole-book re-run on GEN
+is now 34 s.
+
+**A guess corrected.** I took the decisions cost to be a new workbench
+SQLite connection per read, at about 8 ms. Counting connections
+(`workbench.connect`, new) shows 2 ms each, 65 per 25 verses. The
+connection is most of a decisions read (2.9 ms) but only about 4 s of a GEN
+run, so no issue was filed for it.
+
+What is left in a re-run is the local stage, at about 17 ms per verse:
+`alignment_gap`, `alignment_load` and the tC check reads. Then come the
+completion hook (#235) and the Language QA pass (#232).
+
+**Tests.**
+- New: `greek_room_engine/tests/test_wildebeest_cache.py` (a stand-in
+  `wb_ana`, so no wildebeest-nlp install is needed) and
+  `tests/service/test_check_job_verse_reads.py`. The second checks that a
+  decision reaches both stages and that there is one read per verse.
+- `test_wildebeest_real`'s failure test now starts from an empty cache.
+- Four stubs of `_run_verse_checks_for_project` take the new keyword. The
+  first full run caught two of them failing. `failing_verse_checks` had kept
+  passing only because the TypeError also failed the job.
+- Engine `pytest -m "not slow"` on the committed tree: 4863 passed,
+  3 xfailed.
