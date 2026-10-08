@@ -6,15 +6,20 @@ import {
   alignmentStatusByVerse, chapterVerseNums, checkStatusByVerse, currentChapter, findingsByVerse,
 } from "../../stores";
 import type {
-  AlignmentContext, AlignmentRange, AlignmentToken, CrossVerseLink, CrossVerseLinkResult,
+  AlignmentContext, AlignmentRange, AlignmentToken, AutoAlignWindowResult, CrossVerseLink, CrossVerseLinkResult,
 } from "../../types/finding";
 
 const {
   getAlignmentRange, realignWords, unalignWords, runVerseChecks, getLexiconEntry, crossVerseLink, crossVerseUnlink,
   analysisJobGetScopeStatus, semanticLocationGetRange, targetSemanticGetRange, crossVersePropose,
-  crossVerseAiPropose, getSettings,
+  crossVerseAiPropose, getSettings, autoAlignWindow, autoAlignRevert, autoAlignVerdict, nullSet, nullClear,
 } = vi.hoisted(() => ({
   crossVerseAiPropose: vi.fn(),
+  autoAlignWindow: vi.fn(),
+  autoAlignRevert: vi.fn(),
+  autoAlignVerdict: vi.fn(),
+  nullSet: vi.fn(),
+  nullClear: vi.fn(),
   getSettings: vi.fn(),
   getAlignmentRange: vi.fn(),
   realignWords: vi.fn(),
@@ -33,7 +38,7 @@ vi.mock("../../api/bridgeClient", () => ({
   bridge: {
     getAlignmentRange, realignWords, unalignWords, runVerseChecks, getLexiconEntry, crossVerseLink, crossVerseUnlink,
     analysisJobGetScopeStatus, semanticLocationGetRange, targetSemanticGetRange, crossVersePropose,
-    crossVerseAiPropose, getSettings,
+    crossVerseAiPropose, getSettings, autoAlignWindow, autoAlignRevert, autoAlignVerdict, nullSet, nullClear,
   },
 }));
 
@@ -186,19 +191,20 @@ async function pickUp(word: string, verse: string) {
 }
 
 describe("CrossVerseAlignmentModal", () => {
-  it("opens on the selected verse ±1 and shows every verse in both columns plus the gap overview", async () => {
+  it("opens on the selected verse ±1 and shows every verse in both columns plus the verdict strip", async () => {
     await renderPage("2");
     expect(getAlignmentRange).toHaveBeenCalledWith("1", ["1", "2", "3-4"]);
     // Two columns, so each verse header appears twice; the bridge verse keeps its string.
     expect(screen.getAllByText("1:1")).toHaveLength(2);
     expect(screen.getAllByText("1:3-4")).toHaveLength(2);
-    const strip = screen.getByLabelText("Gap overview");
-    // v.2 and v.3-4 each have one unmatched source word; only v.3-4 has two unaligned targets.
-    expect(within(strip).getAllByText("1 source word with no counterpart")).toHaveLength(2);
-    expect(within(strip).getByText("2 target words with no counterpart")).toBeInTheDocument();
-    expect(within(strip).getByText("0 source words with no counterpart")).toBeInTheDocument();
+    const strip = screen.getByLabelText("Verse verdicts");
+    // No automatic pass has run: every verse is "Not aligned yet".
+    expect(within(strip).getAllByText(/Not aligned yet/)).toHaveLength(3);
+    expect(within(strip).getByText("2 source · 2 target words")).toBeInTheDocument();
     expect(within(strip).getByText(/Range: 2 source · 3 target unmatched/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /verses 1–3-4/ })).toBeInTheDocument();
+    // Nothing is asked of a provider on open.
+    expect(autoAlignWindow).not.toHaveBeenCalled();
   });
 
   it("labels a source word with its renderings, not its lemma, and keeps lemma and definition on hover", async () => {
@@ -254,9 +260,8 @@ describe("CrossVerseAlignmentModal", () => {
     expect(within(bank2).queryByRole("button", { name: "was" })).not.toBeInTheDocument();
     expect(within(bank2).getByText("↔ v.3-4")).toBeInTheDocument();
     expect(within(bank2).getByTitle(/Realizes φῶς from verse 3-4/)).toBeInTheDocument();
-    // ... and the gap strip counts it as linked, not as a gap. tC status is untouched.
-    const strip = screen.getByLabelText("Gap overview");
-    expect(within(strip).getAllByText(/1 linked across verses/)).toHaveLength(2);
+    // ... and the range total counts it as linked, not as a gap. tC status is untouched.
+    const strip = screen.getByLabelText("Verse verdicts");
     expect(within(strip).getByText(/Range: 1 source · 2 target unmatched/)).toBeInTheDocument();
     expect(get(alignmentStatusByVerse)["1:2"]).toBe("partial");
   });
@@ -282,8 +287,8 @@ describe("CrossVerseAlignmentModal", () => {
     expect(within(cell).getByText(/link invalid v\.2/)).toBeInTheDocument();
     expect(within(cell).getByTitle("was is no longer in the text of 1:2.")).toBeInTheDocument();
     // An invalid link accounts for nothing: φῶς is still a gap.
-    const strip = screen.getByLabelText("Gap overview");
-    expect(within(strip).getAllByText("1 source word with no counterpart")).toHaveLength(2);
+    const strip = screen.getByLabelText("Verse verdicts");
+    expect(within(strip).getByText(/Range: 2 source · 3 target unmatched/)).toBeInTheDocument();
   });
 
   it("dropping a word into another verse's word bank is refused with guidance", async () => {
@@ -303,9 +308,9 @@ describe("CrossVerseAlignmentModal", () => {
     await waitFor(() => expect(runVerseChecks).toHaveBeenCalledWith("1", "1", ["alignment", "greekroom"]));
   });
 
-  it("clicking a verse in the gap overview filters both columns to that verse's gaps", async () => {
+  it("clicking a verse in the verdict strip filters both columns to that verse's gaps", async () => {
     await renderPage("2");
-    const strip = screen.getByLabelText("Gap overview");
+    const strip = screen.getByLabelText("Verse verdicts");
     await fireEvent.click(within(strip).getByRole("button", { name: /v\.2/ }));
     // Only verse 2 remains, only its unmatched source (ἦν) and unaligned target (was).
     expect(screen.queryAllByText("1:1")).toHaveLength(0);
@@ -350,11 +355,11 @@ describe("CrossVerseAlignmentModal", () => {
     targetSemanticGetRange.mockResolvedValue({ tokens: [{ id: "t5", displayedReference: "PHP 1:5" }] });
     await renderPage("2");
     await waitFor(() => expect(getAlignmentRange).toHaveBeenLastCalledWith("1", ["1", "2", "3-4", "5"]));
-    expect(await screen.findByText(/Range widened with verse 5/)).toBeInTheDocument();
+    expect(await screen.findByText(/widened with v\.5/)).toBeInTheDocument();
     expect(screen.getAllByText("1:5")).toHaveLength(2);
     await fireEvent.click(screen.getByRole("button", { name: "Back to 2 ±1" }));
     await waitFor(() => expect(getAlignmentRange).toHaveBeenLastCalledWith("1", ["1", "2", "3-4"]));
-    expect(screen.queryByText(/Range widened/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/widened with/)).not.toBeInTheDocument();
   });
 
   it("closes itself when the chapter changes underneath it", async () => {
@@ -363,10 +368,14 @@ describe("CrossVerseAlignmentModal", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
-  describe("cross-verse suggestions (#139)", () => {
+  describe("corpus suggestions, inline (#139, #222)", () => {
     async function suggest() {
       await fireEvent.click(screen.getByRole("button", { name: /Suggest links/ }));
       await waitFor(() => expect(crossVersePropose).toHaveBeenCalled());
+    }
+
+    function cellOf(word: string, verse: string) {
+      return screen.getByLabelText(new RegExp(`Target words aligned to ${word} in verse ${verse}`));
     }
 
     it("asks for nothing until the reviewer asks: a proposal is a claim, not a default", async () => {
@@ -376,19 +385,16 @@ describe("CrossVerseAlignmentModal", () => {
       expect(crossVersePropose).toHaveBeenCalledWith("1", ["1", "2", "3-4"]);
     });
 
-    it("shows the claim and why it was made", async () => {
+    it("shows the claim in the cell it would fill, with why on hover", async () => {
       crossVersePropose.mockResolvedValue({
         chapter: "1", verses: ["1", "2", "3-4"], proposals: [proposal()],
         calibrationVersion: "cross-verse-uncalibrated-v1",
       });
       await renderPage("2");
       await suggest();
-
-      const strip = screen.getByLabelText("Cross-verse suggestions");
-      expect(within(strip).getByText("φῶς")).toBeInTheDocument();
-      expect(within(strip).getByText("was")).toBeInTheDocument();
-      expect(within(strip).getByText(/rendered "was" 7× in completed verses/)).toBeInTheDocument();
-      expect(within(strip).getByText("1 suggestion")).toBeInTheDocument();
+      const cell = cellOf("φῶς", "3-4");
+      expect(within(cell).getByText("was ?")).toBeInTheDocument();
+      expect(within(cell).getByTitle(/rendered "was" 7× in completed verses/)).toBeInTheDocument();
     });
 
     it("accepting is an ordinary cross-verse link, and nothing was written before it", async () => {
@@ -400,9 +406,7 @@ describe("CrossVerseAlignmentModal", () => {
       await renderPage("2");
       await suggest();
       expect(crossVerseLink).not.toHaveBeenCalled();
-
-      await fireEvent.click(screen.getByRole("button", { name: "Accept" }));
-
+      await fireEvent.click(screen.getByRole("button", { name: "Accept was for φῶς" }));
       await waitFor(() => expect(crossVerseLink).toHaveBeenCalledWith(
         { chapter: "1", verse: "3-4", topId: "H001" },
         { chapter: "1", verse: "2", bottomId: "T002" },
@@ -410,7 +414,7 @@ describe("CrossVerseAlignmentModal", () => {
       await waitFor(() => expect(runVerseChecks).toHaveBeenCalledWith("1", "3-4", ["alignment", "greekroom"]));
     });
 
-    it("an ambiguous proposal cannot be accepted in one click; it points at the gap instead", async () => {
+    it("an ambiguous proposal has no one-click accept", async () => {
       crossVersePropose.mockResolvedValue({
         chapter: "1", verses: ["1", "2", "3-4"],
         proposals: [proposal({ status: "AMBIGUOUS", contested: true, margin: 0 })],
@@ -418,12 +422,9 @@ describe("CrossVerseAlignmentModal", () => {
       });
       await renderPage("2");
       await suggest();
-
-      const strip = screen.getByLabelText("Cross-verse suggestions");
-      expect(within(strip).queryByRole("button", { name: "Accept" })).not.toBeInTheDocument();
-      expect(within(strip).getByText("ambiguous")).toBeInTheDocument();
-      await fireEvent.click(within(strip).getByRole("button", { name: "Show the gap" }));
-      expect(crossVerseLink).not.toHaveBeenCalled();
+      const cell = cellOf("φῶς", "3-4");
+      expect(within(cell).getByText(/ambiguous/)).toBeInTheDocument();
+      expect(within(cell).queryByRole("button", { name: /Accept/ })).not.toBeInTheDocument();
     });
 
     it("a refused link leaves the suggestion on screen with the error", async () => {
@@ -434,12 +435,9 @@ describe("CrossVerseAlignmentModal", () => {
       crossVerseLink.mockRejectedValue(new Error("was is already aligned in verse 2."));
       await renderPage("2");
       await suggest();
-
-      await fireEvent.click(screen.getByRole("button", { name: "Accept" }));
-
+      await fireEvent.click(screen.getByRole("button", { name: "Accept was for φῶς" }));
       expect(await screen.findByText(/already aligned in verse 2/)).toBeInTheDocument();
-      const strip = screen.getByLabelText("Cross-verse suggestions");
-      expect(within(strip).getByText("1 suggestion")).toBeInTheDocument();
+      expect(within(cellOf("φῶς", "3-4")).getByText("was ?")).toBeInTheDocument();
     });
 
     it("dismissing removes it without writing anything", async () => {
@@ -449,15 +447,12 @@ describe("CrossVerseAlignmentModal", () => {
       });
       await renderPage("2");
       await suggest();
-
-      await fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
-
-      const strip = screen.getByLabelText("Cross-verse suggestions");
-      expect(within(strip).getByText("0 suggestions")).toBeInTheDocument();
+      await fireEvent.click(within(cellOf("φῶς", "3-4")).getByRole("button", { name: "Dismiss this suggestion" }));
+      expect(within(cellOf("φῶς", "3-4")).queryByText("was ?")).not.toBeInTheDocument();
       expect(crossVerseLink).not.toHaveBeenCalled();
     });
 
-    it("says why there is nothing to suggest rather than showing an empty list", async () => {
+    it("says why there is nothing to suggest rather than showing nothing", async () => {
       crossVersePropose.mockResolvedValue({
         chapter: "1", verses: ["1", "2", "3-4"], proposals: [],
         calibrationVersion: "cross-verse-uncalibrated-v1",
@@ -468,8 +463,7 @@ describe("CrossVerseAlignmentModal", () => {
       });
       await renderPage("2");
       await suggest();
-
-      expect(screen.getByText(/learned from this project's own completed alignments…/)).toBeInTheDocument();
+      expect(screen.getByText(/Cross-verse suggestions are learned from this project's own completed alignments…/)).toBeInTheDocument();
     });
 
     it("reports suggestions as stale when the range moves under them", async () => {
@@ -480,137 +474,132 @@ describe("CrossVerseAlignmentModal", () => {
       await renderPage("2");
       await suggest();
       expect(screen.queryByText(/range changed/i)).not.toBeInTheDocument();
-
-      // Widen the range to verse 5 through the "To" picker.
       await fireEvent.change(screen.getByLabelText("To"), { target: { value: "5" } });
       await waitFor(() => expect(getAlignmentRange).toHaveBeenLastCalledWith("1", ["1", "2", "3-4", "5"]));
-
-      expect(await screen.findByText(/The range changed since these were worked out/)).toBeInTheDocument();
+      expect(await screen.findByText(/The range changed since the suggestions were worked out/)).toBeInTheDocument();
     });
   });
 
-  describe("AI cross-verse suggestions (#146)", () => {
-    /** A proposal as `alignment.crossVerse.aiPropose` returns it. */
-    function aiProposal(overrides: Record<string, unknown> = {}) {
+  describe("automatic alignment (#222)", () => {
+    const sig = (w: string) => `${w}␟1␟1`;
+    /** v.2 after a pass: λόγος → word placed (ai), ἦν left unplaced, "was" disputed. */
+    function after(): AutoAlignWindowResult {
+      const v2 = { ...V2, autoAlign: { verdict: "NEEDS_REVIEW" as const, runId: "aa-1", createdAt: "", stale: false, issues: 1, suggestions: 1 } };
       return {
-        ...proposal(),
-        confidence: 0.88,
-        agreesWithCorpus: true,
-        autoLinkable: true,
-        evidence: [
-          { kind: "MODEL_PICK", rawScore: 0.88, weight: 1, weightedScore: 0.88, modelConfidence: 88, reason: "v.2 renders it \"was\"" },
-          { kind: "STRONGS_PRECEDENT", rawScore: 1, weight: 0.55, weightedScore: 0.55, jointCount: 7, sourceCount: 7 },
+        chapter: "1", verses: ["1", "2", "3-4"], runId: "aa-1", calibrationVersion: "two-pass-agreement-v1",
+        corpus: { checked: false, reason: "no-completed-alignments" },
+        usage: { calls: 2, totalTokens: 41280, estimatedCostUSD: 0.13 },
+        results: [
+          { verse: "1", verdict: "ALIGNED_CLEAN", applied: { groups: [{ tops: [sig("θεός")], bottoms: [sig("God")] }], links: [], nulls: [] },
+            issues: [], suggestions: [], context: { ...V1, accounted: true, autoAlign: { verdict: "ALIGNED_CLEAN", runId: "aa-1", createdAt: "", stale: false, issues: 0, suggestions: 0 } } },
+          { verse: "2", verdict: "NEEDS_REVIEW", applied: { groups: [{ tops: [sig("λόγος")], bottoms: [sig("word")] }], links: [], nulls: [] },
+            issues: [{ kind: "POSSIBLE_OMISSION", side: "source", signature: sig("ἦν"), word: "ἦν", id: "H002", note: "no word for 'was' (to be)" }],
+            suggestions: [{
+              kind: "link", status: "UNCERTAIN", votes: { "source-first": true, "target-first": false },
+              source: { side: "source", chapter: "1", verse: "3-4", signature: sig("φῶς"), word: "φῶς", id: "H001" },
+              target: { side: "target", chapter: "1", verse: "2", signature: sig("was"), word: "was", id: "T002" },
+              token: null, reason: "light shone", note: "", confidence: 70,
+            }],
+            context: v2 },
+          { verse: "3-4", verdict: "NEEDS_REVIEW", applied: { groups: [], links: [], nulls: [] }, issues: [],
+            suggestions: [], context: { ...V34, autoAlign: { verdict: "NEEDS_REVIEW", runId: "aa-1", createdAt: "", stale: false, issues: 0, suggestions: 1 } } },
         ],
-        ...overrides,
       };
     }
 
-    async function clickAi() {
-      await fireEvent.click(await screen.findByRole("button", { name: /Suggest with AI/ }));
-    }
-
-    it("sends nothing to a provider until the reviewer asks, exactly like the offline pass", async () => {
+    it("runs only on a click, then shows the verdicts, the omission and the suggestion in place", async () => {
+      autoAlignWindow.mockResolvedValue(after());
       await renderPage("2");
-      // A billed request must never fire because a page opened or a range moved.
-      expect(crossVerseAiPropose).not.toHaveBeenCalled();
-      await clickAi();
-      await waitFor(() => expect(crossVerseAiPropose).toHaveBeenCalledWith("1", ["1", "2", "3-4"]));
+      await fireEvent.click(await screen.findByRole("button", { name: /Align automatically/ }));
+      await waitFor(() => expect(autoAlignWindow).toHaveBeenCalledWith("1", ["1", "2", "3-4"]));
+      const strip = screen.getByLabelText("Verse verdicts");
+      expect(await within(strip).findByText(/✓ Aligned/)).toBeInTheDocument();
+      expect(within(strip).getAllByText(/Needs review/).length).toBeGreaterThan(0);
+      // The omission sits on ἦν's cell with the model's note and a way to say why it is fine.
+      const cell = screen.getByLabelText(/Target words aligned to ἦν in verse 2/);
+      expect(within(cell).getByText("possible omission")).toBeInTheDocument();
+      expect(within(cell).getByTitle("no word for 'was' (to be)")).toBeInTheDocument();
+      // The disputed link shows in φῶς's cell, with both votes on hover.
+      const phos = screen.getByLabelText(/Target words aligned to φῶς in verse 3-4/);
+      expect(within(phos).getByText("was ?")).toBeInTheDocument();
+      expect(within(phos).getByTitle(/source-first: yes · target-first: no/)).toBeInTheDocument();
+      // The placed group is tagged as the pass's own.
+      expect(screen.getAllByText("ai").length).toBeGreaterThan(0);
+      expect(screen.getByText(/Last run: 2 requests · 41,280 tokens/)).toBeInTheDocument();
+      // Every verse was rechecked so the editor's findings are current.
+      await waitFor(() => expect(runVerseChecks).toHaveBeenCalledWith("1", "2", ["alignment", "greekroom"]));
     });
 
-    it("links a pair the AI and the corpus both chose, and records that the AI did it", async () => {
-      crossVerseAiPropose.mockResolvedValue({
-        chapter: "1", verses: ["1", "2", "3-4"], proposals: [aiProposal()], corpusProposals: [],
-        calibrationVersion: "cross-verse-ai-uncalibrated-v1", modelConsulted: true,
-      });
-      crossVerseLink.mockResolvedValue(linked());
-      await renderPage("2");
-      await clickAi();
-
-      await waitFor(() => expect(crossVerseLink).toHaveBeenCalledTimes(1));
-      expect(crossVerseLink).toHaveBeenCalledWith(
-        { chapter: "1", verse: "3-4", topId: "H001" },
-        { chapter: "1", verse: "2", bottomId: "T002" },
-        "ai-auto",
-      );
-      expect(await screen.findByText(/Linked 1 pair/)).toBeInTheDocument();
-    });
-
-    it("never links a proposal the corpus does not corroborate, however sure the AI is", async () => {
-      crossVerseAiPropose.mockResolvedValue({
-        chapter: "1", verses: ["1", "2", "3-4"],
-        proposals: [aiProposal({ confidence: 0.99, agreesWithCorpus: false, autoLinkable: false, status: "AMBIGUOUS" })],
-        corpusProposals: [], calibrationVersion: "cross-verse-ai-uncalibrated-v1", modelConsulted: true,
-      });
-      await renderPage("2");
-      await clickAi();
-
-      await waitFor(() => expect(screen.getByText("AI only")).toBeInTheDocument());
-      expect(crossVerseLink).not.toHaveBeenCalled();
-    });
-
-    it("shows the AI's own reason, so a reviewer who reads no Greek can check it", async () => {
-      crossVerseAiPropose.mockResolvedValue({
-        chapter: "1", verses: ["1", "2", "3-4"],
-        proposals: [aiProposal({ autoLinkable: false, agreesWithCorpus: false })],
-        corpusProposals: [], calibrationVersion: "cross-verse-ai-uncalibrated-v1", modelConsulted: true,
-      });
-      await renderPage("2");
-      await clickAi();
-
-      expect(await screen.findByText(/the AI says: v\.2 renders it "was"/)).toBeInTheDocument();
-    });
-
-    it("keeps the corpus suggestions when the model returned none", async () => {
-      crossVerseAiPropose.mockResolvedValue({
-        chapter: "1", verses: ["1", "2", "3-4"], proposals: [], corpusProposals: [proposal()],
-        calibrationVersion: "cross-verse-ai-uncalibrated-v1", modelConsulted: true,
-      });
-      await renderPage("2");
-      await clickAi();
-
-      // Otherwise asking the AI would be strictly worse than not asking.
-      expect(await screen.findByText(/1 suggestion/)).toBeInTheDocument();
-      expect(crossVerseLink).not.toHaveBeenCalled();
-    });
-
-    it("stops at the first refused link rather than half-applying the batch", async () => {
-      crossVerseAiPropose.mockResolvedValue({
-        chapter: "1", verses: ["1", "2", "3-4"],
-        proposals: [
-          aiProposal(),
-          aiProposal({ source: { chapter: "1", verse: "3-4", topId: "H002", word: "x", signature: "x", strong: "", lemma: "" } }),
-        ],
-        corpusProposals: [], calibrationVersion: "cross-verse-ai-uncalibrated-v1", modelConsulted: true,
-      });
-      crossVerseLink.mockRejectedValue(new Error("was is already aligned within 1:2."));
-      await renderPage("2");
-      await clickAi();
-
-      await waitFor(() => expect(screen.getByText(/already aligned within 1:2/)).toBeInTheDocument());
-      expect(crossVerseLink).toHaveBeenCalledTimes(1);
-    });
-
-    it("offers no AI button at all when no API key is configured", async () => {
+    it("is disabled with the reason when no key is configured, and for a range it cannot take", async () => {
       getSettings.mockResolvedValue({ hasApiKey: false });
       await renderPage("2");
-
-      await waitFor(() => expect(screen.getByText(/add an API key in Settings/)).toBeInTheDocument());
-      expect(screen.queryByRole("button", { name: /Suggest with AI/ })).not.toBeInTheDocument();
-      // The offline pass is unaffected: it needs no key and stays the default.
-      expect(screen.getByRole("button", { name: /Suggest links/ })).toBeInTheDocument();
+      const button = await screen.findByRole("button", { name: /Align automatically/ });
+      await waitFor(() => expect(button).toBeDisabled());
+      expect(button).toHaveAttribute("title", "Add an API key in Settings to align automatically");
+      expect(screen.getByRole("button", { name: /Suggest links/ })).toBeEnabled();
     });
 
-    it("reports an unavailable provider instead of failing the page", async () => {
-      crossVerseAiPropose.mockResolvedValue({
-        chapter: "1", verses: ["1", "2", "3-4"], proposals: [],
-        calibrationVersion: "cross-verse-ai-uncalibrated-v1",
+    it("Not missing ▸ Implicit records a null decision through alignment.null.set", async () => {
+      autoAlignWindow.mockResolvedValue(after());
+      nullSet.mockResolvedValue({ decision: {}, context: V2 });
+      await renderPage("2");
+      await fireEvent.click(await screen.findByRole("button", { name: /Align automatically/ }));
+      // The page rechecks every verse after a run; controls wait for that.
+      const notMissing = await screen.findByRole("button", { name: "Not missing ▾" });
+      await waitFor(() => expect(notMissing).toBeEnabled());
+      await fireEvent.click(notMissing);
+      await fireEvent.click(screen.getByRole("menuitem", { name: /Implicit/ }));
+      await waitFor(() => expect(nullSet).toHaveBeenCalledWith("1", "2", "source", "H002", "IMPLICIT", ""));
+    });
+
+    it("accepting a disputed cross-verse suggestion is an ordinary link", async () => {
+      autoAlignWindow.mockResolvedValue(after());
+      crossVerseLink.mockResolvedValue(linked());
+      await renderPage("2");
+      await fireEvent.click(await screen.findByRole("button", { name: /Align automatically/ }));
+      const accept = await screen.findByRole("button", { name: "Accept was for φῶς" });
+      await waitFor(() => expect(accept).toBeEnabled());
+      await fireEvent.click(accept);
+      await waitFor(() => expect(crossVerseLink).toHaveBeenCalledWith(
+        { chapter: "1", verse: "3-4", topId: "H001" },
+        { chapter: "1", verse: "2", bottomId: "T002" },
+      ));
+    });
+
+    it("Undo a verse calls alignment.autoAlign.revert for that verse", async () => {
+      autoAlignWindow.mockResolvedValue(after());
+      autoAlignRevert.mockResolvedValue({ chapter: "1", verse: "1", skipped: [], context: V1 });
+      await renderPage("2");
+      await fireEvent.click(await screen.findByRole("button", { name: /Align automatically/ }));
+      const undo = await screen.findByLabelText("Undo a verse");
+      await waitFor(() => expect(undo).toBeEnabled());
+      await fireEvent.change(undo, { target: { value: "1" } });
+      await waitFor(() => expect(autoAlignRevert).toHaveBeenCalledWith("1", "1"));
+      expect(await screen.findByText(/Restored v\.1/)).toBeInTheDocument();
+    });
+
+    it("an unavailable provider is reported, not thrown", async () => {
+      autoAlignWindow.mockResolvedValue({
+        chapter: "1", verses: ["1", "2", "3-4"], runId: "aa-2", calibrationVersion: "two-pass-agreement-v1", results: [],
         unavailable: { reason: "no-api-key", message: "No OpenAI-compatible API key is configured." },
       });
       await renderPage("2");
-      await clickAi();
-
+      await fireEvent.click(await screen.findByRole("button", { name: /Align automatically/ }));
       expect(await screen.findByText(/No OpenAI-compatible API key is configured/)).toBeInTheDocument();
-      expect(crossVerseLink).not.toHaveBeenCalled();
+    });
+
+    it("loads the stored verdict of a verse an earlier pass ran on", async () => {
+      const v1 = { ...V1, accounted: true, autoAlign: { verdict: "ALIGNED_CLEAN" as const, runId: "aa-0", createdAt: "", stale: false, issues: 0, suggestions: 0 } };
+      getAlignmentRange.mockImplementation(async (_c: string, verses: string[]) =>
+        rangeFor(verses, { "1": v1, "2": V2, "3-4": V34 }));
+      autoAlignVerdict.mockResolvedValue({ chapter: "1", verse: "1", verdict: {
+        chapter: "1", verse: "1", verdict: "ALIGNED_CLEAN", runId: "aa-0", applyRequested: true, issues: [], suggestions: [],
+        applied: { groups: [], links: [], nulls: [] }, window: ["1", "2"], createdAt: "",
+      } });
+      await renderPage("2");
+      await waitFor(() => expect(autoAlignVerdict).toHaveBeenCalledWith("1", "1"));
+      expect(autoAlignVerdict).toHaveBeenCalledTimes(1);
+      expect(await within(screen.getByLabelText("Verse verdicts")).findByText(/✓ Aligned/)).toBeInTheDocument();
     });
   });
 });

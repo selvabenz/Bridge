@@ -14586,3 +14586,57 @@ a pass with no key answers `unavailable` without sending anything.
 **Verified.** 6 job tests. Full engine suite with `-n auto`: 4785 passed, 1 skipped,
 3 xfailed. `cargo test` passes (10). The frozen smoke was not run for this part;
 it is run once at the end of the series, after the sidecars are rebuilt.
+
+## 2026-10-08 — Automatic cross-verse alignment, part 7: the page (#222)
+
+Built to the mockup approved on 2026-10-08
+(https://claude.ai/artifact/C75bSQPQEfCUEAs2dyNZXc).
+
+**`CrossVerseAlignmentModal`.** The shell, the drag/drop, the lexicon popup and
+both columns are unchanged.
+- **Removed:** the gap strip and the suggestion strip.
+- **Auto-bar:** **Align automatically** sits beside **Suggest links**. It is
+  disabled, with the reason, when there is no key or the range cannot be one
+  window. The bar also carries a usage line.
+- **Verdict strip:** a card per verse (✓ Aligned / ? Needs review / ↻ Edited
+  since the pass / · Not aligned yet), filtering as the gap cards did.
+- **Run notice:** includes **Undo a verse**.
+- **Source cells:** an `ai` tag and the group's shape (2:1, 1:2) on cards;
+  null cards; `? possible omission` with **Not missing ▾**; disputed
+  suggestions with both votes on hover and ✓/×; offline corpus suggestions now
+  inline as well.
+- **Bank:** null words, `? possible addition` with **Not an addition ▾**, and
+  target-side options.
+- **Cards:** two lines, so a long Tamil word ellipsizes in a 150px track
+  (#206's overflow).
+- **#146's "Suggest with AI" is gone.** Align automatically supersedes it. Its
+  engine method `alignment.crossVerse.aiPropose` is left in place and is no
+  longer called from the UI. Removing it would be a separate cleanup.
+
+**A Svelte 4 trap hit while building this.** A template expression re-runs only
+when a variable *named in it* changes. Helpers that read `verdicts` or
+`visibleProposals` from the closure never refreshed their cells. The dismiss
+test caught it. Every helper the template calls now takes its state as an
+argument, the same way the gloss lookups already took `glossVersion`.
+
+**Chapter toolbar.** `AutoAlignChapterButton` runs in four states on one
+toolbar row:
+1. the offline estimate, with Start or Cancel, so nothing is sent before Start;
+2. progress, with Cancel;
+3. the result, with **Open review** on the first verses that need review;
+4. idle.
+
+When a job ends it reloads the chapter.
+
+`alignmentGroups.unaccountedTargets` / `unrealizedSources` now count null
+decisions as accounted, matching the engine's `gap_ids`.
+
+**Surprise, not fixed.** `VerseList.test.ts`'s "click budget under 100 ms" test
+failed once while the engine suite was saturating the CPU, and passes alone and
+in a quiet full run. It is timing-sensitive under load. That is worth an issue,
+and it is unrelated to this work.
+
+**Verified.** `npm run check` is clean. `npm run test` passes 41 files, 540
+tests, including 28 modal, 4 toolbar and 7 helper tests. `npm run build`
+succeeds. **Not verified:** the 1366×768 rendering in the desktop app, because
+jsdom does not lay out. QA row A103 says so.

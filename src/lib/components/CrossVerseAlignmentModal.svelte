@@ -14,9 +14,13 @@
     alignmentStatusByVerse, checkStatusByVerse, currentChapter, findingsByVerse, verseKey, verseNums,
   } from "../stores";
   import type {
-    AlignmentContext, AlignmentCounts, AlignmentToken, CrossVerseLink, CrossVerseLinkResult,
-    CrossVerseProposal,
+    AlignmentContext, AlignmentCounts, AlignmentToken, AutoAlignIssue, AutoAlignSuggestion, AutoAlignVerdict,
+    CrossVerseLink, CrossVerseLinkResult, CrossVerseProposal, NullDecisionEntry, NullReason,
   } from "../types/finding";
+  import {
+    idFor, liveIssues, liveSuggestions, placedByPass, relationTag, signatureOf, suggestionKey,
+    suggestionsForSource, suggestionsForTarget, verdictView, windowProblem,
+  } from "../autoAlign";
   import { createPointerDrag } from "../alignmentDrag";
   import {
     alignedTargetsFor, bottomIdsAfterDrop, groupForTarget, occurrenceLabel as occurrence, unaccountedTargets,
@@ -68,13 +72,20 @@
   let proposalError = "";
   let proposalsUnavailable = "";
   let suggestionsShown = false;
-  /** #146. `aiAvailable` is undefined until settings load, so the button reads
-   *  "checking" rather than flickering from disabled to enabled. */
+  /** `aiAvailable` is undefined until settings load, so "Align automatically"
+   *  reads "checking" rather than flickering from disabled to enabled. */
   let aiAvailable: boolean | undefined = undefined;
-  let aiUsed = false;
-  let aiTruncated = false;
-  let autoLinked = 0;
   let dismissed = new Set<string>();
+  /** #222: the last automatic pass on each verse, as stored by the engine. */
+  let verdicts: Record<string, AutoAlignVerdict | null> = {};
+  let autoBusy = false;
+  let autoStage = "";
+  /** What the last run in this session covered, for its notice and "Undo a verse". */
+  let lastRun: { verses: string[]; usage: string; summary: string; mixed: boolean } | null = null;
+  let usageLine = "";
+  let dismissedAuto = new Set<string>();
+  /** The "Not missing ▾" / "Not an addition ▾" menu, when open. */
+  let menu: { side: "source" | "target"; verse: string; id: string; word: string } | null = null;
   /** The selection the current proposals were computed for, so a widened range
    *  is reported as stale rather than silently showing yesterday's answer. */
   let proposalsFor: string[] = [];
@@ -91,6 +102,10 @@
   );
   $: visibleVerses = gapFilterVerse ? ordered.filter((v) => v === gapFilterVerse) : ordered;
   $: visibleProposals = proposals.filter((p) => !dismissed.has(proposalKey(p)));
+  $: windowIssue = windowProblem(selection, $verseNums.filter((v) => v !== "front"));
+  $: rangeIssues = ordered.flatMap((v) => liveIssues(contexts[v], verdicts[v]));
+  $: rangeSuggestions = ordered.flatMap((v) => liveSuggestions(contexts[v], verdicts[v])
+    .filter((s) => !dismissedAuto.has(suggestionKey(s))));
   $: proposalsStale = suggestionsShown && proposalsFor.join("␟") !== selection.join("␟");
 
   // The page is chapter-scoped: navigating to another chapter underneath it
@@ -162,12 +177,203 @@
       contexts = next;
       chapterStatus = range.chapterStatus;
       void loadMeanings(range.verses.flatMap((c) => c.topTokens));
+      void loadVerdicts(range.verses, sequence);
     } catch (value) {
       if (sequence !== loadSequence) return;
       error = value instanceof Error ? value.message : String(value);
     } finally {
       if (sequence === loadSequence) loading = false;
     }
+  }
+
+  /** The stored verdict of each verse an automatic pass has run on (#222).
+   *  Cheap reads, and only for verses whose context says there is one. */
+  async function loadVerdicts(list: AlignmentContext[], sequence: number) {
+    const next: Record<string, AutoAlignVerdict | null> = {};
+    for (const context of list) {
+      if (!context.autoAlign) { next[context.verse] = null; continue; }
+      try {
+        next[context.verse] = (await bridge.autoAlignVerdict(chapter, context.verse)).verdict;
+      } catch {
+        next[context.verse] = null;
+      }
+    }
+    if (sequence === loadSequence) verdicts = { ...verdicts, ...next };
+  }
+
+  /** Ask the window twice and write what both passes agree on (#219). One
+   *  click, never on open or on a range change; the notice reports what was
+   *  placed and what is left for the reviewer. */
+  async function runAuto() {
+    if (autoBusy || busy || windowIssue || !aiAvailable) return;
+    autoBusy = true;
+    busy = true;
+    error = "";
+    notice = "";
+    autoStage = "Aligning… pass 1 of 2";
+    // The two passes are one request; this only tells the reviewer it is the
+    // longer of the two waits once the first has had time to return.
+    const stageTimer = setTimeout(() => { autoStage = "Aligning… pass 2 of 2"; }, 20000);
+    try {
+      const wanted = [...selection];
+      const result = await bridge.autoAlignWindow(chapter, wanted);
+      if (result.unavailable) {
+        error = result.unavailable.message;
+        return;
+      }
+      for (const item of result.results) {
+        verdicts = {
+          ...verdicts,
+          [item.verse]: {
+            chapter, verse: item.verse, verdict: item.verdict, runId: result.runId,
+            applyRequested: true, issues: item.issues, suggestions: item.suggestions,
+            applied: item.applied, window: result.verses, createdAt: "", usage: result.usage,
+          },
+        };
+        contexts = { ...contexts, [item.verse]: item.context };
+      }
+      const placed = result.results.reduce((n, r) => n + r.applied.groups.length + r.applied.links.length + r.applied.nulls.length, 0);
+      const omissions = result.results.reduce((n, r) => n + r.issues.filter((i) => i.kind === "POSSIBLE_OMISSION").length, 0);
+      const additions = result.results.reduce((n, r) => n + r.issues.filter((i) => i.kind === "POSSIBLE_ADDITION").length, 0);
+      const suggested = result.results.reduce((n, r) => n + r.suggestions.length, 0);
+      const clean = result.results.filter((r) => r.verdict === "ALIGNED_CLEAN").length;
+      const parts = [
+        `${clean} of ${result.results.length} verse${result.results.length === 1 ? "" : "s"} aligned with nothing left`,
+        `${placed} group${placed === 1 ? "" : "s"}, link${placed === 1 ? "" : "s"} and decision${placed === 1 ? "" : "s"} written`,
+        suggested ? `${suggested} suggestion${suggested === 1 ? "" : "s"} for you` : "",
+        omissions ? `${omissions} possible omission${omissions === 1 ? "" : "s"}` : "",
+        additions ? `${additions} possible addition${additions === 1 ? "" : "s"}` : "",
+      ].filter(Boolean);
+      const usage = result.usage;
+      usageLine = usage ? `Last run: ${usage.calls} requests · ${usage.totalTokens.toLocaleString()} tokens · about $${usage.estimatedCostUSD.toFixed(2)}` : "";
+      lastRun = {
+        verses: result.verses, usage: usageLine,
+        summary: `${clean === result.results.length ? "✓ " : ""}${parts.join(", ")}.`,
+        mixed: clean !== result.results.length,
+      };
+      chapterStatus = result.results[result.results.length - 1]?.context.chapterStatus ?? chapterStatus;
+      for (const item of result.results) await refreshChecks(item.verse, item.context, "");
+      notice = "";
+      error = result.failures?.length ? `Some agreed changes were not applied: ${result.failures.join("; ")}` : "";
+    } catch (value) {
+      error = value instanceof Error ? value.message : String(value);
+    } finally {
+      clearTimeout(stageTimer);
+      autoStage = "";
+      autoBusy = false;
+      busy = false;
+    }
+  }
+
+  async function revertVerse(event: Event) {
+    const select = event.currentTarget as HTMLSelectElement;
+    const v = select.value;
+    select.value = "";
+    if (!v || busy) return;
+    busy = true;
+    error = "";
+    try {
+      const result = await bridge.autoAlignRevert(chapter, v);
+      verdicts = { ...verdicts, [v]: null };
+      contexts = { ...contexts, [v]: result.context };
+      await refreshChecks(v, result.context, "");
+      notice = result.skipped.length
+        ? `Restored v.${v}. Left alone, because you changed them after the pass: ${result.skipped.length}.`
+        : `Restored v.${v} to how it was before the automatic pass.`;
+      // A reverted link reaches its other verse too.
+      await load();
+    } catch (value) {
+      error = value instanceof Error ? value.message : String(value);
+    } finally {
+      busy = false;
+    }
+  }
+
+  /** ✓ on a suggestion: the same writers a drag would use, so a refusal
+   *  (the word got a home meanwhile) surfaces exactly as it would there. */
+  async function acceptSuggestion(s: AutoAlignSuggestion) {
+    if (s.kind === "null" && s.token) {
+      const context = contexts[s.token.verse];
+      const id = context && idFor(context, s.token.side, s.token.signature);
+      if (!id) return;
+      await setNull(s.token.side, s.token.verse, id, s.reason as NullReason, s.note);
+      return;
+    }
+    if (!s.source || !s.target) return;
+    const sourceContext = contexts[s.source.verse];
+    const targetContext = contexts[s.target.verse];
+    const topId = sourceContext && idFor(sourceContext, "source", s.source.signature);
+    const bottomId = targetContext && idFor(targetContext, "target", s.target.signature);
+    if (!topId || !bottomId) {
+      error = "That word is not in its verse any more. Run the automatic pass again.";
+      return;
+    }
+    if (s.source.verse === s.target.verse) {
+      alignWithin(s.source.verse, topId, bottomId);
+    } else {
+      linkAcross(s.source.verse, topId, s.target.verse, bottomId);
+    }
+  }
+
+  function dismissSuggestion(s: AutoAlignSuggestion) {
+    // Session-only, like the corpus suggestions (#140 persists dismissals).
+    dismissedAuto = new Set([...dismissedAuto, suggestionKey(s)]);
+  }
+
+  async function setNull(side: "source" | "target", v: string, id: string, reason: NullReason, note = "") {
+    menu = null;
+    await mutate(v, async () => (await bridge.nullSet(chapter, v, side, id, reason, note)).context,
+      `Marked ${reason.toLowerCase()}.`);
+  }
+
+  function clearNull(v: string, entry: NullDecisionEntry) {
+    void mutate(v, async () => (await bridge.nullClear(entry.decisionId)).context, "Decision cleared.");
+  }
+
+  // Every helper the template calls takes the state it reads as an argument:
+  // Svelte 4 re-runs a template expression only when a variable *named in it*
+  // changes, so a helper that read `verdicts` or `visibleProposals` from the
+  // closure would never refresh its cell.
+  function issueFor(
+    context: AlignmentContext, verdict: AutoAlignVerdict | null | undefined, side: "source" | "target", token: AlignmentToken,
+  ): AutoAlignIssue | undefined {
+    const signature = signatureOf(token);
+    return liveIssues(context, verdict).find((i) => i.side === side && i.signature === signature);
+  }
+
+  function nullFor(context: AlignmentContext, side: "source" | "target", id: string): NullDecisionEntry | undefined {
+    return context.nullDecisions[side].find((entry) => entry.id === id);
+  }
+
+  function sourceSuggestions(list: AutoAlignSuggestion[], v: string, token: AlignmentToken): AutoAlignSuggestion[] {
+    return suggestionsForSource(list, v, signatureOf(token));
+  }
+
+  function targetSuggestions(list: AutoAlignSuggestion[], v: string, token: AlignmentToken): AutoAlignSuggestion[] {
+    return suggestionsForTarget(list, v, signatureOf(token));
+  }
+
+  function corpusFor(list: CrossVerseProposal[], v: string, topId: string): CrossVerseProposal[] {
+    return list.filter((p) => p.source.verse === v && p.source.topId === topId);
+  }
+
+  /** "ai" when the last pass wrote this group, plus its shape when not 1:1. */
+  function groupTag(verdict: AutoAlignVerdict | null | undefined, context: AlignmentContext, topId: string): string {
+    const group = context.groups.find((g) => g.topIds.includes(topId));
+    if (!group) return "";
+    const top = context.topTokens.find((t) => t.id === topId);
+    const bottoms = group.bottomIds.map((id) => context.bottomTokens.find((t) => t.id === id)).filter(Boolean) as AlignmentToken[];
+    const ai = top && placedByPass(verdict, signatureOf(top), bottoms.map(signatureOf)) ? "ai" : "";
+    return [ai, relationTag(group.topIds.length, group.bottomIds.length)].filter(Boolean).join(" · ");
+  }
+
+  function linkTag(context: AlignmentContext, link: CrossVerseLink): string {
+    const group = context.crossVerseGroups.find((g) => g.linkIds.includes(link.id));
+    return group ? relationTag(group.sources.length, group.targets.length) : "";
+  }
+
+  function openMenu(side: "source" | "target", v: string, token: AlignmentToken) {
+    menu = { side, verse: v, id: token.id, word: token.word };
   }
 
   /** Suggestions are loaded on an explicit click, never with the range (#139).
@@ -186,69 +392,6 @@
       proposalsFor = wanted;
       proposalsUnavailable = result.unavailable?.message ?? "";
       suggestionsShown = true;
-    } catch (value) {
-      proposalError = value instanceof Error ? value.message : String(value);
-    } finally {
-      proposalsBusy = false;
-    }
-  }
-
-  /** The same question asked of a model as well (#146), and then the agreed
-   *  proposals linked without a further click.
-   *
-   *  Three things this deliberately keeps from the offline path: it is still
-   *  click-only (a billed request must never fire because a range changed), it
-   *  still writes through the ordinary `crossVerseLink`, and a refused link
-   *  still surfaces rather than being swallowed. What it adds is that a proposal
-   *  the model and the corpus scorer *both* chose, uncontested, is applied for
-   *  you -- two independent methods agreeing, never the model's own confidence.
-   */
-  async function loadAiProposals() {
-    if (proposalsBusy) return;
-    proposalsBusy = true;
-    proposalError = "";
-    autoLinked = 0;
-    try {
-      const wanted = [...selection];
-      const result = await bridge.crossVerseAiPropose(chapter, wanted);
-      proposalsFor = wanted;
-      suggestionsShown = true;
-      aiUsed = true;
-      if (result.unavailable) {
-        proposalsUnavailable = result.unavailable.message;
-        proposals = [];
-        return;
-      }
-      // A model that returned nothing must not wipe out what statistics found.
-      const corpusOnly = (result.corpusProposals ?? []).filter(
-        (item) => !result.proposals.some(
-          (p) => p.source.verse === item.source.verse && p.source.topId === item.source.topId,
-        ),
-      );
-      proposals = [...result.proposals, ...corpusOnly];
-      proposalsUnavailable = result.proposals.length ? "" : (result.corpusUnavailable?.message ?? "");
-      aiTruncated = Boolean(result.truncated);
-
-      const gated = result.proposals.filter((item) => item.autoLinkable);
-      for (const item of gated) {
-        await mutateCross(
-          () => bridge.crossVerseLink(
-            { chapter, verse: item.source.verse, topId: item.source.topId },
-            { chapter, verse: item.target.verse, bottomId: item.target.bottomId },
-            "ai-auto",
-          ),
-          "",
-        );
-        // Stop at the first refusal rather than pressing on: the later links in
-        // the batch were computed against the state before it, and a run that
-        // half-applied while showing one error is the worst of both.
-        if (error) break;
-        autoLinked += 1;
-        dismissed = new Set([...dismissed, proposalKey(item)]);
-      }
-      if (autoLinked > 0) {
-        notice = `Linked ${autoLinked} ${autoLinked === 1 ? "pair" : "pairs"} the AI and this project's own completed alignments both chose. Undo any with ×.`;
-      }
     } catch (value) {
       proposalError = value instanceof Error ? value.message : String(value);
     } finally {
@@ -521,7 +664,7 @@
   }
 </script>
 
-<svelte:window on:keydown={(event) => event.key === "Escape" && !busy && !lexiconToken && onClose()} />
+<svelte:window on:keydown={(event) => { if (event.key !== "Escape") return; if (menu) { menu = null; return; } if (!busy && !lexiconToken) onClose(); }} />
 
 <div class="overlay" role="presentation">
   <section class="page" role="dialog" aria-modal="true" aria-label={`Cross-verse alignment, chapter ${chapter}`}>
@@ -561,136 +704,81 @@
     {#if loading && ordered.length === 0}
       <div class="loading"><span class="spin" /> Loading {selection.length} verse{selection.length === 1 ? "" : "s"}…</div>
     {:else}
-      <div class="gap-strip" aria-label="Gap overview">
+      <div class="auto-bar">
+        <button
+          type="button"
+          class="primary"
+          on:click={runAuto}
+          disabled={busy || loading || !aiAvailable || Boolean(windowIssue)}
+          title={aiAvailable === undefined
+            ? "Checking whether an AI provider is configured…"
+            : !aiAvailable
+              ? "Add an API key in Settings to align automatically"
+              : windowIssue || "Ask your AI provider twice and write what both readings agree on"}
+        >
+          {#if autoBusy}<span class="spin light" />{autoStage}{:else}{lastRun ? "Align again" : "▶ Align automatically"}{/if}
+        </button>
+        <button type="button" class="secondary" on:click={loadProposals} disabled={proposalsBusy || busy || loading}>
+          {#if proposalsBusy}<span class="spin" />{/if}
+          {suggestionsShown ? "Suggest again" : "Suggest links"}
+        </button>
+        <span class="explain">
+          {#if aiAvailable === false}
+            Add an API key in Settings to align automatically. “Suggest links” learns from this project's own completed alignments.
+          {:else}
+            Asks your AI provider twice, source-first and target-first. Words both passes agree on are aligned; the rest become suggestions for you.
+          {/if}
+        </span>
+        {#if usageLine}<span class="usage">{usageLine}</span>{/if}
+      </div>
+
+      <div class="verdict-strip" aria-label="Verse verdicts">
         {#each ordered as v (v)}
-          {@const gaps = contexts[v].gaps}
+          {@const view = verdictView(contexts[v], verdicts[v])}
           <button
             type="button"
-            class="gap"
+            class="verdict {view.tone}"
             class:active={gapFilterVerse === v}
-            class:clean={gaps.sourceUnmatched === 0 && gaps.targetUnmatched === 0}
-            class:accounted={contexts[v].fullyAccounted}
             aria-pressed={gapFilterVerse === v}
             on:click={() => toggleGapFilter(v)}
-            title={gapFilterVerse === v ? "Show all words again" : `Show only the gaps in verse ${v}`}
+            title={gapFilterVerse === v ? "Show all words again" : `Show only what is left in verse ${v}`}
           >
-            <span class="gap-verse">v.{v}</span>
-            <span class="status {contexts[v].status}">{contexts[v].status}</span>
-            <span>{gaps.sourceUnmatched} source word{gaps.sourceUnmatched === 1 ? "" : "s"} with no counterpart</span>
-            <span>{gaps.targetUnmatched} target word{gaps.targetUnmatched === 1 ? "" : "s"} with no counterpart</span>
-            {#if contexts[v].crossVerseAccounted + contexts[v].crossVerseRealized > 0}
-              <span class="linked-note">↔ {contexts[v].crossVerseAccounted + contexts[v].crossVerseRealized} linked across verses{#if contexts[v].fullyAccounted} · nothing left unaccounted{/if}</span>
-            {/if}
+            <span class="v-line1"><span class="v-num">v.{v}</span><span>{view.glyph} {view.label}</span></span>
+            {#each view.lines.filter(Boolean) as line}<span class="v-sub">{line}</span>{/each}
           </button>
         {/each}
-        <div class="gap-total">
-          <span>Range: {totalGaps.sourceUnmatched} source · {totalGaps.targetUnmatched} target unmatched</span>
+        <div class="totals">
+          {#if lastRun || rangeIssues.length || rangeSuggestions.length}
+            <span>Range: {rangeIssues.filter((i) => i.kind === "POSSIBLE_OMISSION").length} possible omissions · {rangeIssues.filter((i) => i.kind === "POSSIBLE_ADDITION").length} additions · {rangeSuggestions.length} suggestions</span>
+          {:else}
+            <span>Range: {totalGaps.sourceUnmatched} source · {totalGaps.targetUnmatched} target unmatched</span>
+          {/if}
           {#if chapterStatus}
             <span>Chapter: {chapterStatus.complete} complete · {chapterStatus.partial} partial · {chapterStatus.untouched} untouched{#if chapterStatus.invalid} · {chapterStatus.invalid} invalid{/if}</span>
+          {/if}
+          {#if suggested.length > 0}
+            <span class="widened">↔ widened with v.{suggested.join(", ")} <button type="button" class="link" on:click={resetToDefaultRange} disabled={busy}>Back to {verse} ±1</button></span>
           {/if}
           {#if gapFilterVerse}<button type="button" class="link" on:click={() => (gapFilterVerse = null)}>Show all</button>{/if}
         </div>
       </div>
 
-      {#if suggested.length > 0}
-        <div class="suggestion">
-          ↔ Range widened with verse{suggested.length === 1 ? "" : "s"} {suggested.join(", ")}: the last analysis
-          located source material there across verses.
-          <button type="button" class="link" on:click={resetToDefaultRange} disabled={busy}>Back to {verse} ±1</button>
+      {#if lastRun}
+        <div class="notice" class:mixed={lastRun.mixed} role="status">
+          <span>{lastRun.summary}</span>
+          <select aria-label="Undo a verse" on:change={revertVerse} disabled={busy}>
+            <option value="">Undo a verse ▾</option>
+            {#each lastRun.verses as v}<option value={v}>Restore v.{v} to before this run</option>{/each}
+          </select>
         </div>
       {/if}
-      <section class="suggest" aria-label="Cross-verse suggestions">
-        <div class="suggest-head">
-          <button type="button" on:click={loadProposals} disabled={proposalsBusy || busy || loading}>
-            {#if proposalsBusy}<span class="spin" />{/if}
-            {suggestionsShown ? "Suggest again" : "Suggest links"}
-          </button>
-          {#if aiAvailable !== false}
-            <button
-              type="button"
-              class="ai"
-              on:click={loadAiProposals}
-              disabled={proposalsBusy || busy || loading || aiAvailable === undefined}
-              title={aiAvailable === undefined
-                ? "Checking whether an AI provider is configured…"
-                : "Ask the configured AI provider as well, and link the pairs it and this project's own completed alignments both choose. Sends this range's unaligned words to your provider."}
-            >
-              {#if proposalsBusy && aiUsed}<span class="spin" />{/if}
-              Suggest with AI
-            </button>
-          {/if}
-          <small>
-            {#if aiAvailable === false}
-              learned from this project's own completed alignments · nothing is linked until you accept ·
-              <span class="ai-off">add an API key in Settings to also ask an AI</span>
-            {:else}
-              learned from this project's own completed alignments · nothing is linked until you accept,
-              except pairs the AI and the corpus both choose
-            {/if}
-          </small>
-          {#if suggestionsShown && !proposalsBusy}
-            <span class="suggest-count">
-              {visibleProposals.length} suggestion{visibleProposals.length === 1 ? "" : "s"}
-            </span>
-          {/if}
-        </div>
-        {#if proposalError}<div class="error">{proposalError}</div>{/if}
-        {#if aiTruncated}
-          <p class="empty">
-            This range had more gaps than one AI request covers, so only the first of them were
-            offered. Narrow the range to reach the rest.
-          </p>
-        {/if}
-        {#if proposalsStale}
-          <p class="empty">The range changed since these were worked out — suggest again.</p>
-        {/if}
-        {#if proposalsUnavailable}
-          <p class="empty">{proposalsUnavailable}</p>
-        {:else if suggestionsShown && !proposalsBusy && visibleProposals.length === 0}
-          <p class="empty">No cross-verse realization found for the gaps in this range.</p>
-        {/if}
-        {#if visibleProposals.length > 0}
-          <ul class="proposals">
-            {#each visibleProposals as proposal (proposalKey(proposal))}
-              <li class="proposal" class:ambiguous={proposal.status === "AMBIGUOUS"}>
-                <div class="proposal-claim">
-                  <span class="word source-word">{proposal.source.word}</span>
-                  <small>{chapter}:{proposal.source.verse}</small>
-                  <span aria-hidden="true">→</span>
-                  <span class="word">{proposal.target.word}</span>
-                  <small>{chapter}:{proposal.target.verse}</small>
-                  {#if proposal.agreesWithCorpus}
-                    <span class="status agreed" title="The AI and this project's own completed alignments picked the same pair.">both agree</span>
-                  {:else if proposal.evidence.some((item) => item.kind === "MODEL_PICK")}
-                    <span class="status ai-only" title="The AI picked this; this project's completed alignments do not corroborate it. Check it before accepting.">AI only</span>
-                  {/if}
-                  {#if proposal.status === "AMBIGUOUS"}
-                    <span class="status partial" title={proposal.contested
-                      ? "Another source word's best candidate is this same target word."
-                      : "Another candidate scores as well on the evidence; verse distance alone does not settle it."}
-                    >ambiguous</span>
-                  {/if}
-                </div>
-                <div class="proposal-why">{evidenceSummary(proposal)}</div>
-                <div class="proposal-actions">
-                  {#if proposal.status === "PROPOSED"}
-                    <button type="button" on:click={() => acceptProposal(proposal)} disabled={busy || proposalsBusy}>
-                      Accept
-                    </button>
-                  {:else}
-                    <button type="button" on:click={() => (gapFilterVerse = proposal.source.verse)} disabled={busy}>
-                      Show the gap
-                    </button>
-                  {/if}
-                  <button type="button" class="link" on:click={() => dismissProposal(proposal)} disabled={busy}>
-                    Dismiss
-                  </button>
-                </div>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      </section>
+      {#if proposalError}<div class="error">{proposalError}</div>{/if}
+      {#if proposalsStale}<p class="empty">The range changed since the suggestions were worked out — suggest again.</p>{/if}
+      {#if proposalsUnavailable}
+        <p class="empty">{proposalsUnavailable}</p>
+      {:else if suggestionsShown && !proposalsBusy && visibleProposals.length === 0}
+        <p class="empty">No cross-verse realization found for the gaps in this range.</p>
+      {/if}
 
       {#if notice}<div class="notice">{notice}</div>{/if}
       {#if error}<div class="error">{error}</div>{/if}
@@ -736,8 +824,10 @@
                       on:keydown={(event) => activate(event, () => handleColumnClick(columnKey))}
                     >
                       {#each alignedTargetsFor(context, src.id) as item (item.id)}
-                        <span class="token target aligned-card">
+                        {@const tag = groupTag(verdicts[v], context, src.id)}
+                        <span class="token target aligned-card" title={tag.startsWith("ai") ? "Placed automatically: both passes agreed. × returns it to the word bank." : undefined}>
                           <span class="word">{item.word}{#if item.occurrences > 1}<span class="occ">{occurrence(item)}</span>{/if}</span>
+                          {#if tag}<small class="tag">{tag}</small>{/if}
                           <button
                             type="button"
                             class="unalign-x"
@@ -757,7 +847,7 @@
                             : `Realized in verse ${link.target.verse} by ${link.target.word}. Bridge-private link; translationCore alignment is unchanged.`}
                         >
                           <span class="word">{link.target.word}</span>
-                          <small>{link.state === "invalid" ? "link invalid" : "realized in"} v.{link.target.verse}</small>
+                          <small>{link.state === "invalid" ? "link invalid" : "realized in"} v.{link.target.verse}{#if linkTag(context, link)} · {linkTag(context, link)}{/if}</small>
                           <button
                             type="button"
                             class="unalign-x"
@@ -768,7 +858,50 @@
                           >×</button>
                         </span>
                       {/each}
-                      {#if alignedTargetsFor(context, src.id).length === 0 && linksForSource(context, src.id).length === 0}
+                      {#if nullFor(context, "source", src.id)}
+                        {@const decision = nullFor(context, "source", src.id)}
+                        {#if decision}
+                          <span class="token null-card" class:invalid={decision.state === "invalid" || decision.stale}
+                            title={decision.origin === "ai-auto" ? `Both passes agree this word has no separate target word: ${decision.note}` : `Marked by you: ${decision.note || decision.reason.toLowerCase()}`}>
+                            <span class="null-reason">{decision.reason.toLowerCase()}</span>
+                            <small>{decision.note || (decision.origin === "ai-auto" ? "ai" : "you")}{decision.origin === "ai-auto" ? " · ai" : ""}</small>
+                            <button type="button" class="unalign-x" on:click|stopPropagation={() => clearNull(v, decision)} disabled={busy}
+                              aria-label={`Clear ${decision.reason.toLowerCase()} on ${src.word}`} title="Clear this decision">×</button>
+                          </span>
+                        {/if}
+                      {/if}
+                      {#if issueFor(context, verdicts[v], "source", src)}
+                        {@const issue = issueFor(context, verdicts[v], "source", src)}
+                        <span class="issue-badge omission" title={issue?.note}><span aria-hidden="true">?</span>possible omission</span>
+                        <button type="button" class="issue-action" on:click|stopPropagation={() => openMenu("source", v, src)} disabled={busy}>Not missing ▾</button>
+                      {/if}
+                      {#each sourceSuggestions(rangeSuggestions, v, src) as s (suggestionKey(s))}
+                        <span class="token suggest-card" class:disputed={s.status !== "UNCERTAIN" || !Object.values(s.votes).every(Boolean)}
+                          title={`${Object.entries(s.votes).map(([pass, yes]) => `${pass}: ${yes ? "yes" : "no"}`).join(" · ")}${s.reason ? ` — ${s.reason}` : ""}`}>
+                          {#if s.kind === "link"}
+                            <span class="word">{s.target?.word} ?</span>
+                            <small>{s.target && s.target.verse !== v ? `v.${s.target.verse} · ` : ""}{s.status === "CORPUS_DISAGREES" ? "corpus disagrees" : s.status === "CONFLICTS_WITH_HUMAN" ? "differs from yours" : "passes disagree"}</small>
+                          {:else}
+                            <span class="null-reason">{s.reason.toLowerCase()} ?</span>
+                            <small>passes disagree</small>
+                          {/if}
+                          <button type="button" class="accept-x" on:click|stopPropagation={() => acceptSuggestion(s)} disabled={busy} aria-label={`Accept ${s.kind === "link" ? s.target?.word : s.reason.toLowerCase()} for ${src.word}`}>✓</button>
+                          <button type="button" class="unalign-x" on:click|stopPropagation={() => dismissSuggestion(s)} disabled={busy} aria-label="Dismiss this suggestion">×</button>
+                        </span>
+                      {/each}
+                      {#each corpusFor(visibleProposals, v, src.id) as proposal (proposalKey(proposal))}
+                        <span class="token suggest-card" class:disputed={proposal.status === "AMBIGUOUS"} title={evidenceSummary(proposal)}>
+                          <span class="word">{proposal.target.word} ?</span>
+                          <small>v.{proposal.target.verse} · {proposal.status === "AMBIGUOUS" ? "ambiguous" : "corpus"}</small>
+                          {#if proposal.status === "PROPOSED"}
+                            <button type="button" class="accept-x" on:click|stopPropagation={() => acceptProposal(proposal)} disabled={busy || proposalsBusy} aria-label={`Accept ${proposal.target.word} for ${src.word}`}>✓</button>
+                          {/if}
+                          <button type="button" class="unalign-x" on:click|stopPropagation={() => dismissProposal(proposal)} disabled={busy} aria-label="Dismiss this suggestion">×</button>
+                        </span>
+                      {/each}
+                      {#if alignedTargetsFor(context, src.id).length === 0 && linksForSource(context, src.id).length === 0
+                        && !nullFor(context, "source", src.id) && !issueFor(context, verdicts[v], "source", src)
+                        && sourceSuggestions(rangeSuggestions, v, src).length === 0 && corpusFor(visibleProposals, v, src.id).length === 0}
                         <span class="placeholder" aria-hidden="true">·</span>
                       {/if}
                     </div>
@@ -822,19 +955,47 @@
                           title="Remove this cross-verse link"
                         >×</button>
                       </span>
+                    {:else if nullFor(context, "target", item.id)?.state === "active"}
+                      {@const decision = nullFor(context, "target", item.id)}
+                      {#if decision}
+                        <span class="token target null-word" title={decision.origin === "ai-auto" ? `Both passes agree: ${decision.note || decision.reason.toLowerCase()}` : `Marked by you: ${decision.note || decision.reason.toLowerCase()}`}>
+                          <span class="word">{item.word}</span>
+                          <small>{decision.reason === "EXPLICITATION" ? "explicitation" : "grammar"}{decision.origin === "ai-auto" ? " · ai" : ""}</small>
+                          <button type="button" class="unalign-x" on:click|stopPropagation={() => clearNull(v, decision)} disabled={busy}
+                            aria-label={`Clear ${decision.reason.toLowerCase()} on ${item.word}`} title="Clear this decision">×</button>
+                        </span>
+                      {/if}
                     {:else if groupForTarget(context, item.id)}
                       <span class="token target already-aligned" title="Already aligned in this verse">
                         <span class="word">{item.word}{#if item.occurrences > 1}<span class="occ">{occurrence(item)}</span>{/if}</span>
                       </span>
                     {:else}
-                      <button
-                        type="button"
-                        class="token target unaligned"
-                        class:picked={pickedUpKey === tokenKey}
-                        on:pointerdown={(event) => startPointerTrack(event, tokenKey)}
-                        on:click|stopPropagation={() => handleWordClick(tokenKey)}
-                        disabled={busy}
-                      ><span class="word">{item.word}{#if item.occurrences > 1}<span class="occ">{occurrence(item)}</span>{/if}</span></button>
+                      {@const addition = issueFor(context, verdicts[v], "target", item)}
+                      {@const options = targetSuggestions(rangeSuggestions, v, item)}
+                      <span class="bank-item">
+                        <button
+                          type="button"
+                          class="token target unaligned"
+                          class:picked={pickedUpKey === tokenKey}
+                          class:flag-add={Boolean(addition)}
+                          class:flag-sugg={options.length > 0}
+                          on:pointerdown={(event) => startPointerTrack(event, tokenKey)}
+                          on:click|stopPropagation={() => handleWordClick(tokenKey)}
+                          disabled={busy}
+                          title={addition?.note}
+                        ><span class="word">{item.word}{#if item.occurrences > 1}<span class="occ">{occurrence(item)}</span>{/if}</span></button>
+                        {#if addition}
+                          <span class="issue-badge addition" title={addition.note}><span aria-hidden="true">?</span>possible addition</span>
+                          <button type="button" class="issue-action" on:click|stopPropagation={() => openMenu("target", v, item)} disabled={busy}>Not an addition ▾</button>
+                        {/if}
+                        {#each options as s (suggestionKey(s))}
+                          <span class="option">
+                            {#if s.kind === "link"}→ <span class="greek">{s.source?.word}</span> v.{s.source?.verse} ?{:else}{s.reason === "EXPLICITATION" ? "explicitation" : "grammar"} ?{/if}
+                            <button type="button" class="accept-x" on:click|stopPropagation={() => acceptSuggestion(s)} disabled={busy}
+                              aria-label={`Accept ${s.kind === "link" ? s.source?.word : s.reason.toLowerCase()} for ${item.word}`}>✓</button>
+                          </span>
+                        {/each}
+                      </span>
                     {/if}
                   {:else}
                     <p class="empty">{gapFilterVerse ? "Every target word is aligned." : "This verse has no target words."}</p>
@@ -848,6 +1009,23 @@
     {/if}
   </section>
 </div>
+
+{#if menu}
+  {@const current = menu}
+  <div class="menu-overlay" role="presentation" on:click={(event) => { if (event.target === event.currentTarget) menu = null; }}>
+    <div class="issue-menu" role="menu" tabindex="-1" aria-label={current.side === "source" ? `Why ${current.word} is not missing` : `Why ${current.word} is not an addition`}>
+      <div class="menu-title">{current.side === "source" ? `${current.word} is not missing because…` : `${current.word} is not an addition because…`}</div>
+      {#if current.side === "source"}
+        <button type="button" role="menuitem" on:click={() => setNull("source", current.verse, current.id, "GRAMMATICAL")}>Grammatical<small>a Tamil ending or word order carries it</small></button>
+        <button type="button" role="menuitem" on:click={() => setNull("source", current.verse, current.id, "IMPLICIT")}>Implicit<small>the meaning is clear from context</small></button>
+      {:else}
+        <button type="button" role="menuitem" on:click={() => setNull("target", current.verse, current.id, "GRAMMATICAL")}>Grammar<small>the language needs this word</small></button>
+        <button type="button" role="menuitem" on:click={() => setNull("target", current.verse, current.id, "EXPLICITATION")}>Explicitation<small>it states what the source implies</small></button>
+      {/if}
+      <button type="button" role="menuitem" on:click={() => { notice = current.side === "source" ? `Drag the word that carries ${current.word} into its cell.` : `Drag ${current.word} onto the source word it renders.`; menu = null; }}>Link manually…<small>{current.side === "source" ? "drag a target word into this cell" : "drag it onto a source word"}</small></button>
+    </div>
+  </div>
+{/if}
 
 {#if lexiconToken}
   <LexiconPopup token={lexiconToken} direction={lexiconDirection} onClose={() => (lexiconToken = null)} />
@@ -884,47 +1062,78 @@
   .spin { width: 12px; height: 12px; border: 2px solid var(--accent-bg); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  .gap-strip { display: flex; gap: 8px; flex-wrap: wrap; align-items: stretch; padding: 10px 0 8px; flex-shrink: 0; font-size: var(--fs-xs); }
-  .gap { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 6px 10px; border-radius: 9px; background: var(--warning-bg); color: var(--warning); border-color: transparent; min-width: 190px; }
-  .gap.clean { background: #EAF7EF; color: var(--success); }
-  .gap.active { outline: 2px solid var(--accent); outline-offset: 1px; }
-  .gap.accounted { background: var(--accent-bg); color: var(--accent); }
-  .linked-note { font-weight: 700; }
-  .gap-verse { font-weight: 800; color: var(--text); }
-  .gap-total { display: flex; flex-direction: column; justify-content: center; gap: 3px; color: var(--text-2); padding: 0 6px; margin-left: auto; text-align: right; }
+
+  /* #222: the automatic pass. Auto-bar and verdict strip replace the gap strip
+     and the suggestion strip; suggestions now sit in the cells they would
+     fill. Sizes are the approved mockup's (1366x768). */
+  .auto-bar { display: flex; align-items: center; gap: 10px; padding: 8px 0 0; min-height: 40px; box-sizing: border-box; font-size: var(--fs-xs); color: var(--text-3); flex-shrink: 0; }
+  .auto-bar .primary { background: var(--accent); color: #fff; border: 1px solid var(--accent); border-radius: 7px; padding: 6px 14px; font-weight: 600; font-size: var(--fs-xs); height: 32px; white-space: nowrap; }
+  .auto-bar .primary:hover:not(:disabled) { background: #2560D6; }
+  .auto-bar .secondary { height: 32px; font-size: var(--fs-xs); white-space: nowrap; }
+  .auto-bar .explain { min-width: 0; line-height: 1.3; }
+  .auto-bar .usage { margin-left: auto; font-size: var(--fs-2xs); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .spin.light { border-color: rgba(255, 255, 255, .4); border-top-color: #fff; display: inline-block; vertical-align: -2px; margin-right: 6px; }
+  .verdict-strip { display: flex; gap: 8px; flex-wrap: wrap; align-items: stretch; padding: 10px 0 8px; flex-shrink: 0; font-size: var(--fs-xs); }
+  .verdict { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; text-align: left; padding: 6px 10px; border-radius: 9px; border: 0; min-width: 190px; min-height: 56px; }
+  .verdict .v-line1 { display: flex; gap: 6px; align-items: baseline; font-weight: 700; }
+  .verdict .v-num { font-weight: 800; color: var(--text); }
+  .verdict .v-sub { font-size: var(--fs-2xs); white-space: nowrap; }
+  .verdict.clean { background: #EAF7EF; color: var(--success); }
+  .verdict.review, .verdict.stale { background: var(--warning-bg); color: var(--warning); min-width: 230px; }
+  .verdict.idle { background: var(--surface-2); color: var(--text-3); box-shadow: inset 0 0 0 1px var(--border); }
+  .verdict.active { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .totals { display: flex; flex-direction: column; justify-content: center; gap: 3px; color: var(--text-2); padding: 0 6px; margin-left: auto; text-align: right; font-variant-numeric: tabular-nums; }
+  .widened { color: var(--accent); }
+  .notice { display: flex; gap: 12px; align-items: center; }
+  .notice.mixed { background: var(--warning-bg); color: #8A4B05; }
+  .notice select { font-size: var(--fs-2xs); padding: 3px 6px; margin-left: auto; }
+
+  /* Two-line cards: word, then where/what. A long Tamil word ellipsizes inside
+     a 150px track instead of overflowing it (#206). */
+  .aligned-card, .linked-card, .accounted, .null-card, .suggest-card {
+    display: inline-grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 4px; align-items: center;
+    max-width: 100%; min-width: 0; box-sizing: border-box; border-radius: 7px; padding: 3px 5px 3px 8px; color: var(--text);
+  }
+  .aligned-card > .word, .linked-card > .word, .accounted > .word, .suggest-card > .word {
+    font-family: var(--font-target); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+  }
+  .aligned-card > small, .linked-card > small, .accounted > small, .null-card > small, .suggest-card > small {
+    grid-column: 1; font-size: var(--fs-3xs); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .aligned-card > button, .linked-card > button, .accounted > button, .null-card > button { grid-column: 2; grid-row: 1 / span 2; }
+  .aligned-card .tag { color: var(--accent); }
+  .null-card { border: 1px dashed var(--border-strong); background: var(--surface-2); color: var(--text-2); }
+  .null-card.invalid { border-color: var(--danger); }
+  .null-card small { color: var(--text-3); font-weight: 400; }
+  .null-reason { font-family: var(--font-ui); font-size: var(--fs-2xs); font-weight: 700; }
+  .suggest-card { border: 1px dotted var(--accent); background: var(--surface); grid-template-columns: minmax(0, 1fr) auto auto; }
+  .suggest-card.disputed { border-color: var(--warning); }
+  .suggest-card small { color: var(--text-3); }
+  .suggest-card > button { grid-row: 1 / span 2; }
+  .accept-x { border: 0; background: none; padding: 0; width: 16px; height: 16px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; color: var(--success); font-size: var(--fs-sm); font-weight: 800; }
+  .accept-x:hover:not(:disabled) { background: #EAF7EF; }
+  .issue-badge { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 1px 8px; font-size: var(--fs-2xs); font-weight: 700; white-space: nowrap; color: #8A4B05; background: var(--warning-bg); }
+  .issue-action { border: 0; background: none; padding: 0; color: var(--accent); font-size: var(--fs-2xs); text-decoration: underline; }
+  .bank-item { display: inline-flex; flex-direction: column; align-items: center; gap: 3px; max-width: 100%; }
+  .token.target.unaligned.flag-add { outline: 1px solid var(--warning); }
+  .token.target.unaligned.flag-sugg { border-style: dotted; border-color: var(--warning); }
+  .option { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-3xs); color: var(--text-2); }
+  .option .greek { font-family: var(--font-greek); }
+  .null-word { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; border: 1px dashed var(--border-strong); background: var(--surface-2); color: var(--text-2); border-radius: 7px; padding: 4px 8px; }
+  .null-word small { font-family: var(--font-ui); font-size: var(--fs-3xs); color: var(--text-3); }
+  .menu-overlay { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: rgba(15, 20, 26, .2); }
+  .issue-menu { background: var(--surface); border: 1px solid var(--border-strong); border-radius: 9px; box-shadow: 0 10px 30px rgba(0, 0, 0, .18); padding: 6px; display: grid; gap: 2px; min-width: 260px; }
+  .issue-menu .menu-title { font-size: var(--fs-3xs); color: var(--text-3); padding: 4px 8px 6px; font-weight: 700; }
+  .issue-menu button { border: 0; text-align: left; padding: 6px 8px; font-size: var(--fs-xs); border-radius: 6px; }
+  .issue-menu button small { display: block; color: var(--text-3); font-size: var(--fs-3xs); }
+  .issue-menu button:hover { background: var(--accent-bg); }
   .status { border-radius: 999px; padding: 1px 7px; background: var(--surface-2); font-weight: 700; font-size: var(--fs-2xs); color: var(--text-2); }
   .status.complete { color: var(--success); background: #EAF7EF; }
   .status.partial { color: var(--warning); background: var(--warning-bg); }
   .status.invalid { color: var(--danger); background: var(--danger-bg); }
   .notice, .error { border-radius: 9px; padding: 8px 12px; margin-bottom: 8px; font-size: var(--fs-sm); line-height: 1.45; flex-shrink: 0; }
   .notice { background: #EAF7EF; color: var(--success); }
-  .suggestion { border-radius: 9px; padding: 8px 12px; margin-bottom: 8px; font-size: var(--fs-sm); background: var(--accent-bg); color: var(--accent); flex-shrink: 0; display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; }
   .error { background: #FFF0F0; color: var(--danger); }
-
-  /* Cross-verse suggestions (#139). Deliberately above the columns and
-     collapsed to a single button until asked: a proposal is a claim about the
-     text, and it should not appear as if the page had already decided. */
-  .suggest { flex-shrink: 0; margin-bottom: 8px; }
-  .suggest-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: var(--fs-xs); color: var(--text-3); }
-  .suggest-head .spin { margin-right: 4px; }
-  .suggest-count { color: var(--accent); font-weight: 700; }
-  /* #146. The AI button sits beside the offline one rather than replacing it:
-     the corpus pass costs nothing and works with no key, so it stays the
-     default action and this is the deliberate, billed second choice. */
-  .suggest-head .ai { border-color: var(--accent); color: var(--accent); font-weight: 600; }
-  .ai-off { color: var(--text-3); }
-  .status.agreed { color: var(--success); background: #EAF7EF; }
-  .status.ai-only { color: var(--accent); background: var(--accent-bg); }
-  .proposals { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 6px; }
-  .proposal { border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 9px; padding: 6px 10px; background: var(--surface-2); }
-  .proposal.ambiguous { border-left-color: var(--warning); }
-  .proposal-claim { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
-  .proposal-claim .word { font-family: var(--font-target); font-size: var(--fs-sm); font-weight: 700; }
-  .proposal-claim .source-word { font-family: var(--font-greek); }
-  .proposal-claim small { color: var(--text-3); font-size: var(--fs-2xs); }
-  .proposal-why { color: var(--text-2); font-size: var(--fs-2xs); margin: 3px 0 5px; line-height: 1.4; }
-  .proposal-actions { display: flex; gap: 8px; align-items: center; }
-  .proposal-actions button { padding: 3px 9px; font-size: var(--fs-xs); }
 
   /* Two vertically scrolling columns: the range view never scrolls sideways (#72). */
   .columns { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 12px; flex: 1; min-height: 0; }
@@ -982,13 +1191,8 @@
   .token.target.unaligned { background: #EFF7FF; border-color: var(--border-strong); color: var(--text); }
   .token.picked { outline: 2px solid var(--accent); outline-offset: 1px; }
   .already-aligned { background: var(--surface-2); border: 1px solid var(--border); color: var(--text-3); padding: 6px 9px; border-radius: 7px; cursor: default; }
-  .aligned-card { flex-direction: row; align-items: center; gap: 4px; min-width: 0; border: 1px solid var(--border-strong); border-radius: 7px; padding: 4px 6px 4px 9px; background: #EFF7FF; color: var(--text); }
-  .aligned-card .word { font-size: var(--fs-sm); }
-  .linked-card, .accounted {
-    flex-direction: row; align-items: center; gap: 5px; min-width: 0; border: 1px dashed var(--accent);
-    border-radius: 7px; padding: 4px 6px 4px 9px; background: var(--accent-bg); color: var(--text);
-  }
-  .linked-card .word, .accounted .word { font-size: var(--fs-sm); }
+  .aligned-card { border: 1px solid var(--border-strong); background: #EFF7FF; }
+  .linked-card, .accounted { border: 1px dashed var(--accent); background: var(--accent-bg); }
   .linked-card small, .accounted small { font-size: var(--fs-3xs); color: var(--accent); font-weight: 700; white-space: nowrap; }
   .linked-card.invalid { border-color: var(--danger); background: var(--danger-bg); }
   .linked-card.invalid small { color: var(--danger); }
