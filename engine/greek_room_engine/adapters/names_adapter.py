@@ -40,6 +40,8 @@ from __future__ import annotations
 import re
 import sys
 import threading
+import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -104,6 +106,33 @@ _uroman_unavailable = False
 _sed_module = None
 _sed_unavailable_reason: str | None = None
 _sed_cache: dict[str, Any] = {}  # lang_code -> loaded SmartEditDistance instance
+
+
+# Romanization of a token, and the edit distance between two romanized forms,
+# are pure for one language and the loaded uroman/SED tables. After a one-verse
+# edit the check used to redo both for the whole book: on GEN 4.2 s over 7,279
+# tokens and 8.6 s over 38,577 pairs (#233). Held for the life of the sidecar,
+# like Wildebeest's reports (#230): not persisted, because check_cache rows are
+# journalled. Bounded, oldest out.
+_ROMANIZED: "OrderedDict[tuple[str, str], str]" = OrderedDict()
+_DISTANCES: "OrderedDict[tuple[str, str, str], tuple[Any, Any]]" = OrderedDict()
+_ROMANIZED_MAX = 300_000
+_DISTANCES_MAX = 400_000
+_cache_lock = threading.Lock()
+
+
+def _cached(cache: OrderedDict, limit: int, key: tuple, compute):
+    with _cache_lock:
+        if key in cache:
+            cache.move_to_end(key)
+            return cache[key]
+    value = compute()
+    with _cache_lock:
+        cache[key] = value
+        cache.move_to_end(key)
+        while len(cache) > limit:
+            cache.popitem(last=False)
+    return value
 
 
 class NamesCheckError(RuntimeError):
@@ -224,8 +253,17 @@ class NamesAdapter(CheckAdapter):
         Hebrew combining marks, trimming Devanagari danda punctuation) that
         shouldn't be reimplemented a second time.
         """
+        # Wall clock per phase of the last call, for the caller's timings
+        # (bridge_service records it into check_timing; this package stays
+        # free of tc_ai_bridge imports). name -> (seconds, count).
+        phases: dict[str, tuple[float, int]] = {}
+        self.last_phases = phases
+        mark = time.perf_counter()
         uroman = _ensure_uroman()
         sed = _ensure_sed(lang_code)
+        now = time.perf_counter()
+        phases["names.load"] = (now - mark, 1)
+        mark = now
         if uroman is None or sed is None:
             reason = _sed_unavailable_reason or "uroman package is not installed"
             raise NamesCheckError(f"Names/transliteration check unavailable: {reason}")
@@ -238,20 +276,30 @@ class NamesAdapter(CheckAdapter):
         romanized: dict[str, str] = {}
         for token in candidates:
             try:
-                romanized[token] = uroman.romanize_string(token, lcode=lang_code or None)
+                romanized[token] = _cached(
+                    _ROMANIZED, _ROMANIZED_MAX, (lang_code, token),
+                    lambda: uroman.romanize_string(token, lcode=lang_code or None))
             except Exception:
                 # A single token's romanization failing (e.g. an unexpected
-                # character) shouldn't sink the whole book's check.
+                # character) shouldn't sink the whole book's check. Not cached.
                 romanized[token] = token
+        now = time.perf_counter()
+        phases["names.romanize"] = (now - mark, len(candidates))
+        mark = now
 
         candidate_pairs = self._candidate_pairs(romanized)
+        now = time.perf_counter()
+        phases["names.candidate_pairs"] = (now - mark, len(candidate_pairs))
+        mark = now
 
         findings: list[QaFinding] = []
         for token_a, token_b in candidate_pairs:
             rom_a, rom_b = romanized[token_a], romanized[token_b]
             if rom_a == rom_b:
                 continue
-            cost, cost_log = sed.string_distance_cost(rom_a, rom_b, max_cost=_MAX_COST)
+            cost, cost_log = _cached(
+                _DISTANCES, _DISTANCES_MAX, (lang_code, rom_a, rom_b),
+                lambda: sed.string_distance_cost(rom_a, rom_b, max_cost=_MAX_COST)[:2])
             if cost is None or cost <= 0:
                 continue
             findings.append(self._build_finding(
@@ -260,6 +308,7 @@ class NamesAdapter(CheckAdapter):
                 locations_a=candidates[token_a], locations_b=candidates[token_b],
                 cost=cost, cost_log=cost_log,
             ))
+        phases["names.distance"] = (time.perf_counter() - mark, len(candidate_pairs))
         return findings
 
     @staticmethod

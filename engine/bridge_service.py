@@ -4412,7 +4412,8 @@ class BridgeEngine:
         if cached_error is not None:
             raise NamesCheckError(cached_error)
 
-        text_map = self._book_verse_text_map(project)
+        with check_timing.current().step("names.text_map"):
+            text_map = self._book_verse_text_map(project)
         # "|spans-v1" forces a one-time cache invalidation for on-disk
         # checkCache.json sections written before findings carried
         # start_offset/end_offset — otherwise a content-hash match on
@@ -4446,6 +4447,10 @@ class BridgeEngine:
         except NamesCheckError as exc:
             self._names_errors_by_book[book_key] = str(exc)
             raise
+        finally:
+            adapter = self.greek_room._adapters.get("names")
+            for name, (seconds, count) in (getattr(adapter, "last_phases", None) or {}).items():
+                check_timing.current().add(name, seconds, count)
         for f in findings:
             # Same stabilization reason as USFM findings above: a stable id
             # keyed on the two spellings being compared (sorted, so it

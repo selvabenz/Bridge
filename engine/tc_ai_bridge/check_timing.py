@@ -44,10 +44,12 @@ class Timings:
         finally:
             self.add(name, time.perf_counter() - start)
 
-    def add(self, name: str, seconds: float) -> None:
+    def add(self, name: str, seconds: float, calls: int = 1) -> None:
+        """`calls`: how many items the time covers, when one measurement spans
+        many (the names check's tokens, its compared pairs)."""
         with self._lock:
             self._seconds[name] = self._seconds.get(name, 0.0) + seconds
-            self._calls[name] = self._calls.get(name, 0) + 1
+            self._calls[name] = self._calls.get(name, 0) + calls
 
     def merge(self, other: "Timings") -> None:
         for name, (seconds, calls) in other._items():
@@ -75,7 +77,7 @@ class Timings:
 class _NullTimings(Timings):
     """The no-op `current()` when nothing is being measured on this thread."""
 
-    def add(self, name: str, seconds: float) -> None:  # noqa: D401 - deliberately nothing
+    def add(self, name: str, seconds: float, calls: int = 1) -> None:  # noqa: D401 - deliberately nothing
         return
 
 
