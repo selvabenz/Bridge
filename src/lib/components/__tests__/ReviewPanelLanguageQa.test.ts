@@ -85,7 +85,7 @@ describe("ReviewPanel Language QA tab", () => {
     });
     render(ReviewPanel);
     await fireEvent.click(screen.getByRole("tab", { name: /Language QA/ }));
-    expect((await screen.findAllByText("learned fix")).length).toBe(2);
+    expect((await screen.findAllByText("learned fix", { selector: ".engine-badge" })).length).toBe(2);
     await fireEvent.click(screen.getAllByRole("button", { name: "Forget this fix" })[0]);
     expect(document.querySelector('[data-lqa-id="l1"]')).toBeNull();
     expect(document.querySelector('[data-lqa-id="l2"]')).toBeNull();

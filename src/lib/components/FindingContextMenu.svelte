@@ -12,6 +12,18 @@
     // consumer never has to know whether an id it handles came from the top
     // menu or a submenu.
     submenu?: FindingMenuAction[];
+    // A line of text, not an item (the word and what was found): never
+    // focusable, never dispatched. `tag` is its second, muted line.
+    header?: boolean;
+    // Shown on the item, right-aligned and muted ("vowel length · 412"), as
+    // the indic-qa editor shows a suggestion's kind and frequency.
+    tag?: string;
+    // The label is Scripture: set in the target-script font.
+    target?: boolean;
+    // Small buttons on the item's row, as the indic-qa editor's Here /
+    // Chapter / Book: each dispatches `${id}:${scope.id}`; the item itself
+    // is "here". ArrowRight / ArrowLeft move across them.
+    scopes?: { id: string; label: string; title?: string }[];
   }
 
   export let x = 0;
@@ -101,14 +113,32 @@
     dispatch("action", { id: action.id });
   }
 
+  function chooseScope(action: FindingMenuAction, scope: string): void {
+    if (action.disabled) return;
+    dispatch("action", { id: `${action.id}:${scope}` });
+  }
+
+  // Up/Down walk the items; a row's scope buttons are reached with Right.
+  const ITEM = '[role="menuitem"]:not(:disabled):not(.scope)';
+
   function firstEnabled(container: HTMLElement | null): HTMLButtonElement | null {
-    return container?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? null;
+    return container?.querySelector<HTMLButtonElement>(ITEM) ?? null;
   }
 
   function enabledItems(container: HTMLElement | null): HTMLButtonElement[] {
-    return container
-      ? Array.from(container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)'))
-      : [];
+    return container ? Array.from(container.querySelectorAll<HTMLButtonElement>(ITEM)) : [];
+  }
+
+  /** Right/Left inside a row with scope buttons: item -> its first scope,
+   * scope -> the next or previous one, and back to the item. */
+  function moveInRow(button: HTMLButtonElement, step: 1 | -1): boolean {
+    const row = button.closest(".mi-scoped");
+    if (!row) return false;
+    const stops = Array.from(row.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+    const next = stops[stops.indexOf(button) + step];
+    if (!next) return step === -1 ? false : true;
+    next.focus();
+    return true;
   }
 
   function onKeydown(event: KeyboardEvent): void {
@@ -123,6 +153,11 @@
     }
     if (event.key === "Tab") {
       close();
+      return;
+    }
+    if ((event.key === "ArrowRight" || event.key === "ArrowLeft") && !inSubmenu
+        && moveInRow(event.target as HTMLButtonElement, event.key === "ArrowRight" ? 1 : -1)) {
+      event.preventDefault();
       return;
     }
     if (event.key === "ArrowLeft" && inSubmenu) {
@@ -143,7 +178,11 @@
     event.preventDefault();
     const items = enabledItems(inSubmenu ? submenuEl : menu);
     if (!items.length) return;
-    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    // From a scope button, Up/Down continue from its row's item.
+    const active = document.activeElement as HTMLButtonElement;
+    const owner = active?.classList.contains("scope")
+      ? active.closest(".mi-scoped")?.querySelector<HTMLButtonElement>(ITEM) ?? active : active;
+    const current = items.indexOf(owner);
     const next = event.key === "Home"
       ? 0
       : event.key === "End"
@@ -189,16 +228,50 @@
 >
   {#each actions as action (action.id)}
     {#if action.separatorBefore}<div class="separator" role="separator"></div>{/if}
-    <button
-      type="button"
-      role="menuitem"
-      data-action-id={action.id}
-      disabled={action.disabled}
-      title={action.title}
-      aria-haspopup={action.submenu?.length ? "menu" : undefined}
-      aria-expanded={action.submenu?.length ? openSubmenuId === action.id : undefined}
-      on:click={(e) => choose(action, e)}
-    ><span>{action.label}</span>{#if action.submenu?.length}<span class="submenu-caret" aria-hidden="true">▸</span>{/if}</button>
+    {#if action.header}
+      <div class="hdr" role="presentation" title={action.title}>
+        <span class:target={action.target}>{action.label}</span>
+        {#if action.tag}<small>{action.tag}</small>{/if}
+      </div>
+    {:else if action.scopes?.length}
+      <div class="mi-scoped">
+        <button
+          type="button"
+          role="menuitem"
+          data-action-id={action.id}
+          disabled={action.disabled}
+          title={action.title}
+          aria-label={action.tag ? `${action.label}, ${action.tag}` : undefined}
+          on:click={(e) => choose(action, e)}
+        ><span class:target={action.target}>{action.label}</span>{#if action.tag}<span class="tag" aria-hidden="true">{action.tag}</span>{/if}</button>
+        <span class="scopes">
+          {#each action.scopes as scope (scope.id)}
+            <button
+              type="button"
+              role="menuitem"
+              class="scope"
+              tabindex="-1"
+              disabled={action.disabled}
+              title={scope.title ?? `${action.label}: ${scope.label}`}
+              aria-label={`${action.label}: ${scope.label}`}
+              on:click={() => chooseScope(action, scope.id)}
+            >{scope.label}</button>
+          {/each}
+        </span>
+      </div>
+    {:else}
+      <button
+        type="button"
+        role="menuitem"
+        data-action-id={action.id}
+        disabled={action.disabled}
+        title={action.title}
+        aria-haspopup={action.submenu?.length ? "menu" : undefined}
+        aria-expanded={action.submenu?.length ? openSubmenuId === action.id : undefined}
+        aria-label={action.tag ? `${action.label}, ${action.tag}` : undefined}
+        on:click={(e) => choose(action, e)}
+      ><span class:target={action.target}>{action.label}</span>{#if action.tag}<span class="tag" aria-hidden="true">{action.tag}</span>{/if}{#if action.submenu?.length}<span class="submenu-caret" aria-hidden="true">▸</span>{/if}</button>
+    {/if}
   {/each}
 </div>
 
@@ -235,7 +308,9 @@
     z-index: 10000;
     box-sizing: border-box;
     min-width: 14rem;
-    max-width: min(22rem, calc(100vw - 16px));
+    max-width: min(34rem, calc(100vw - 16px));
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
     padding: 0.3rem;
     border: 1px solid var(--border-strong, #cbd5e1);
     border-radius: 7px;
@@ -281,6 +356,22 @@
   }
 
   .submenu-caret { color: var(--text-3, #94a3b8); flex-shrink: 0; }
+
+  /* The word and what was found: a line of text, not an item. */
+  .hdr { display: flex; flex-direction: column; gap: 0.1rem; padding: 0.35rem 0.6rem 0.4rem;
+    border-bottom: 1px solid var(--border, #e5e7eb); margin-bottom: 0.2rem; }
+  .hdr small { color: var(--text-2, #475569); font-size: var(--fs-xs); line-height: 1.35; }
+  .target { font-family: var(--font-target); font-size: var(--fs-md); }
+  .tag { margin-left: auto; padding-left: 0.8rem; color: var(--text-3, #94a3b8); font-size: var(--fs-xs);
+    white-space: nowrap; flex-shrink: 0; }
+
+  /* A row with Here (the item) / Chapter / Book buttons, as in the indic-qa editor. */
+  .mi-scoped { display: flex; align-items: center; gap: 0.2rem; }
+  .mi-scoped > button[role="menuitem"]:not(.scope) { flex: 1; min-width: 0; }
+  .scopes { display: inline-flex; gap: 0.15rem; flex-shrink: 0; opacity: 0.55; }
+  .mi-scoped:hover .scopes, .mi-scoped:focus-within .scopes { opacity: 1; }
+  button.scope { width: auto; padding: 0.15rem 0.45rem; border: 1px solid var(--border, #e5e7eb);
+    border-radius: 4px; font-size: var(--fs-xs); color: var(--text-2, #475569); }
 
   .separator {
     height: 1px;

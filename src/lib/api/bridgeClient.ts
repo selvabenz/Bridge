@@ -448,9 +448,12 @@ export const bridge = {
   },
 
   /** Where a word occurs: "irv" in this book's verse text, "ov" in the reference text. */
-  languageQaOccurrences(projectPath: string, word: string, source: "irv" | "ov" = "irv", limit = 200):
-    Promise<OccurrencesResult> {
-    return call("languageQa.occurrences", { projectPath, word, source, limit });
+  /** `match: "text"` is "Search in this book": any run of the text, not only
+   * a whole word (the IRV only). */
+  languageQaOccurrences(projectPath: string, word: string, source: "irv" | "ov" = "irv", limit = 200,
+    match: "word" | "text" = "word"): Promise<OccurrencesResult> {
+    return call("languageQa.occurrences", match === "text"
+      ? { projectPath, word, source, limit, match } : { projectPath, word, source, limit });
   },
 
   /** One chapter of the reference Bible; `ready` is false while it loads. */

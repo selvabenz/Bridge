@@ -16567,3 +16567,79 @@ These are the web app's Settings dialog values, per collection (DECISIONS
 - It now uses `job_timeout(8)`. The 442 tests that use it pass in parallel.
 
 **Not verified.** The dialog, which comes in step 4.
+
+## 2026-10-08 — The word menu, as the indic-qa editor's (indic-qa parity, step 3)
+
+Benz's second complaint was that the context menu did not show the relevant
+suggestions and had no "add to dictionary".
+
+**`FindingContextMenu.svelte`** gains four fields on an action:
+- `header`: a line of text (the word and what was found), not an item.
+- `tag`: a right-aligned, muted label such as "vowel length · 412". It is
+  `aria-hidden`, and the item's `aria-label` is "label, tag", so a screen
+  reader hears it as its own phrase.
+- `target`: the label is set in the target-script font.
+- `scopes`: small buttons on the item's row (the editor's
+  Here/Chapter/Book). Each dispatches `${id}:${scope}`; Right/Left move
+  across them, and Up/Down skip them.
+
+The menu is now up to 34rem wide and scrolls when it is tall.
+
+**The Language QA menu** (`VerseList.buildLangQaActions`), in the editor's
+order:
+- the header;
+- up to nine suggestions (`languageQaSuggestions.orderedSuggestions`):
+  learned first, then the cut to nine, so a learned fix is never the one
+  dropped. Each shows `suggestionTag` (kind · frequency, "split", "learned
+  fix"; nothing for a rule's fix) and has Chapter/Book on its row, which
+  replace "Use in more places ▸";
+- Forget a learned fix;
+- Add, shown only where `projectWords.canAddProjectWord` says it would
+  silence the finding (one word, a typo/name/consistency category, not
+  learned, not a reviewed misspelling). The review panel uses the same
+  function;
+- Ignore, with Book/Project on its row (house style), plus "Ignore this
+  rule ▸";
+- False positive, Flag, Copy, Search in this book (`occurrences` `match:
+  text`), IRV/OV occurrences, Edit;
+- related words, fetched after the menu opens and never on the click path.
+
+**Other menus and the review panel.**
+- A Greek Room mark adds Flag, Copy and Search.
+- The mixed menu is one flat list with a header per finding. As flyouts,
+  its "Use in more places" and "Ignore more widely" dispatched ids that no
+  handler recognised.
+- Right-clicking an unmarked word (`utils/wordAt.wordAtPoint`, from the
+  browser's caret API) adds Add, Copy, Search, occurrences and "Flag “word”
+  for review…" to the verse menu.
+- The review panel shows the same suggestions, learned first with their
+  tags, plus Copy and Search, and Add through the shared rule.
+
+**A test fix found on the way.** The click-budget test cleared
+`document.body.innerHTML` between its actions without destroying the
+component, so each round left a live VerseList subscribed to the stores.
+Each later click re-rendered every earlier copy, and the second action was
+always the slow one.
+- Measured inside full parallel runs, the old code took 168 ms on "Mark as
+  false positive" as well.
+- The test now calls `cleanup()` and keeps the fastest of three clicks per
+  action. Every click must still change the screen with the engine silent,
+  and the 100 ms budget is unchanged.
+- Measured alone, the new menu costs about 5–10 ms more per click than the
+  old one (Ignore 56–77 ms against 47–59 ms).
+- Three full runs passed after the fix.
+
+**Verified.**
+- `npm run check`: 0 errors, 0 warnings.
+- `npm run test`: 624 passed.
+  - 17 new tests: menu header, tag and scopes; `canAddProjectWord` (7
+    cases); text search; `wordAt` (3); nine suggestions with kind and
+    frequency; a scope from the mixed menu; and word actions on an unmarked
+    word and on a typo mark.
+  - 9 expectations changed to the new menu.
+- `npm run build`: ok.
+
+**Not verified.** The desktop app: the menu's width and scrolling at
+1366×768, and whether WebView2 implements `caretPositionFromPoint` or
+`caretRangeFromPoint`. If it implements neither, the unmarked-word actions
+simply do not appear.

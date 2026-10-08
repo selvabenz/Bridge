@@ -14,6 +14,10 @@ export interface LanguageQaSuggestion {
   source: "rule" | "lexicon" | "termbase" | "majority-form" | "housestyle" | "learned";
   /** Why this fix; shown as the menu item's tooltip. */
   rationale: string;
+  /** The checker's edit class ("vowel_length", "split", ...) and how often the
+   * form is used: shown beside the suggestion, as the indic-qa editor does. */
+  kind?: string;
+  freq?: number;
 }
 
 export interface LanguageQaFinding {

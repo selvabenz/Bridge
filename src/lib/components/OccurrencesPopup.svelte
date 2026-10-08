@@ -8,6 +8,8 @@
   export let projectPath: string;
   export let word: string;
   export let source: "irv" | "ov" = "irv";
+  /** "text": "Search in this book", any run of the text, not only the word. */
+  export let match: "word" | "text" = "word";
   export let onNavigate: (book: string, chapter: string, verse: string) => void;
   export let onClose: () => void;
 
@@ -16,7 +18,9 @@
 
   onMount(async () => {
     try {
-      result = await bridge.languageQaOccurrences(projectPath, word, source, 200);
+      result = match === "text"
+        ? await bridge.languageQaOccurrences(projectPath, word, source, 200, "text")
+        : await bridge.languageQaOccurrences(projectPath, word, source, 200);
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
     }
@@ -28,7 +32,7 @@
 <div class="overlay" role="presentation" on:click|self={onClose}>
   <div class="popup" role="dialog" aria-modal="true" aria-labelledby="occ-title">
     <div class="head">
-      <h2 id="occ-title"><span class="target">{word}</span> in {source === "irv" ? "this book" : "the reference text"}</h2>
+      <h2 id="occ-title"><span class="target">{word}</span>{match === "text" ? " anywhere" : ""} in {source === "irv" ? "this book" : "the reference text"}</h2>
       <button class="close" aria-label="Close" on:click={onClose}>✕</button>
     </div>
     {#if error}

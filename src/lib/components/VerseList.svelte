@@ -22,7 +22,10 @@
   import { IGNORE_SCOPES, houseStyleNotice, recordScopedIgnore, undoLearned } from "../houseStyleUi";
   import { forgetLearnedFix, isLearnedFinding, learnedPairOf } from "../learnedFixes";
   import { openScopeDialog } from "../scopedApply";
-  import { addProjectWords, isKnownMisspellingRule } from "../projectWords";
+  import { addProjectWords, canAddProjectWord } from "../projectWords";
+  import { bridge } from "../api/bridgeClient";
+  import { wordAtPoint } from "../utils/wordAt";
+  import { orderedSuggestions, suggestionTag } from "../languageQaSuggestions";
   import OccurrencesPopup from "./OccurrencesPopup.svelte";
   import type { HouseStyleScope } from "../types/houseStyle";
   import type { QaFinding } from "../types/finding";
@@ -38,7 +41,7 @@
   /** Opens a verse anywhere in the book (an occurrence in another chapter). */
   export let onNavigate: (book: string, chapter: string, verse: string) => void = () => {};
   // The word whose occurrences are listed (verse menu), or null.
-  let occurrencesOf: { word: string; source: "irv" | "ov" } | null = null;
+  let occurrencesOf: { word: string; source: "irv" | "ov"; match?: "word" | "text" } | null = null;
 
   let openNotes: { kind: VerseNoteKind; notes: VerseNote[]; reference: string } | null = null;
   let contextMenu: { finding: QaFinding; verse: string; x: number; y: number } | null = null;
@@ -51,6 +54,8 @@
   // history, and "term" would now collide with the unrelated Settings >
   // Terminology pane.
   let langQaContextMenu: { finding: LanguageQaFinding; verse: string; x: number; y: number } | null = null;
+  // Related words for the open Language QA menu, fetched after it opens.
+  let menuRelated: { findingId: string; words: string[] } | null = null;
   let langQaContextBusy = false;
   // A span carrying findings from more than one source (Greek Room/native and
   // Language QA): one menu with a section per finding (layered-rules 4.3).
@@ -61,7 +66,8 @@
   // reaches the row.
   // `selection`: the reader's selection in that verse when the menu opened
   // (opening the menu moves focus, so it is read first), for "Flag selected text".
-  let verseMenu: { verse: string; x: number; y: number; selection: { start: number; end: number } | null } | null = null;
+  let verseMenu: { verse: string; x: number; y: number; selection: { start: number; end: number } | null;
+    word: { word: string; start: number; end: number } | null } | null = null;
   // A flag being written (FlagDialog), and the flag a ⚑ opened (FlagPopover).
   let flagDraft: { chapter: string; verse: string; start: number; end: number; text: string;
     suggested?: string; findingId?: string } | null = null;
@@ -117,115 +123,154 @@
         disabled: busy,
         title: "Leave the verse as it is and move this finding to Ignored in the review panel.",
       },
+      ...(finding.original_text?.trim() ? [
+        { id: "flag", label: "Flag for review…", separatorBefore: true, disabled: busy || !$project,
+          title: "Ask the team about this text; nothing in the verse changes" },
+        { id: "copy", label: "Copy word", title: "Copy the flagged text" },
+        { id: "search", label: "Search in this book", disabled: !$project,
+          title: "Every place this text occurs in the book" },
+      ] : []),
     ];
   }
 
   /**
-   * The inline Language QA context menu: one "Use" per ranked suggestion (at
-   * most five, each with its rationale as the tooltip), Edit… (the verse
-   * opens with the flagged text selected), Ignore this occurrence, and Mark as
-   * false positive. A finding with no suggestion (a termbase entry with only
-   * rejected forms) simply has no Use item. Every action closes the menu at
-   * once: nothing here waits on the engine before the screen changes.
-   * (Ignore scoped to a word or rule -- house style -- is layered-rules Phase 6.)
+   * The inline Language QA context menu, in the indic-qa editor's order: the
+   * word and what was found; each suggestion (learned fixes first) with its
+   * kind and frequency shown and Chapter / Book buttons on its row (the item
+   * itself is "here"); Forget a learned fix; Add to the project word list
+   * (only where it would silence the finding); Ignore, with Book / Project on
+   * its row and a rule-wide submenu; False positive; Flag, Copy, Search,
+   * occurrences, Edit; and related words, which arrive after the menu opens.
+   * Every action closes the menu at once: nothing here waits on the engine
+   * before the screen changes.
    */
-  $: langQaContextActions = langQaContextMenu ? buildLangQaActions(langQaContextMenu.finding) : [];
+  $: langQaContextActions = langQaContextMenu ? buildLangQaActions(langQaContextMenu.finding, menuRelated) : [];
 
-  function buildLangQaActions(finding: LanguageQaFinding) {
-    const suggestions = languageQaSuggestions(finding);
+  const USE_SCOPES = [
+    { id: "chapter", label: "Chapter", title: "The same change wherever this finding is in the chapter: you see every place first." },
+    { id: "book", label: "Book", title: "The same change wherever this finding is in the book: you see every place first." },
+  ];
+  const IGNORE_WORD_SCOPES = [
+    { id: "word-in-book", label: "Book", title: "Never flag this text for this rule in this book (house style)." },
+    { id: "word-in-project", label: "Project", title: "Never flag this text for this rule in any book of the project (house style)." },
+  ];
+
+  function buildLangQaActions(finding: LanguageQaFinding, related: { findingId: string; words: string[] } | null = null) {
+    const word = finding.originalText.trim();
+    const busy = langQaContextBusy;
+    const suggestions = orderedSuggestions(finding);
+    // A heading or footnote finding is changed here or not at all.
+    const scoped = !finding.context;
+    const addable = canAddProjectWord(finding);
+    const relatedWords = related?.findingId === finding.id ? related.words : [];
     return [
+      { id: "header", header: true, target: true, label: `“${finding.originalText}”`, tag: finding.message },
       ...suggestions.map((s) => ({
         id: `use:${s.rank}`,
-        label: `Use "${s.text}"`,
-        disabled: langQaContextBusy,
+        label: s.source === "learned" ? `Change to "${s.text}"` : `Use "${s.text}"`,
+        target: true,
+        tag: suggestionTag(s),
+        disabled: busy,
         title: s.rationale || "Replace the flagged text with this form, re-check the verse, and record it as accepted.",
+        scopes: scoped ? USE_SCOPES : undefined,
       })),
-      // The same change wherever the same finding is: asked first, one Undo.
-      ...(suggestions.length && !finding.context ? [{
-        id: "use-scope",
-        label: "Use in more places",
-        disabled: langQaContextBusy,
-        title: "Make the same change wherever this finding is in the chapter or the book. You see every place first.",
-        submenu: suggestions.flatMap((s) => (["chapter", "book"] as const).map((scope) => ({
-          id: `use-scope:${s.rank}:${scope}`,
-          label: `“${s.text}” in this ${scope}…`,
-          disabled: langQaContextBusy,
-        }))),
+      ...(isLearnedFinding(finding) ? [{
+        id: "learned-forget",
+        label: "Forget this learned fix",
+        disabled: busy,
+        title: "Stop offering this replacement anywhere in the project. Restore it in Language QA › Dictionary.",
       }] : []),
-      {
-        id: "edit",
-        label: "Edit…",
-        separatorBefore: suggestions.length > 0,
-        disabled: langQaContextBusy,
-        title: "Open this verse for editing, with the flagged text selected.",
-      },
+      ...(addable ? [{
+        id: "add-word",
+        label: `Add “${word}” to the project word list`,
+        separatorBefore: true,
+        disabled: busy,
+        title: "This word is spelt right in this project: stop reporting it as a spelling problem anywhere in the book.",
+      }] : []),
       {
         id: "ignore",
         label: "Ignore this occurrence",
-        separatorBefore: true,
-        disabled: langQaContextBusy,
-        title: "Leave the verse as it is and record this occurrence as ignored.",
+        separatorBefore: !addable,
+        disabled: busy,
+        title: "Leave the verse as it is and record this occurrence as ignored. Book / Project: house style.",
+        scopes: IGNORE_WORD_SCOPES,
       },
       {
-        id: "ignore-scope",
-        label: "Ignore more widely",
-        disabled: langQaContextBusy,
-        title: "Record this as the project's house style (Settings → Language QA → House style, where it can be removed).",
-        submenu: IGNORE_SCOPES.filter((s) => s.scope !== "occurrence").map((s) => ({
-          id: `ignore-scope:${s.scope}`, label: s.label, title: s.title, disabled: langQaContextBusy,
+        id: "ignore-rule",
+        label: "Ignore this rule",
+        disabled: busy,
+        title: "Record the rule as the project's house style (Settings → Language QA → House style, where it can be removed).",
+        submenu: IGNORE_SCOPES.filter((s) => s.scope.startsWith("rule")).map((s) => ({
+          id: `ignore-scope:${s.scope}`, label: s.label, title: s.title, disabled: busy,
         })),
       },
       {
         id: "false-positive",
         label: "Mark as false positive",
-        disabled: langQaContextBusy,
+        disabled: busy,
         title: "This is not a problem: hide it and list it under False positives in the Language QA panel.",
       },
       {
-        id: "add-word",
-        label: `Add “${finding.originalText}” to the project word list`,
+        id: "flag",
+        label: "Flag for review…",
         separatorBefore: true,
-        disabled: langQaContextBusy || isKnownMisspellingRule(finding.ruleId) || /\s/.test(finding.originalText.trim()),
-        title: isKnownMisspellingRule(finding.ruleId)
-          ? "This rule flags a spelling reviewers already corrected; ignore or flag it instead."
-          : "This word is spelt right in this project: stop reporting it as a spelling problem anywhere in the book.",
+        disabled: busy || !$project,
+        title: "Ask the team about this text; nothing in the verse changes",
       },
-      {
-        id: "occurrences",
-        label: "Show IRV occurrences…",
-        disabled: !$project,
-        title: "Every place this word occurs in the book",
-      },
+      { id: "copy", label: "Copy word", title: "Copy the flagged text" },
+      { id: "search", label: "Search in this book", disabled: !$project, title: "Every place this text occurs in the book" },
+      { id: "occurrences", label: "Show IRV occurrences…", disabled: !$project, title: "Every place this word occurs in the book" },
       {
         id: "occurrences-ov",
         label: "Show OV occurrences…",
         disabled: !$project,
         title: "Every place this word occurs in the reference Bible (Settings › Language QA)",
       },
-      {
-        id: "flag",
-        label: "Flag for review…",
-        disabled: langQaContextBusy || !$project,
-        title: "Ask the team about this text; nothing in the verse changes",
-      },
-      ...(isLearnedFinding(finding) ? [{
-        id: "learned-forget",
-        label: "Forget this learned fix",
-        separatorBefore: true,
-        disabled: langQaContextBusy,
-        title: "Stop offering this replacement anywhere in the book. Restore it in Language QA › Dictionary.",
-      }] : []),
+      { id: "edit", label: "Edit…", disabled: busy, title: "Open this verse for editing, with the flagged text selected." },
+      ...(relatedWords.length ? [
+        { id: "related-header", header: true, label: "Related words", separatorBefore: true,
+          title: "What the reference Bible uses in the same place, and forms with the same stem" },
+        ...relatedWords.map((w) => ({ id: `related:${w}`, label: `“${w}”`, target: true, disabled: busy,
+          title: "Replace the flagged text with this related form" })),
+      ] : []),
     ];
   }
 
-  /** Ranked, at most five. Falls back to the one-release alias for a finding
-   * from an older engine. */
-  function languageQaSuggestions(finding: LanguageQaFinding): LanguageQaSuggestion[] {
-    if (finding.suggestions?.length) return finding.suggestions.slice(0, 5);
-    return finding.suggestedReplacement
-      ? [{ text: finding.suggestedReplacement, rank: 1, source: "rule", rationale: "" }]
-      : [];
+  /** Related words for the menu: a convenience fetched after it opens, never
+   * waited on; the menu is complete without them. */
+  async function loadMenuRelated(finding: LanguageQaFinding): Promise<void> {
+    const word = finding.originalText.trim();
+    const path = $project?.path;
+    if (!path || !word || /\s/.test(word) || finding.context) return;
+    try {
+      const result = await bridge.languageQaRelated(path, word);
+      if (!result?.ready || result.off || langQaContextMenu?.finding.id !== finding.id) return;
+      const seen = new Set([word]);
+      const words = [...result.equivalents.map((e) => e.w), ...result.family.map((f) => f.w)]
+        .filter((w) => !seen.has(w) && Boolean(seen.add(w))).slice(0, 6);
+      if (words.length) menuRelated = { findingId: finding.id, words };
+    } catch {
+      // No related words: the menu is the same without them.
+    }
   }
+
+  function copyText(text: string): void {
+    const write = typeof navigator !== "undefined" ? navigator.clipboard?.writeText(text) : undefined;
+    if (!write) {
+      contextNotice = "The clipboard is not available here.";
+      contextNoticeError = true;
+      return;
+    }
+    contextNotice = `Copied “${text}”.`;
+    contextNoticeError = false;
+    write.catch(() => {
+      contextNotice = "Could not copy to the clipboard.";
+      contextNoticeError = true;
+    });
+  }
+
+  /** The suggestions the menu offers: learned first, at most nine. */
+  const languageQaSuggestions = orderedSuggestions;
 
   /**
    * The general verse right-click menu (issue #69): "AI review" opens a
@@ -235,19 +280,43 @@
    * buttons exactly (aiJobActive stands in for its local aiJobBusy) so the
    * menu and the panel never disagree about when an action is available.
    */
-  $: verseMenuActions = verseMenu ? buildVerseMenuActions(verseMenu.verse, Boolean(verseMenu.selection)) : [];
+  $: verseMenuActions = verseMenu ? buildVerseMenuActions(verseMenu.verse, Boolean(verseMenu.selection), verseMenu.word) : [];
 
-  function buildVerseMenuActions(verse: string, hasSelection = false) {
+  /** The word actions of the indic-qa editor's menu, on the word under the
+   * pointer (or the selection) when it carries no mark. */
+  function wordActions(word: { word: string } | null, hasSelection: boolean) {
+    if (!word?.word) return [];
+    const single = !/\s/.test(word.word);
+    return [
+      { id: "word-header", header: true, target: true, label: `“${word.word}”`,
+        tag: hasSelection ? "selected text" : "no finding here" },
+      ...(single ? [{ id: "add-word", label: `Add “${word.word}” to the project word list`, disabled: !$project,
+        title: "This word is spelt right in this project: never report it as a spelling problem in the book." }] : []),
+      { id: "copy", label: hasSelection ? "Copy selection" : "Copy word" },
+      { id: "search", label: "Search in this book", disabled: !$project, title: "Every place this text occurs in the book" },
+      ...(single ? [
+        { id: "occurrences", label: "Show IRV occurrences…", disabled: !$project, title: "Every place this word occurs in the book" },
+        { id: "occurrences-ov", label: "Show OV occurrences…", disabled: !$project,
+          title: "Every place this word occurs in the reference Bible (Settings › Language QA)" },
+      ] : []),
+    ];
+  }
+
+  function buildVerseMenuActions(verse: string, hasSelection = false,
+    word: { word: string; start: number; end: number } | null = null) {
     const busyTitle = "Wait for background checking, editing or a running AI review to finish";
     const alreadyEditingThis = $editingChapter === $currentChapter && $editingVerse === verse;
     const editBlocked = $checkingProgress.running || Boolean($editingChapter) || $editSaving || Boolean($recheckingKey);
     const editDisabled = editBlocked || alreadyEditingThis;
     const verseAiDisabled = editBlocked || $aiJobActive;
     const scopeAiDisabled = $checkingProgress.running || $aiJobActive;
+    const words = wordActions(word, hasSelection);
     return [
+      ...words,
       {
         id: "ai-review",
         label: "AI review",
+        separatorBefore: words.length > 0,
         title: "Run an evidence-grounded AI review for this verse, its chapter, or its book",
         submenu: [
           {
@@ -293,10 +362,10 @@
       },
       {
         id: "flag-selection",
-        label: "Flag selected text…",
+        label: !hasSelection && word ? `Flag “${word.word}” for review…` : "Flag selected text…",
         separatorBefore: true,
-        disabled: !$project || !hasSelection,
-        title: hasSelection ? "Ask the team about the text you selected; nothing in the verse changes"
+        disabled: !$project || !(hasSelection || word),
+        title: hasSelection || word ? "Ask the team about this text; nothing in the verse changes"
           : "Select some text in this verse first",
       },
       {
@@ -314,7 +383,16 @@
     const text = (event.currentTarget as HTMLElement | null)?.querySelector(".vtext");
     const selection = text ? selectionInVerse(text) : null;
     selectFromList(verse);
-    verseMenu = { verse, x: event.clientX, y: event.clientY, selection };
+    verseMenu = { verse, x: event.clientX, y: event.clientY, selection,
+      word: selection ? selectedWord(verse, selection) : text ? wordAtPoint(text, event.clientX, event.clientY) : null };
+  }
+
+  /** The text a selection covers, in the verse as shown. */
+  function selectedWord(verse: string, selection: { start: number; end: number }) {
+    const key = verseKey($currentChapter, verse);
+    const plain = Array.from(shownDisplay(key, $rawView, $verseDisplay, $verseTexts).plain);
+    const word = plain.slice(selection.start, selection.end).join("").trim();
+    return word ? { word, start: selection.start, end: selection.end } : null;
   }
 
   /** A flag on the selected text (or the whole verse), in raw code points. A
@@ -370,10 +448,15 @@
     if (!verseMenu) return;
     const verse = verseMenu.verse;
     const selection = verseMenu.selection;
+    const word = verseMenu.word;
     const id = event.detail.id;
     verseMenu = null;
     if (id === "flag-selection" || id === "flag-verse") {
-      startFlagFromVerse(verse, id === "flag-selection" ? selection : null);
+      startFlagFromVerse(verse, id === "flag-selection" ? selection ?? (word ? { start: word.start, end: word.end } : null) : null);
+      return;
+    }
+    if (word && (id === "add-word" || id === "copy" || id === "search" || id === "occurrences" || id === "occurrences-ov")) {
+      runWordAction(id, word.word);
       return;
     }
     if (id === "edit-verse") {
@@ -419,6 +502,26 @@
     contextMenu = { finding, verse, x: event.clientX, y: event.clientY };
   }
 
+  /** Add, Copy, Search and occurrences on a word: the same in every menu. */
+  function runWordAction(id: string, word: string): void {
+    contextNotice = "";
+    if (id === "copy") {
+      copyText(word);
+    } else if (id === "search") {
+      occurrencesOf = { word, source: "irv", match: "text" };
+    } else if (id === "occurrences" || id === "occurrences-ov") {
+      occurrencesOf = { word, source: id === "occurrences" ? "irv" : "ov" };
+    } else if (id === "add-word") {
+      contextNotice = `“${word}” is now a project word.`;
+      contextNoticeError = false;
+      void addProjectWords([word]).then((error) => {
+        if (!error) return;
+        contextNotice = error;
+        contextNoticeError = true;
+      });
+    }
+  }
+
   function openLangQaFindingMenu(
     event: MouseEvent,
     findingIds: string[],
@@ -432,7 +535,9 @@
     event.preventDefault();
     event.stopPropagation();
     onSelect(verse);
+    menuRelated = null;
     langQaContextMenu = { finding, verse, x: event.clientX, y: event.clientY };
+    void loadMenuRelated(finding);
   }
 
   /**
@@ -470,20 +575,28 @@
   const shortText = (text: string, limit = 48): string =>
     text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
 
-  /** One submenu per finding: the Greek Room/native actions or the Language QA
-   * actions, exactly as their own menus offer them, with ids prefixed by the
-   * finding so the action is routed back to the right handler. */
+  /** One section per finding, in one flat menu: a header line, then the
+   * Greek Room/native actions or the Language QA actions exactly as their own
+   * menus offer them, with ids prefixed by the finding so the action is routed
+   * back to the right handler. (Flat, not a flyout per finding: the menu has
+   * one level of submenu, and a flyout hid the scope buttons.) */
   $: mixedMenuActions = mixedMenu ? [
-    ...mixedMenu.qa.map((finding) => ({
-      id: `qa:${finding.id}`,
-      label: `${finding.engine || "Check"}: ${shortText(finding.explanation || finding.check_type)}`,
-      submenu: findingActionsFor(finding).map((a) => ({ ...a, id: `qa:${finding.id}:${a.id}` })),
-    })),
-    ...mixedMenu.lqa.map((finding) => ({
-      id: `lqa:${finding.id}`,
-      label: `Language QA: ${shortText(`${finding.originalText} — ${finding.message}`)}`,
-      submenu: buildLangQaActions(finding).map((a) => ({ ...a, id: `lqa:${finding.id}:${a.id}` })),
-    })),
+    ...mixedMenu.qa.flatMap((finding, index) => [
+      { id: `qa:${finding.id}:header`, header: true, separatorBefore: index > 0,
+        label: `${finding.engine || "Check"}: ${shortText(finding.explanation || finding.check_type)}` },
+      ...findingActionsFor(finding).filter((a) => !["copy", "search", "flag"].includes(a.id))
+        .map((a) => ({ ...a, id: `qa:${finding.id}:${a.id}` })),
+    ]),
+    ...mixedMenu.lqa.flatMap((finding) => [
+      { id: `lqa:${finding.id}:header`, header: true, separatorBefore: true, target: true,
+        label: `“${finding.originalText}”`, tag: `Language QA: ${shortText(finding.message, 80)}` },
+      ...buildLangQaActions(finding).filter((a) => !("header" in a && a.header && a.id === "header"))
+        .map((a) => ({
+          ...a,
+          id: `lqa:${finding.id}:${a.id}`,
+          submenu: "submenu" in a && a.submenu ? a.submenu.map((sub) => ({ ...sub, id: `lqa:${finding.id}:${sub.id}` })) : undefined,
+        })),
+    ]),
   ] : [];
 
   function onMixedMenuAction(event: CustomEvent<{ id: string }>): void {
@@ -515,11 +628,26 @@
   function onLangQaContextAction(event: CustomEvent<{ id: string }>): void {
     if (!langQaContextMenu || langQaContextBusy) return;
     const { finding, verse } = langQaContextMenu;
-    const id = event.detail.id;
+    // A row's Book / Project button on Ignore is a house-style scope.
+    const id = event.detail.id.startsWith("ignore:") ? `ignore-scope:${event.detail.id.slice(7)}` : event.detail.id;
     langQaContextMenu = null;
+    menuRelated = null;
     contextNotice = "";
-    if (id.startsWith("use:")) {
-      const chosen = languageQaSuggestions(finding).find((s) => `use:${s.rank}` === id) ?? null;
+    if (id === "copy" || id === "search" || id === "occurrences" || id === "occurrences-ov" || id === "add-word") {
+      runWordAction(id, finding.originalText.trim());
+      return;
+    }
+    if (id.startsWith("use:") && id.split(":").length === 3) {
+      // A row's Chapter / Book button: the same change, every place listed first.
+      const [, rank, scope] = id.split(":");
+      const chosen = languageQaSuggestions(finding).find((s) => String(s.rank) === rank);
+      if (chosen && (scope === "chapter" || scope === "book")) void openScopeDialog(finding, chosen.text, scope);
+      return;
+    }
+    if (id.startsWith("use:") || id.startsWith("related:")) {
+      const chosen = id.startsWith("related:")
+        ? { text: id.slice("related:".length), rank: 0, source: "lexicon" as const, rationale: "related word" }
+        : languageQaSuggestions(finding).find((s) => `use:${s.rank}` === id) ?? null;
       langQaContextBusy = true;
       void applyLanguageQaSuggestedFix(finding, chosen).then((result) => {
         contextNotice = result.message;
@@ -529,21 +657,6 @@
       void editWithSelection(finding, verse);
     } else if (id === "flag") {
       startFlagFromFinding(finding);
-    } else if (id === "add-word") {
-      const word = finding.originalText.trim();
-      contextNotice = `“${word}” is now a project word.`;
-      contextNoticeError = false;
-      void addProjectWords([word]).then((error) => {
-        if (!error) return;
-        contextNotice = error;
-        contextNoticeError = true;
-      });
-    } else if (id === "occurrences" || id === "occurrences-ov") {
-      occurrencesOf = { word: finding.originalText.trim(), source: id === "occurrences" ? "irv" : "ov" };
-    } else if (id.startsWith("use-scope:")) {
-      const [, rank, scope] = id.split(":");
-      const chosen = languageQaSuggestions(finding).find((s) => String(s.rank) === rank);
-      if (chosen && (scope === "chapter" || scope === "book")) void openScopeDialog(finding, chosen.text, scope);
     } else if (id === "learned-forget") {
       // Not a decision: the fix stops being offered everywhere, marks go at once.
       const pair = learnedPairOf(finding);
@@ -667,7 +780,9 @@
       const row = event.currentTarget as HTMLElement;
       const rect = row.getBoundingClientRect();
       const text = row.querySelector(".vtext");
-      verseMenu = { verse, x: rect.left, y: rect.bottom, selection: text ? selectionInVerse(text) : null };
+      const selection = text ? selectionInVerse(text) : null;
+      verseMenu = { verse, x: rect.left, y: rect.bottom, selection,
+        word: selection ? selectedWord(verse, selection) : null };
       return;
     }
     const index = activeIndexFor(key, findingIds.length);
@@ -699,6 +814,22 @@
   async function onContextAction(event: CustomEvent<{ id: string }>): Promise<void> {
     if (!contextMenu || contextBusy) return;
     const { finding, verse } = contextMenu;
+    const word = (finding.original_text ?? "").trim();
+    if (event.detail.id === "copy" || event.detail.id === "search") {
+      contextMenu = null;
+      runWordAction(event.detail.id, word);
+      return;
+    }
+    if (event.detail.id === "flag") {
+      contextMenu = null;
+      if (finding.start_offset !== null && finding.end_offset !== null && word) {
+        flagDraft = { chapter: $currentChapter, verse, start: finding.start_offset, end: finding.end_offset,
+          text: finding.original_text };
+      } else {
+        startFlagFromVerse(verse, null);
+      }
+      return;
+    }
     contextBusy = true;
     contextNotice = "";
     try {
@@ -1083,7 +1214,8 @@
 {/if}
 
 {#if occurrencesOf && $project}
-  <OccurrencesPopup projectPath={$project.path} word={occurrencesOf.word} source={occurrencesOf.source} {onNavigate}
+  <OccurrencesPopup projectPath={$project.path} word={occurrencesOf.word} source={occurrencesOf.source}
+    match={occurrencesOf.match ?? "word"} {onNavigate}
     onClose={() => (occurrencesOf = null)} />
 {/if}
 {#if flagDraft}
