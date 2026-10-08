@@ -28,6 +28,8 @@ import sqlite3
 from typing import Any, Iterator
 import uuid
 
+from . import check_timing
+
 
 WORKBENCH_SCHEMA_VERSION = 7
 WORKBENCH_SCHEMA_ID = "bridge-workbench-v1"
@@ -697,17 +699,20 @@ class WorkbenchRepository:
     # (passage_semantic_repository.py:1070-1086) --------------------------
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(str(self.path), timeout=5.0)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA busy_timeout = 5000")
-        conn.execute("PRAGMA synchronous = FULL")
-        conn.execute("PRAGMA journal_mode = WAL")
-        if self.read_only:
-            conn.execute("PRAGMA query_only = ON")
-        if conn.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
-            conn.close()
-            raise WorkbenchError("SQLite foreign-key enforcement could not be enabled")
+        # Timed (check_timing): `calls` on a check job is how many connections
+        # its verses opened, the cost a reused connection would remove.
+        with check_timing.current().step("workbench.connect"):
+            conn = sqlite3.connect(str(self.path), timeout=5.0)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute("PRAGMA busy_timeout = 5000")
+            conn.execute("PRAGMA synchronous = FULL")
+            conn.execute("PRAGMA journal_mode = WAL")
+            if self.read_only:
+                conn.execute("PRAGMA query_only = ON")
+            if conn.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
+                conn.close()
+                raise WorkbenchError("SQLite foreign-key enforcement could not be enabled")
         try:
             yield conn
         finally:
