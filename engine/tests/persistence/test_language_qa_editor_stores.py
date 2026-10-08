@@ -25,7 +25,7 @@ def images(project, table, row_id):
 
 
 def test_the_three_v6_tables_are_on_a_fresh_project(project):
-    assert project.workbench.schema_version() == 6
+    assert project.workbench.schema_version() == 7
     for table in ("language_qa_batches", "language_qa_learned_fixes", "language_qa_flags"):
         assert project.workbench.rows(table, project_id=project.workbench_identity.project_id) == []
 

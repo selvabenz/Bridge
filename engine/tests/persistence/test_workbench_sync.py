@@ -358,7 +358,7 @@ def test_workbench_v5_to_v6_adds_the_three_editor_stores_and_keeps_v5_data(tmp_p
     finally:
         conn.close()
     repo = WorkbenchRepository(path)
-    assert repo.schema_version() == WORKBENCH_SCHEMA_VERSION == 6
+    assert repo.schema_version() == WORKBENCH_SCHEMA_VERSION == 7
     assert list((tmp_path / "backups").glob("pre-workbench-v6-*"))
     row = repo.get("human_decisions", "d1")
     assert (row["revision"], row["kind"], row["key"], row["decision"]) == (2, "housestyle", "word-in-book|r|w", "active")
