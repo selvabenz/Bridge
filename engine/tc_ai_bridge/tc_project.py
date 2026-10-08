@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import tempfile
+import threading
 import time
 import unicodedata
 import uuid
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import Any, Iterable
 from collections import Counter
 
+from . import check_timing
 from .usfm import strip_usfm, whitespace_tokens
 
 from .models import VerseAlignment
@@ -162,6 +164,18 @@ class TranslationCoreProject:
             raise ProjectError(f'Missing alignmentData for {self.book_id}')
         self._index_cache: dict[str, list[dict[str, Any]]] = {}
         self._checks_by_verse_cache: dict[tuple[str, str], list[dict[str, Any]]] | None = None
+        # Parsed chapter files for the read-only accessors (load_verse_alignment,
+        # verses, chapters, target_verse_text), keyed (kind, chapter) and checked
+        # against the file's (id, st_mtime_ns, st_size) on every read, so a write by
+        # anyone -- this process, an import, translationCore -- is read next time.
+        # A check job used to parse the target chapter three times and the
+        # alignment chapter twice per verse (#239). Bridge's own writers also
+        # clear it (_forget_chapter_files), which covers a filesystem with coarse
+        # timestamps. The loaders writers use (load_alignment_chapter,
+        # target_chapter) stay uncached: writers mutate what those return.
+        self._chapter_file_cache: dict[tuple[str, str], tuple[tuple[int, int, int], Any]] = {}
+        self._chapter_list_cache: tuple[int, list[str]] | None = None
+        self._chapter_file_lock = threading.Lock()
         self.journal = TransactionJournal(self.path, self.companion_dir())
         # The siblings' learned fixes, read once (collection_learned_fixes).
         self._collection_learned: list[tuple[str, list[dict[str, Any]]]] | None = None
@@ -289,13 +303,68 @@ class TranslationCoreProject:
         )
 
     def chapters(self) -> list[str]:
-        chapters = [x.stem for x in self.alignment_dir.glob('*.json') if x.stem.isdigit()]
-        return sorted(chapters, key=int)
+        # A file added or removed (or a writer's temp file) changes the
+        # directory's mtime; only then is it listed again (#239).
+        try:
+            stamp = self.alignment_dir.stat().st_mtime_ns
+        except FileNotFoundError:
+            stamp = -1
+        with self._chapter_file_lock:
+            cached = self._chapter_list_cache
+            if cached is not None and cached[0] == stamp:
+                return list(cached[1])
+        chapters = sorted((x.stem for x in self.alignment_dir.glob('*.json') if x.stem.isdigit()), key=int)
+        with self._chapter_file_lock:
+            self._chapter_list_cache = (stamp, chapters)
+        return list(chapters)
 
     def chapter_path(self, chapter: str | int) -> Path:
         return self.alignment_dir / f'{chapter}.json'
 
+    @staticmethod
+    def _file_signature(path: Path) -> tuple[int, int, int] | None:
+        """(file id, mtime, size). The file id is in it because NTFS timestamps
+        tick about every 15 ms: two same-size writes inside one tick would share
+        (mtime, size), but an atomic write replaces the file, so the id differs."""
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            return None
+        return (stat.st_ino, stat.st_mtime_ns, stat.st_size)
+
+    def _cached_file_json(self, kind: str, chapter: str | int, path: Path) -> Any:
+        """The parsed JSON of a chapter file for a read-only accessor, or None
+        when the file does not exist. Callers must not mutate the result. A
+        miss reads between two stats and keeps the parse only when they agree:
+        a write landing mid-read is never cached under a signature it does not
+        have (#239)."""
+        key = (kind, str(chapter))
+        signature = self._file_signature(path)
+        if signature is None:
+            with self._chapter_file_lock:
+                self._chapter_file_cache.pop(key, None)
+            return None
+        with self._chapter_file_lock:
+            cached = self._chapter_file_cache.get(key)
+            if cached is not None and cached[0] == signature:
+                return cached[1]
+        with check_timing.current().step("project.chapter_parse"):
+            data = _read_json(path)
+        if self._file_signature(path) == signature:
+            with self._chapter_file_lock:
+                self._chapter_file_cache[key] = (signature, data)
+        return data
+
+    def _forget_chapter_files(self) -> None:
+        """Drop every cached chapter parse; Bridge's own writers call this
+        after writing or rolling back a chapter file (#239)."""
+        with self._chapter_file_lock:
+            self._chapter_file_cache.clear()
+            self._chapter_list_cache = None
+
     def load_alignment_chapter(self, chapter: str | int) -> dict[str, Any]:
+        """A fresh, mutable parse: writers change it and write it back, so it
+        is never served from the chapter cache."""
         p = self.chapter_path(chapter)
         if not p.exists():
             raise ProjectError(f'Missing alignment chapter: {p}')
@@ -304,8 +373,19 @@ class TranslationCoreProject:
             raise ProjectError(f'Invalid alignment chapter JSON: {p}')
         return data
 
+    def _cached_alignment_chapter(self, chapter: str | int) -> dict[str, Any]:
+        """load_alignment_chapter for the read-only accessors: the same errors,
+        served from the chapter cache. Not to be mutated."""
+        p = self.chapter_path(chapter)
+        data = self._cached_file_json('alignment', chapter, p)
+        if data is None:
+            raise ProjectError(f'Missing alignment chapter: {p}')
+        if not isinstance(data, dict):
+            raise ProjectError(f'Invalid alignment chapter JSON: {p}')
+        return data
+
     def verses(self, chapter: str | int) -> list[str]:
-        data = self.load_alignment_chapter(chapter)
+        data = self._cached_alignment_chapter(chapter)
         def key(v: str):
             if str(v).isdigit(): return (0, int(v))
             if str(v) == 'front': return (-1, 0)
@@ -313,13 +393,16 @@ class TranslationCoreProject:
         return sorted((str(x) for x in data.keys()), key=key)
 
     def load_verse_alignment(self, chapter: str | int, verse: str | int) -> VerseAlignment:
-        chapter_data = self.load_alignment_chapter(chapter)
+        # from_dict builds new objects, so the cached chapter is never exposed.
+        chapter_data = self._cached_alignment_chapter(chapter)
         raw = chapter_data.get(str(verse))
         if raw is None:
             raise ProjectError(f'No alignment data for {self.book_id} {chapter}:{verse}')
         return VerseAlignment.from_dict(raw)
 
     def target_chapter(self, chapter: str | int) -> dict[str, Any]:
+        """A fresh, mutable parse (apply_scripture_edit writes it back); never
+        served from the chapter cache."""
         p = self.book_dir / f'{chapter}.json'
         if not p.exists():
             return {}
@@ -327,7 +410,8 @@ class TranslationCoreProject:
         return data if isinstance(data, dict) else {}
 
     def target_verse_text(self, chapter: str | int, verse: str | int) -> str:
-        return str(self.target_chapter(chapter).get(str(verse), ''))
+        data = self._cached_file_json('target', chapter, self.book_dir / f'{chapter}.json')
+        return str(data.get(str(verse), '')) if isinstance(data, dict) else ''
 
     def chapter_headings(self, chapter: str | int) -> dict[str, list[dict[str, str]]]:
         """Section headings of `chapter`, keyed by the verse each introduces.
@@ -779,6 +863,7 @@ class TranslationCoreProject:
         out = self.journal.recover_all()
         if out:
             self._index_cache.clear(); self._checks_by_verse_cache = None
+            self._forget_chapter_files()
         return out
 
     def pending_transactions(self) -> list[dict[str, Any]]:
@@ -1317,6 +1402,7 @@ class TranslationCoreProject:
         try:
             chapter_data[str(verse)] = raw
             _write_json_atomic(chapter_path, chapter_data)
+            self._forget_chapter_files()
             # Re-read and validate after write.
             written = self.load_alignment_chapter(chapter).get(str(verse))
             self._validate_verse_raw(written)
@@ -1327,7 +1413,11 @@ class TranslationCoreProject:
             )
             self.journal.commit(tx, {'operation':'saveApprovedAlignment','chapter':str(chapter),'verse':str(verse)})
         except Exception as e:
-            self.journal.rollback(tx, str(e)); raise
+            try:
+                self.journal.rollback(tx, str(e))
+            finally:
+                self._forget_chapter_files()
+            raise
         return backup
 
     def set_language_qa_pack(self, pack: str) -> str:
@@ -1549,6 +1639,7 @@ class TranslationCoreProject:
         # Preserve the current chapter before rolling back so restore itself is reversible.
         safety_backup = self.backup_chapter(chapter)
         _write_json_atomic(self.chapter_path(chapter), data)
+        self._forget_chapter_files()
         reread = self.load_alignment_chapter(chapter)
         if reread != data:
             raise ProjectError('Post-restore verification failed.')
@@ -1887,6 +1978,7 @@ class TranslationCoreProject:
                     path.unlink()
             except Exception as e:
                 errors.append(f'{path}: {e}')
+        self._forget_chapter_files()
         if errors:
             raise ProjectError('Rollback was incomplete; restore from backup '+str(backup_root)+'\n'+'\n'.join(errors))
 
@@ -2655,7 +2747,8 @@ class TranslationCoreProject:
             finally:
                 try: self.journal.rollback(journal_tx,str(e))
                 except Exception: pass
-            self._index_cache.clear(); self._checks_by_verse_cache = None; raise
+            self._index_cache.clear(); self._checks_by_verse_cache = None
+            self._forget_chapter_files(); raise
         commit_metadata = {'operation':'scriptureEdit','chapter':str(chapter),'verse':str(verse)}
         commit_metadata.update(journal_metadata or {})
         self.journal.commit(journal_tx, commit_metadata)
@@ -2686,6 +2779,7 @@ class TranslationCoreProject:
                 # Leave PREPARED intent on disk for startup replay when possible.
                 semantic_invalidation = {"state": "PENDING_REPLAY", "error": str(exc)}
         self._index_cache.clear(); self._checks_by_verse_cache = None
+        self._forget_chapter_files()
         # Companion state is advisory/audit; project transaction is already durable here.
         try:
             review = self.load_review_state(chapter, verse)

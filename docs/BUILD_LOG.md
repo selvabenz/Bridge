@@ -17129,3 +17129,60 @@ from `tc_ai_bridge`. GEN:
   `npm run build` ok.
 - Rust is untouched; neither `cargo check` nor `cargo test` was run.
 - The desktop app was not run.
+
+## 2026-10-09 — A chapter cache behind TranslationCoreProject's read-only accessors (#239)
+
+**Problem.** `TranslationCoreProject` had no cache for chapter JSON. In a
+check job each verse parsed the target chapter three times and the alignment
+chapter twice. A further `project.verses()`/`chapters()` call at the USFM
+block re-parsed the alignment chapter and globbed the directory, and it ran
+outside every timing step.
+
+**Change** (`tc_project.py`).
+- `_cached_file_json` caches a parsed chapter file per (kind, chapter). Each
+  read checks the file's (file id, `st_mtime_ns`, `st_size`).
+- On a miss the file is read between two stats, and the parse is kept only
+  when the stats agree.
+- The file id is in the signature because NTFS timestamps tick roughly every
+  15 ms. An atomic replace gives a new file id, so two same-size writes in one
+  tick still differ. Checked on this machine.
+- It serves `load_verse_alignment`, `verses`, `chapters` (cached on the
+  directory's mtime) and `target_verse_text`.
+- `load_alignment_chapter` and `target_chapter` still return a fresh parse,
+  because writers mutate what they return.
+- Bridge's own writers and rollbacks also clear the cache: `save_verse_alignment`,
+  `restore_alignment_backup`, `apply_scripture_edit`, `_rollback_paths` and
+  `recover_incomplete_transactions`.
+- A miss is timed as `project.chapter_parse`.
+
+**Measured.** GEN copy, two whole-book jobs (`local+greekroom+languageQa`),
+cursor polls every 750 ms. Before is `main` at 5adc914.
+
+| | before, run 2 | after, run 2 |
+|---|---|---|
+| wall | 37.8 s | 23.4 s |
+| local stage | 32.0 s | 17.8 s |
+| `local.alignment_load` | 5.8 s | 0.34 s |
+| target reads (`verse.read_text` + `local.read_text` + `local.usfm`) | 2.1 s | 0.49 s |
+| local stage not covered by any step | ~9 s | ~2.5 s |
+| chapter parses in the job | (per verse) | run 1: 50, run 2: 0 |
+
+**Tests.**
+- `tests/project_io/test_tc_project_chapter_cache.py`:
+  - each file is parsed once while unchanged;
+  - another program's same-length `os.replace` rewrite is read on the next
+    access, as is an in-place write with a new mtime;
+  - Bridge's own writes are read back;
+  - a rolled-back write leaves the accessors equal to disk;
+  - the writer loaders stay fresh;
+  - chapters added or removed show up;
+  - the error messages are unchanged.
+- `tests/service/test_check_job_findings_identical.py`:
+  - a book job's findings equal `verse.runChecks ["local"]` for every verse,
+    byte for byte apart from `created_at` (the clock each run stamps). The
+    alignment and tC branches are confirmed to fire.
+  - an edit made mid-job, after chapter 2 was cached, is seen by 2:1;
+  - a job parses each chapter file at most once.
+- Engine `pytest -m "not slow"`: 4890 passed, 3 xfailed. The 11 failures in
+  that run were #240's test file, which was written during the run and fails
+  until #240 lands, as intended.
