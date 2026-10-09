@@ -39,7 +39,6 @@ reproduction and the regression guard.
 """
 from __future__ import annotations
 
-import contextlib
 import io
 import re
 import sys
@@ -164,12 +163,15 @@ def _ensure_loaded() -> None:
 
         bible = vmod.BibleStructure()
         log = io.StringIO()
-        # VersificationMatch (used later, in detect_schema) writes debug
-        # stats straight to sys.stderr unconditionally; load_versifications
-        # itself doesn't, but redirect defensively so a future upstream sync
-        # can't quietly make bridge-engine's stderr noisy on every load.
-        with contextlib.redirect_stderr(io.StringIO()):
-            vmod.Versification.load_versifications(bible, log, standard_mapping_dir=str(DATA_DIR))
+        # No `contextlib.redirect_stderr` here or in detect_schema (#248): it
+        # swaps the process-global sys.stderr, so every other thread's trace
+        # lines and tracebacks were lost while it ran, and two overlapping
+        # could leave stderr a StringIO for the rest of the session. Measured
+        # 2026-10-09: this load and a whole-GEN detect_schema write nothing to
+        # stderr (VersificationMatch, the noisy matcher, is not called; see
+        # _match_schema_cost). What the vendored module writes is an error,
+        # which belongs in the engine log.
+        vmod.Versification.load_versifications(bible, log, standard_mapping_dir=str(DATA_DIR))
 
         _module = vmod
         _bible = bible
@@ -235,7 +237,7 @@ def detect_schema(book_id: str, verses: dict[str, str]) -> dict[str, Any]:
     # Keep the scan serialized because the vendored schema objects are shared.
     # _match_schema_cost preserves the upstream cost formula while avoiding a
     # general regex parse for every verse in unrelated books.
-    with _lock, contextlib.redirect_stderr(io.StringIO()):
+    with _lock:
         for schema in SCHEMAS:
             v = _module.Versification.versification_d.get(schema)
             if v is None:

@@ -7,6 +7,8 @@ All assertions run against the real vendored data files, not synthetic
 mappings — the values checked here (e.g. the Psalm 3 descriptive-title
 shift) are the real cross-tradition reference behavior these files encode.
 """
+import sys
+
 import pytest
 
 from tc_ai_bridge import versification as vt
@@ -226,3 +228,20 @@ def test_detect_schema_ignores_pseudo_books_without_crashing():
 def test_org_ref_with_empty_book_id_does_not_crash():
     result = vt.to_org_ref("", "1", "1", "eng")
     assert result["mapping"] == "same"
+
+
+def test_detect_schema_leaves_the_process_wide_stderr_alone(monkeypatch):
+    """#248: the scan ran under contextlib.redirect_stderr, which swaps
+    sys.stderr for every thread, so other threads' trace lines and tracebacks
+    were lost while it ran."""
+    stderr = sys.stderr
+    seen = []
+    real = vt._match_schema_cost
+
+    def spy(*args):
+        seen.append(sys.stderr is stderr)
+        return real(*args)
+
+    monkeypatch.setattr(vt, "_match_schema_cost", spy)
+    vt.detect_schema("GEN", {"1:1": "In the beginning..."})
+    assert seen and all(seen)
