@@ -17730,3 +17730,77 @@ Both are gone; what the vendored module still writes is an error and belongs
 in the log. `tests/service/test_no_global_stream_redirects.py` now fails on
 any `redirect_stdout`/`redirect_stderr` call in engine code outside `vendor/`
 and `tests/`; it and a `detect_schema` test fail before, pass after.
+
+## 2026-10-09 — Collection QA folds; the Language QA panel gets a sticky header, an (i) and organised filters; the language message (#236, #246)
+
+Benz's screenshots of the dashboard and the open Language QA panel: make
+Collection QA collapsible; put the coverage text behind an (i); keep the
+title and Close at the top; organise the tabs and the filters.
+
+**Decisions taken with Benz (AskUserQuestion).**
+- The whole coverage statement goes behind the (i), as asked. That reverses
+  the "not behind a disclosure" part of DECISIONS 2026-09-24; a one-line
+  boundary kept in view was offered and declined. DECISIONS 2026-10-09
+  records it, and the 2026-09-24 entry notes the supersession.
+- Fix the engine's language message, which said "grammar and spelling
+  dictionaries are not included" although every pack has shipped both the OV
+  dictionary and the general corpus since #246.
+- Collection QA remembers its fold, and opens itself while a run is going.
+
+**What changed.**
+- `CollectionQaPanel.svelte`: a ▸/▾ fold button beside the title; folded, the
+  panel is one row with a summary ("66 books · 60 done · 2 failed · last run …"
+  or "never run") and the Run button. A run in progress always shows the
+  table and disables the fold. `collectionQaCollapsed` in `editorPrefs.ts`
+  (`bridge.dashboard.collectionQaCollapsed.v1`).
+- `LanguageQaPanel.svelte`: the section no longer pads itself; a sticky
+  header holds the title, the (i), Pause/Resume and Close, the status line,
+  errors and the coverage-incomplete warning with its details. The (i) opens
+  a region with the detection basis, the pack's message, the bilingual
+  checks / does-not-check lists with reasons, the hand-off doc and the storage
+  line; Escape (focus back to the (i)), a second click or a click elsewhere
+  closes it. The five tabs are an underline bar that sticks under the header
+  (its offset is the header's measured height). The Issues filters are one
+  block of three labelled rows, List / Show / Kinds, with Clear on the kinds.
+  Roles and accessible names are unchanged, so the other 24 panel tests
+  pass untouched.
+- `language_qa.py`: `pack_message()` builds the message from the selected
+  pack's `pack.json`, read and cached per path, never loaded as a pack:
+  "Tamil rules with the OV dictionary and the general word list; grammar and
+  meaning are not checked."
+
+**A commit that landed inside another session's merge.** Another session was
+merging `origin/main` into this working tree at the same time. I staged the
+Collection QA files with `git add` while that merge was in progress; the
+commit was refused for the unmerged files, and a moment later the other
+session's merge commit (b0d1db3, "Merge origin/main: local-stage and startup
+speed work") took the three staged files with it. The content is the
+intended change and nothing was pushed; the history was left as it is rather
+than rewriting another session's merge. Every later commit of this work was
+made with a path-limited `git commit -- <paths>` and nothing staged, so a
+concurrent commit cannot pick it up.
+
+**Verified.**
+- `npm run check` 0/0; `npm run test` 655 passed (51 files); `npm run build`
+  ok. New tests: Collection QA folds, remembers, still offers a run, opens
+  itself during a run; Language QA (i) hidden until opened, Escape and an
+  outside click close it, focus returns; header contents and the tab bar
+  after it; the three filter rows and Clear.
+- Engine: `tests/service/test_language_qa.py`, `test_language_pack.py`,
+  `test_language_qa_indic.py` and `tests/language_packs`: 542 passed,
+  including the new message test (a copied pack folder with the corpus off
+  drops the word-list part).
+- Full `pytest -n auto -m "not slow"`, three runs while another session was
+  committing into the same working tree (HEAD moved from a8e3c90 to 3fe00cf
+  during them): 77 failed and 43 errors the first time, overlapping that
+  session's own runs; then no failures recorded (summary lost to my
+  pipeline); then 1 failed, 4,959 passed, 3 xfailed. The one failure is
+  `test_names_adapter.py::test_preload_runs_once_on_a_background_thread`
+  from #242: alone it failed once in three runs. Its trace shows a real
+  uroman load (5,012 ms) finishing inside the test, a leftover thread from an
+  earlier test setting the global the fixture reset. Filed as #249, not
+  fixed here. The first run's failures were not reproduced and were not
+  investigated one by one.
+- Not run: the desktop app, so the sticky header, the (i) and the folded
+  dashboard were not seen on screen; the frozen pair was not rebuilt for a
+  message string.
