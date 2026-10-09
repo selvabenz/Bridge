@@ -122,6 +122,7 @@ describe("ReferencePanel width (#236)", () => {
 
   it("resizes from its left edge by keyboard and by drag, within limits, and remembers the width", async () => {
     languageQaReference.mockResolvedValue(READY);
+    Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: 1600 });
     render(ReferencePanel);
     const handle = screen.getByRole("separator", { name: "Resize the reference panel" });
     const width = () => (document.querySelector(".reference-panel") as HTMLElement).style.width;
@@ -151,5 +152,14 @@ describe("ReferencePanel width (#236)", () => {
 
     await fireEvent.dblClick(handle);
     expect(width()).toBe("300px");
+
+    // On a 1,000px window the cap is 450px: End saves and draws the same width.
+    window.innerWidth = 1000;
+    window.dispatchEvent(new Event("resize"));
+    await tick();
+    await fireEvent.keyDown(handle, { key: "End" });
+    expect(width()).toBe("450px");
+    expect(get(referencePanelWidth)).toBe(450);
+    expect(handle.getAttribute("aria-valuemax")).toBe("450");
   });
 });

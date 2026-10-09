@@ -451,6 +451,10 @@
   $: if ($aiReviewRequest) {
     const { chapter, verse, scope } = $aiReviewRequest;
     aiReviewRequest.set(null);
+    // The job's progress, errors and results live in the AI review tab: a
+    // folded panel would run a paid call where nobody can see it.
+    reviewPanelCollapsed.set(false);
+    activeTab = "ai";
     void startAIReview(scope, chapter, verse);
   }
 

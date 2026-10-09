@@ -1128,14 +1128,16 @@ describe("VerseList right-click, ring and notices (#236)", () => {
     }
   });
 
-  it("keeps the panel's F8 ring apart from the keyboard ring a right-click would leave", async () => {
+  it("a right-click on an underlined word clears the panel's F8 ring, as a left click does", async () => {
     seed("alpha beta", [
       finding({ id: "f1", start_offset: 0, end_offset: 5, original_text: "alpha" }),
       finding({ id: "f2", start_offset: 6, end_offset: 10, original_text: "beta" }),
     ]);
+    activeLanguageQaFindingId.set("f1");
     render(VerseList, { props: { onSelect: (verse: string) => selectedVerse.set(verse) } });
+    expect(document.querySelector("mark.panel-ring")?.textContent).toBe("alpha");
     await fireEvent.contextMenu(document.querySelector('[data-finding-ids~="f2"]') as HTMLElement);
-    // The keyboard ring (drawn only under :focus-visible) is not the F8 ring.
+    expect(get(activeLanguageQaFindingId)).toBeNull();
     expect(document.querySelector("mark.panel-ring")).toBeNull();
   });
 

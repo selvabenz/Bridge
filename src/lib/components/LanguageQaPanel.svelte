@@ -32,11 +32,18 @@
   let launcherKey = "";
   // Each poll publishes a fresh status object, so the reactive call below
   // runs on every poll; only a change of these four restarts the clock.
-  function trackLauncher(hides: boolean, state: string, open: boolean, failed: boolean): void {
-    const key = `${hides}|${state}|${open}|${failed}`;
+  let launcherGeneration: number | null = null;
+  function trackLauncher(hides: boolean, state: string, open: boolean, failed: boolean,
+                        generation: number | null = null): void {
+    const key = `${hides}|${state}|${open}|${failed}|${generation}`;
     if (key === launcherKey) return;
     launcherKey = key;
     stopLauncherTimer();
+    if (generation !== launcherGeneration) {
+      // A pass the launcher has not shown yet, however quickly it finished.
+      launcherGeneration = generation;
+      launcherHidden = false;
+    }
     if (!hides || failed || state !== "completed") {
       launcherHidden = false;
       return;
@@ -129,7 +136,7 @@
   $: channel = $languageQaChannel.projectPath === projectPath ? $languageQaChannel : null;
   $: live = channel?.status ?? null;
   $: error = localError || channel?.error || "";
-  $: trackLauncher(launcherHides, live?.state ?? "", expanded, Boolean(error));
+  $: trackLauncher(launcherHides, live?.state ?? "", expanded, Boolean(error), live?.generation ?? null);
   $: status = expanded ? (page ?? live) : live;
   $: scopeChapter = listScope === "book" ? "" : $currentChapter;
   $: pageKey = expanded && live && listScope !== "verse"
@@ -526,7 +533,6 @@
             {/if}
           </div>
         {/if}
-      </div>
       {#if aboutOpen}
         <!-- Behind the (i) at Benz's request (DECISIONS 2026-10-09, superseding
              2026-09-24): what the checks cover, and what they never do. -->
@@ -564,6 +570,7 @@
           {#if status}<p class="muted">{status.coverage?.summary ?? ""} {status.storage}</p>{/if}
         </div>
       {/if}
+      </div>
       {#if status}
         <div class="panel-tabs" role="tablist" aria-label="Language QA panel">
           <button role="tab" aria-selected={panelTab === "findings"} on:click={() => showPanelTab("findings")}>Issues</button>
@@ -851,12 +858,14 @@
   .head-row .grow { flex: 1; }
   .info-btn { width: 20px; height: 20px; padding: 0; border-radius: 50%; font: italic 700 12px/1 Georgia, "Times New Roman", serif; color: var(--accent); border-color: var(--accent); }
   .info-btn[aria-expanded="true"] { background: var(--accent); color: white; }
-  .status-line { margin: 4px 0 0; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .status-line { margin: 4px 0 0; color: var(--text-2); }
   .alert { margin: 4px 0 0; color: var(--danger); }
   .coverage-warn { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin-top: 4px; color: var(--warning); }
   .coverage-warn details { color: var(--text-2); }
+  .coverage-warn details ul { max-height: 120px; overflow: auto; margin: 4px 0; }
   .coverage-warn summary { cursor: pointer; }
-  .about { margin: 0; padding: 10px 14px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+  .about { margin: 8px -14px -8px; padding: 10px 14px; background: var(--surface-2); border-top: 1px solid var(--border);
+    max-height: min(320px, 45vh); overflow: auto; }
   .about p { margin: 4px 0; }
   .panel-body { padding: 8px 14px 14px; }
   button { cursor: pointer; border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; background: var(--surface); color: inherit; }

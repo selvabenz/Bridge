@@ -20,7 +20,10 @@
   let dragWidth: number | null = null;
   const KEY_STEP = 16;
 
-  $: width = dragWidth ?? $referencePanelWidth;
+  let innerWidth = typeof window === "undefined" ? 1366 : window.innerWidth;
+  $: maxWidth = Math.max(REFERENCE_WIDTH.min, Math.min(REFERENCE_WIDTH.max, Math.floor(innerWidth * 0.45)));
+  $: width = Math.min(dragWidth ?? $referencePanelWidth, maxWidth);
+  const clamp = (px: number): number => Math.min(clampReferenceWidth(px), maxWidth);
 
   /** The handle is on the left edge, so moving it left widens the panel. */
   function startResize(event: PointerEvent): void {
@@ -31,7 +34,7 @@
     const startWidth = width;
     handle.setPointerCapture?.(event.pointerId);
     const move = (next: PointerEvent): void => {
-      dragWidth = clampReferenceWidth(startWidth + (startX - next.clientX));
+      dragWidth = clamp(startWidth + (startX - next.clientX));
     };
     const end = (): void => {
       handle.removeEventListener("pointermove", move);
@@ -50,11 +53,11 @@
     const next = event.key === "ArrowLeft" ? width + step
       : event.key === "ArrowRight" ? width - step
       : event.key === "Home" ? REFERENCE_WIDTH.min
-      : event.key === "End" ? REFERENCE_WIDTH.max
+      : event.key === "End" ? maxWidth
       : null;
     if (next === null) return;
     event.preventDefault();
-    referencePanelWidth.set(clampReferenceWidth(next));
+    referencePanelWidth.set(clamp(next));
   }
 
   $: path = $project?.path ?? "";
@@ -91,11 +94,13 @@
   });
 </script>
 
+<svelte:window bind:innerWidth />
+
 <aside class="reference-panel" aria-label="Reference Bible" style:width="{width}px">
   <!-- svelte-ignore a11y-no-noninteractive-tabindex a11y-no-noninteractive-element-interactions -->
   <div class="resize-handle" class:dragging={dragWidth !== null}
     role="separator" aria-orientation="vertical" aria-label="Resize the reference panel"
-    aria-valuemin={REFERENCE_WIDTH.min} aria-valuemax={REFERENCE_WIDTH.max} aria-valuenow={width}
+    aria-valuemin={REFERENCE_WIDTH.min} aria-valuemax={maxWidth} aria-valuenow={width}
     tabindex="0" title="Drag to resize. Double-click to reset."
     on:pointerdown={startResize} on:keydown={resizeByKey}
     on:dblclick={() => referencePanelWidth.set(REFERENCE_WIDTH.initial)} />
@@ -133,7 +138,7 @@
 <style>
   /* The width is set inline from the saved preference; the cap keeps the
      text column usable on a small window whatever was saved. */
-  .reference-panel { position: relative; flex-shrink: 0; max-width: 45vw; display: flex; flex-direction: column; min-height: 0;
+  .reference-panel { position: relative; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0;
     border-left: 1px solid var(--border); background: var(--surface-2); }
   .resize-handle { position: absolute; top: 0; bottom: 0; left: -3px; width: 6px; z-index: 2; cursor: col-resize;
     touch-action: none; }

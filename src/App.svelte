@@ -1228,7 +1228,7 @@
       {#if $project && opened}
         <button class="diagnostics-btn" on:click={toggleLanguageQaPanel}
           title="Open or close the Language QA panel">
-          Language QA{#if $languageQaChannel.status}: {$languageQaChannel.status.state}{#if $languageQaChannel.status.totalFindings} · {$languageQaChannel.status.totalFindings}{/if}{/if}
+          Language QA{#if $languageQaChannel.error}: unavailable{:else if $languageQaChannel.status}: {$languageQaChannel.status.state}{#if $languageQaChannel.status.totalFindings} · {$languageQaChannel.status.totalFindings}{/if}{/if}
         </button>
       {/if}
       {#if engineNotice}<span class="engine-notice">{engineNotice}</span>{/if}

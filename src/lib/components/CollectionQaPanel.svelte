@@ -101,14 +101,14 @@
       {/if}
     </div>
   </div>
+  {#if error}<p class="error" role="alert">{error}</p>{/if}
+  {#if snapshot?.error}<p class="error">{snapshot.error}</p>{/if}
   {#if open}
   <div id="collection-qa-body">
   <p class="note">
     Runs tN/tW/alignment, Greek Room and Language QA over each book, one at a time. It is meant to run
     unattended: while it runs, editing and switching books are paused. It is never started automatically.
   </p>
-  {#if error}<p class="error" role="alert">{error}</p>{/if}
-  {#if snapshot?.error}<p class="error">{snapshot.error}</p>{/if}
   {#if snapshot && snapshot.books.length}
     <table>
       <thead><tr><th>Book</th><th>State</th><th>Verses checked</th><th>Open findings</th><th>Last run</th><th>Time</th><th /></tr></thead>
