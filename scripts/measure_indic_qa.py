@@ -135,9 +135,20 @@ def bridge(code: str, sfm: Path) -> tuple[collections.Counter, list[float], int]
                         for f in manager.status(offset=o, limit=100)["findings"]]
             manager.unbind()
     assert status["language"]["pack"] == f"{code}-irv", status["language"]
-    pack_findings = [f for f in findings if f["ruleId"].startswith(f"{code}-irv/")]
+    # Bridge's own rule over the general corpus is not indic-qa's to find: it
+    # is reported beside the parity, never inside it (#246).
+    slips = [f for f in findings if f["rule"].endswith(".lex.irv-consistent-slip")]
+    pack_findings = [f for f in findings if f["ruleId"].startswith(f"{code}-irv/") and f not in slips]
     found = collections.Counter((f["chapter"], f["verse"], f["rule"], f["originalText"]) for f in pack_findings)
+    accepted = next((int(n.split()[0]) for n in status.get("limitations", ())
+                     if "accepted from the general corpus" in n), 0)
+    global CORPUS_REPORT
+    CORPUS_REPORT = {"acceptedByCorpus": accepted, "irvConsistentSlips": len(slips),
+                     "irvConsistentSlipWords": sorted({f["originalText"] for f in slips})[:50]}
     return found, walls, len(findings)
+
+
+CORPUS_REPORT: dict = {}
 
 
 def chapter_times(code: str, sfm: Path) -> list[float]:
@@ -157,7 +168,13 @@ def chapter_times(code: str, sfm: Path) -> list[float]:
 
 
 def main() -> int:
-    code, folder, book_code = sys.argv[1], Path(sys.argv[2]), sys.argv[3].upper()
+    # --without-corpus: the checker alone, as indic-qa runs it, so the parity
+    # comparison below is between the same two things (#246).
+    argv = [a for a in sys.argv[1:] if a != "--without-corpus"]
+    if len(argv) != len(sys.argv) - 1:
+        from tc_ai_bridge.language_packs import general_corpus
+        general_corpus.DISABLED = True
+    code, folder, book_code = argv[0], Path(argv[1]), argv[2].upper()
     sfm = next(p for p in sorted(folder.iterdir()) if p.suffix.lower() in (".sfm", ".usfm")
                and book_code in p.stem.upper())
     found, walls, total = bridge(code, sfm)
@@ -187,6 +204,7 @@ def main() -> int:
         "indicQaOutsideVerses": {f"{ctx} {rule}": n for (ctx, rule), n in sorted(elsewhere.items())},
         "byRule": dict(collections.Counter(rule for (_c, _v, rule, _t), n in found.items() for _ in range(n))
                        .most_common()),
+        "generalCorpus": CORPUS_REPORT,
     }
     if missing or extra:
         result["examples"] = {"missing": [list(k) for k in list(missing)[:10]],

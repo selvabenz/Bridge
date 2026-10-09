@@ -1,0 +1,103 @@
+{
+ "format": 1,
+ "language": "hi",
+ "file": "general_corpus.tsv.gz",
+ "tokenizer": {
+  "indicQaCommit": "ab53636ba0fa0fd2aa347f66b5241c8a0f340226",
+  "tokenRe": "[ऀ-ॣॱ-ॿ‌‍]+(?:-[ऀ-ॣॱ-ॿ‌‍]+)*",
+  "canon": "hi.canon"
+ },
+ "sources": [
+  {
+   "name": "IndicCorpV2",
+   "url": "https://huggingface.co/datasets/ai4bharat/IndicCorpV2/resolve/2d7285e6ce14fdb3fb2449c9f89427b9f582ac3f/data/hi-1.txt",
+   "repoCommit": "2d7285e6ce14fdb3fb2449c9f89427b9f582ac3f",
+   "fileSha256": "9c9dfed015247004176c12b831bc7a4720bd79ebd8ac424e46c13997b57f8a73",
+   "fileBytes": 26661096882,
+   "ranges": [
+    {
+     "start": 0,
+     "end": 187500000,
+     "sha256": "2826b861ffc8d3fb9250c8869d4d95ea400ae6cf079dbe75d24b9fa3c3d8cd71",
+     "bytesUsed": 187499529,
+     "tokens": 13992625
+    },
+    {
+     "start": 3781942411,
+     "end": 3969442411,
+     "sha256": "39d908d3798795076b3281a8936af560e220b806419e6e3e70e91de6665c492e",
+     "bytesUsed": 187496845,
+     "tokens": 13993454
+    },
+    {
+     "start": 7563884822,
+     "end": 7751384822,
+     "sha256": "18beec0448a0467998c6a5e735e80702f2676520ca61c5209906f1ff20f72bbd",
+     "bytesUsed": 187497950,
+     "tokens": 13980653
+    },
+    {
+     "start": 11345827233,
+     "end": 11533327233,
+     "sha256": "be0b8b52928d4188240383880d2444f72caebff9bd88ea63b9ffba5de1f443ca",
+     "bytesUsed": 187498429,
+     "tokens": 13968824
+    },
+    {
+     "start": 15127769644,
+     "end": 15315269644,
+     "sha256": "90769bef13d51d672a6f8e26baebb0a7bf519fb3f5d29829fe97a8fa20806d2f",
+     "bytesUsed": 187498748,
+     "tokens": 13992689
+    },
+    {
+     "start": 18909712055,
+     "end": 19097212055,
+     "sha256": "5989a22ea4cdd06f5d4e92ef3dcd6672e363e401dc80fcbf7b4e264ad566a91c",
+     "bytesUsed": 187497487,
+     "tokens": 13983140
+    },
+    {
+     "start": 22691654466,
+     "end": 22879154466,
+     "sha256": "e826ca7ecf478ea7f74c36c73005704bc9d9370c76e5c0112f70ebd63234f35a",
+     "bytesUsed": 187497585,
+     "tokens": 13981340
+    },
+    {
+     "start": 26473596877,
+     "end": 26661096877,
+     "sha256": "bf2a0fa83cd83b312ca6564b790b159b31751edaaa114f309985e11f3ae807a7",
+     "bytesUsed": 187498583,
+     "tokens": 13989725
+    }
+   ],
+   "bytesUsed": 1499985156,
+   "tokens": 111882450,
+   "distinct": 807939,
+   "licence": "CC0-1.0",
+   "src": "c"
+  },
+  {
+   "name": "hindi-hunspell",
+   "url": "https://raw.githubusercontent.com/Shreeshrii/hindi-hunspell/a44828e5dc4d49f344c87187ec401f9a4bb56965/Hindi/hi_IN.txt",
+   "repoCommit": "a44828e5dc4d49f344c87187ec401f9a4bb56965",
+   "sha256": "4647e7997f664899a06ed5f78163fb69b7bc75041683351e0965c13f64ac629e",
+   "licence": "GPL-3.0-only",
+   "kept": 392324,
+   "src": "h"
+  }
+ ],
+ "floor": 10,
+ "cap": 300000,
+ "acceptMin": 10,
+ "suggestMin": 200,
+ "suggestTop": 15000,
+ "ratio": 50,
+ "listed": 300000,
+ "outputSha256": "65bfbfe7e24f7c1f89479217aac46e8923bad44aeed7a040dd98e0d1585db1e4",
+ "outputBytes": 1374457,
+ "builtOn": "2026-10-09",
+ "buildSeconds": 251.1,
+ "builder": "scripts/build_corpus_lexicon.py"
+}
