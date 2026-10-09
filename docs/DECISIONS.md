@@ -744,6 +744,14 @@ file is capped at 300k rows and 5 MB per language.
   windows cost nothing more over Range requests.
 - The ratio guard, not the floor, keeps popular web typos out: a slip seen
   12 times is accepted only if no neighbour is 600 times commoner.
+- **Amended the same day after the review:** 50x was far too loose. A web
+  misspelling is often a quarter or a half of its correct form (कवियत्री 36x
+  beside कवयित्री 137x), and the correct form is often one sign away, not one
+  cluster. The rule is now: accepted only when no word one code point or one
+  added or dropped cluster away is commoner (ratio 1), searched in the whole
+  corpus. A real word with a commoner neighbour stays a finding, as it was
+  before the corpus existed. Suggestions offer the commonest surface
+  spelling of each key (format 2), not the lookup key.
 **Rules out:** AI4Bharat IndicNLP v1's frequency files (CC BY-NC-SA); writing
 the vendored dictionaries or `extra_words.txt`; a runtime fetch; a corpus
 suggestion ahead of a reviewed, learned or OV one; touching the checker's

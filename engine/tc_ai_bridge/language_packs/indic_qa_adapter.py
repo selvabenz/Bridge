@@ -811,11 +811,6 @@ def profile_findings(pack: RulePack, book: str, chapters: dict[str, dict[str, An
                         continue
                     if not rule.enabled:
                         continue
-                    if item.rule == slip_rule:
-                        word = ref.text[ref.base + item.start:ref.base + item.end] if item.stream == 0 else ""
-                        if not word or word in slips_seen:
-                            continue
-                        slips_seen.add(word)
                     if item.stream > 0:
                         raw_at = dict(ref.notes).get(item.seg_start)
                         span = (None if raw_at is None else
@@ -829,6 +824,14 @@ def profile_findings(pack: RulePack, book: str, chapters: dict[str, dict[str, An
                     id_rule = rule.name if context == "verse" else (
                         f"{rule.name}@{context}" + (str(ref.index) if context == "heading" else ""))
                     original = ref.text[span[0]:span[1]]
+                    if item.rule == slip_rule:
+                        # Once per book, at its first place that maps to the
+                        # text: keyed on the word as it stands in the verse,
+                        # after the span is known, so markup earlier on the
+                        # line cannot shift it (#246 review).
+                        if original in slips_seen:
+                            continue
+                        slips_seen.add(original)
                     occurrences[(ref.chapter, ref.verse, id_rule, original)] += 1
                     suggestions = item.suggestions
                     message = rule.message + (f" — {item.why}" if item.why else "")

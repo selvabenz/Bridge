@@ -293,7 +293,8 @@ def pack_message(language: str, pack: str) -> str:
     meta = _pack_meta(str(packs_dir() / pack / "pack.json"))
     has_dictionary = meta.get("engine") == "indic-qa" or bool(meta.get("indicQa"))
     corpus = meta.get("generalCorpus") or {}
-    has_corpus = bool(corpus) and bool(corpus.get("enabled", True))
+    has_corpus = (bool(corpus) and bool(corpus.get("enabled", True))
+                  and (packs_dir() / pack / str(corpus.get("file") or "general_corpus.tsv.gz")).is_file())
     what = ("rules with the OV dictionary and the general word list" if has_dictionary and has_corpus
             else "rules with the OV dictionary" if has_dictionary else "character rules")
     return f"{language_name(language)} {what}; grammar and meaning are not checked."

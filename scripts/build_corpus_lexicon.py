@@ -60,7 +60,7 @@ sys.path.insert(0, str(REPO / "engine"))
 from tc_ai_bridge.language_packs import indic_qa_vendor  # noqa: E402
 
 PACKS = REPO / "engine" / "language_packs"
-FORMAT = 1
+FORMAT = 2
 FILE_NAME, MANIFEST_NAME = "general_corpus.tsv.gz", "general_corpus.json"
 
 HF_REPO = "ai4bharat/IndicCorpV2"
@@ -81,7 +81,7 @@ HUNSPELL_LICENCE = "GPL-3.0-only"
 
 DEFAULTS = {
     "sample_bytes": 1_500_000_000, "windows": 8, "floor": 10, "cap": 300_000,
-    "accept_min": 10, "suggest_min": 200, "suggest_top": 15_000, "ratio": 50, "kaniyam_floor": 20,
+    "accept_min": 10, "suggest_min": 200, "suggest_top": 15_000, "ratio": 1, "kaniyam_floor": 20,
 }
 CHUNK = 8 * 1024 * 1024
 NET_CHUNK = 1024 * 1024
@@ -263,6 +263,19 @@ def fold_keys(counts: Counter, key: Callable[[str], str]) -> Counter:
     return folded
 
 
+def surface_forms(counts: Counter, key: Callable[[str], str]) -> dict[str, str]:
+    """key -> its commonest surface spelling, for every key whose commonest
+    spelling differs from the key itself. A key is how the runtime looks a
+    word up (Malayalam's canon writes a final ு as ്); a suggestion must be
+    a spelling, so the file carries one."""
+    best: dict[str, tuple[int, str]] = {}
+    for word, n in counts.items():
+        k = key(word)
+        if k not in best or (n, word) > best[k]:
+            best[k] = (n, word)
+    return {k: word for k, (_n, word) in best.items() if word != k}
+
+
 def _member_looks_like_words(rows: list[tuple[str, int]]) -> bool:
     """A member whose top rows are two-letter fragments is a broken
     tokenisation of its source, not a word list."""
@@ -321,9 +334,12 @@ def hunspell_words(path: Path, findall: Callable[[str], list[str]]) -> set[str]:
 
 
 def merge(indic: Counter, lists: dict[str, Iterable[str]], *, floor: int, accept_min: int,
-          cap: int) -> list[tuple[str, int, str]]:
-    """Rows (key, count, src). A word's count is its IndicCorp count when that
-    reached the floor; a word only a list vouches for gets `accept_min`."""
+          cap: int, forms: dict[str, str] | None = None) -> list[tuple[str, int, str, str]]:
+    """Rows (key, count, src, form). A word's count is its IndicCorp count when
+    that reached the floor; a word only a list vouches for gets `accept_min`.
+    `form` is the surface spelling where it differs from the key, else "".
+    """
+    forms = forms or {}
     rows: dict[str, tuple[int, set[str]]] = {}
     for word, n in indic.items():
         if n >= floor:
@@ -332,7 +348,7 @@ def merge(indic: Counter, lists: dict[str, Iterable[str]], *, floor: int, accept
         for word in words:
             n, src = rows.get(word, (0, set()))
             rows[word] = (n if n >= floor else accept_min, src | {letter})
-    ordered = sorted(((w, n, "".join(sorted(src))) for w, (n, src) in rows.items()),
+    ordered = sorted(((w, n, "".join(sorted(src)), forms.get(w, "")) for w, (n, src) in rows.items()),
                      key=lambda row: (-row[1], row[0]))
     return ordered[:cap]
 
@@ -341,24 +357,25 @@ def merge(indic: Counter, lists: dict[str, Iterable[str]], *, floor: int, accept
 # writing
 # --------------------------------------------------------------------------------------
 
-def write_tsv_gz(path: Path, rows: Iterable[tuple[str, int, str]]) -> None:
+def write_tsv_gz(path: Path, rows: Iterable[tuple[str, int, str, str]]) -> None:
     """Deterministic: identical rows, identical bytes (gzip with no file name
-    and mtime 0), so a rebuild is diffable by hash."""
-    text = "#key\tcount\tsrc\n" + "".join(f"{w}\t{n}\t{src}\n" for w, n, src in rows)
+    and mtime 0), so a rebuild is diffable by hash. Format 2: a fourth column,
+    the surface spelling, empty when it is the key itself."""
+    text = "#key\tcount\tsrc\tform\n" + "".join(f"{w}\t{n}\t{src}\t{form}\n" for w, n, src, form in rows)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as handle, gzip.GzipFile(filename="", mode="wb", fileobj=handle, mtime=0,
                                                    compresslevel=9) as stream:
         stream.write(text.encode("utf-8"))
 
 
-def read_tsv_gz(path: Path) -> list[tuple[str, int, str]]:
+def read_tsv_gz(path: Path) -> list[tuple[str, int, str, str]]:
     rows = []
     with gzip.open(path, "rt", encoding="utf-8") as handle:
         for line in handle:
             if line.startswith("#"):
                 continue
-            word, n, src = line.rstrip("\n").split("\t")
-            rows.append((word, int(n), src))
+            parts = line.rstrip("\n").split("\t")
+            rows.append((parts[0], int(parts[1]), parts[2], parts[3] if len(parts) > 3 else ""))
     return rows
 
 
@@ -428,6 +445,7 @@ def build(code: str, *, cache_dir: Path, sample_bytes: int, windows: int, floor:
         used_total += used
         print(f"{code}: window {start}-{end}: {tokens:,} tokens, {len(window_counts):,} distinct", flush=True)
     indic = fold_keys(counts, key)
+    forms = surface_forms(counts, key)
     sources.append({
         "name": "IndicCorpV2", "url": hf_url(path), "repoCommit": HF_REVISION,
         "fileSha256": meta["sha256"] if meta else None, "fileBytes": size, "ranges": ranges,
@@ -442,6 +460,7 @@ def build(code: str, *, cache_dir: Path, sample_bytes: int, windows: int, floor:
         digest = download(url, tar, offline=offline)
         kaniyam, report = kaniyam_counts(tar, findall, floor=kaniyam_floor)
         folded = fold_keys(kaniyam, key)
+        forms = {**surface_forms(kaniyam, key), **forms}
         lists["k"] = folded
         sources.append({"name": "all_tamil_words", "url": url, "repoCommit": KANIYAM_COMMIT, "sha256": digest,
                         "licence": KANIYAM_LICENCE, "floor": kaniyam_floor, "kept": len(folded), "src": "k",
@@ -450,12 +469,14 @@ def build(code: str, *, cache_dir: Path, sample_bytes: int, windows: int, floor:
         url = f"https://raw.githubusercontent.com/{HUNSPELL_REPO}/{HUNSPELL_COMMIT}/{HUNSPELL_FILE}"
         txt = hunspell_path or (cache_dir / code / "hunspell" / Path(HUNSPELL_FILE).name)
         digest = download(url, txt, offline=offline)
-        words = {key(w) for w in hunspell_words(txt, findall)}
+        listed = hunspell_words(txt, findall)
+        words = {key(w) for w in listed}
+        forms = {**{key(w): w for w in sorted(listed) if key(w) != w}, **forms}
         lists["h"] = words
         sources.append({"name": "hindi-hunspell", "url": url, "repoCommit": HUNSPELL_COMMIT, "sha256": digest,
                         "licence": HUNSPELL_LICENCE, "kept": len(words), "src": "h"})
 
-    rows = merge(indic, lists, floor=floor, accept_min=accept_min, cap=cap)
+    rows = merge(indic, lists, floor=floor, accept_min=accept_min, cap=cap, forms=forms)
     write_tsv_gz(folder / FILE_NAME, rows)
     manifest = {
         "format": FORMAT, "language": code, "file": FILE_NAME, "tokenizer": tok_entry, "sources": sources,

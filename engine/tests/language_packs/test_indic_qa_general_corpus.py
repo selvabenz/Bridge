@@ -63,6 +63,13 @@ def test_an_irv_wide_slip_is_one_finding_per_book_with_its_neighbour(tmp_path):
     assert [s["text"] for s in slips[0]["suggestions"]] == [NEIGHBOUR]
     assert "IRV 6×" in slips[0]["message"] and "nearest corpus word" in slips[0]["message"]
     assert not [f for f in findings if f["rule"] == "hi.lex.unknown" and f["originalText"] == MODERN]
+    # Markup earlier on a line must not shift the once-per-book key.
+    marked = dict(verses)
+    marked["1"] = '\\w वह|strong="H1"\\w* ' + verses["1"].split(" ", 1)[1]
+    marked["2"] = "\\q1 " + verses["2"]
+    findings, _notes = check(pack, "GEN", {"1": marked})
+    slips = [f for f in findings if f["rule"] == "hi.lex.irv-consistent-slip"]
+    assert [f["verse"] for f in slips] == ["1"], [(f["verse"], f["originalText"]) for f in slips]
 
 
 def test_the_tamil_layer_consults_the_corpus_on_its_two_unexplained_exits(tmp_path):

@@ -344,7 +344,9 @@ IRV snapshot, outside `dictionary/`, so nothing vendored and no sha256 pin
 changes.
 
 - **Files.** `general_corpus.tsv.gz` (`key`, `count`, source letters: `c`
-  IndicCorp, `k` Kaniyam, `h` hunspell) and `general_corpus.json`: every
+  IndicCorp, `k` Kaniyam, `h` hunspell; format 2 adds `form`, the commonest
+  surface spelling where the key is not one, so Malayalam suggestions are
+  ഒരു, not the folded key ഒര്) and `general_corpus.json`: every
   source with its URL pinned to a commit or LFS sha256, the byte ranges
   sampled and their hashes, licence, token counts, the floors and thresholds,
   the tokeniser (the vendored profile's `token_re` and `canon`, so a
@@ -366,11 +368,16 @@ changes.
   is known but never suggested (suggestions need `suggestMin`, 200).
 - **What it does at runtime** (`general_corpus.py`, consulted after the
   checker in `indic_qa_adapter._items` and `indic_qa_tamil._token_item`):
-  an `unknown` word the corpus knows, with no corpus neighbour 50 times
-  commoner, is accepted and counted in the pass's coverage note; otherwise
-  the finding stays and the corpus's one-edit neighbours follow the
-  checker's own suggestions (reviewed, learned, OV first). Neighbours are one
-  grapheme cluster away, as the ta-irv lexicon's are. A word the IRV uses
+  an `unknown` word the corpus knows is accepted, and counted in the pass's
+  coverage note, only when **no close neighbour is commoner** (manifest
+  `ratio` 1). A close neighbour is one code point away in the whole corpus
+  (a sign swapped, dropped or added: कवियत्री 36× beside कवयित्री 137×,
+  सन्यासी beside संन्यासी) or one grapheme cluster added or dropped; one
+  cluster replaced by another only ever suggests. Otherwise the finding
+  stays and those neighbours follow the checker's own suggestions
+  (reviewed, learned, OV first), closest edit first. A web corpus carries
+  popular misspellings; the first rule (no neighbour 50 times commoner)
+  accepted them, and the #246 review caught it. A word the IRV uses
   `irv_accept_min` times that neither the OV nor the corpus knows, one edit
   from a corpus word, is `<code>.lex.irv-consistent-slip`
   (`indicqa.lex.irv-consistent-slip` for the Tamil layer): low severity,

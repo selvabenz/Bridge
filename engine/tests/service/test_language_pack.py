@@ -179,6 +179,11 @@ def test_a_participle_ending_the_sentence_is_flagged_with_its_finite_form():
     assert (finding["severity"], finding["confidence"], finding["inline"]) == ("low", "medium", False)
     # Mid-sentence, the participle is what it should be.
     assert not by_rule("நாள் முடிந்து, அவன் போனான்.", "typo.participle.sentence-final")
+    # A closing quote before the full stop, a stem ending in ை, and a -ந்திருந்து
+    # form are still slips (#246 review: the first exclusions missed them).
+    for text, span in (("நாள் முடிந்து”.", "முடிந்து"), ("தண்ணீர் குறைந்து.", "குறைந்து"),
+                       ("கொடுமையினால் நிறைந்திருந்து.", "நிறைந்திருந்து")):
+        assert [f["originalText"] for f in by_rule(text, "typo.participle.sentence-final")] == [span]
 
 
 @pytest.mark.parametrize("text", [
@@ -188,6 +193,14 @@ def test_a_participle_ending_the_sentence_is_flagged_with_its_finite_form():
     "அவர்கள் பதினைந்து.",                    # a numeral ending -ைந்து
     "அவன் ஆயத்தம் செய்தது ஒரு விருந்து.",    # a noun
     "அது அதற்குப் பொருந்து.",                 # an excluded stem
+    # Nouns in -ந்து in any compound, and imperatives as whole words (#246 review).
+    "இது நல்ல மருந்து.",
+    "உண்மையுள்ள தூதுவர்களோ நல்மருந்து.",       # PRO 13:17
+    "நீ இந்த பானத்தை அருந்து.",
+    "நீ மனம் திருந்து!",
+    "நீ வருந்து.",
+    "நீ முந்து.",
+    "வயது இருபத்தைந்து.",                     # a numeral
     # PSA 8:6 ends a verse in -ந்து in both the OV and the IRV, the one such
     # sentence end in 5,122 on four books (#238). Its stem is one letter, and
     # the rule asks for two, so it is not reported: zero false alarms measured.

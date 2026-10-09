@@ -210,7 +210,11 @@ def main() -> int:
         result["examples"] = {"missing": [list(k) for k in list(missing)[:10]],
                               "extra": [list(k) for k in list(extra)[:10]]}
     print(json.dumps(result, ensure_ascii=False, indent=1))
-    return 0 if result["verseParity"] else 1
+    # With the general corpus on, the words it accepted are the only expected
+    # difference from indic-qa's own run (#246 review): not a parity failure.
+    accepted_only = (not result["onlyInBridge"]
+                     and result["missingFromBridge"] == CORPUS_REPORT.get("acceptedByCorpus", 0))
+    return 0 if result["verseParity"] or accepted_only else 1
 
 
 if __name__ == "__main__":

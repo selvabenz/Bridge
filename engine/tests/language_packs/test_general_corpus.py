@@ -50,17 +50,38 @@ def test_lookup_uses_the_profiles_canon_key():
     assert set(general_corpus.RULES) == set(indic_qa_vendor.PROFILES + indic_qa_vendor.LAYER_PROFILES)
 
 
-def test_near_miss_needs_the_suggest_floor_and_the_ratio():
+def test_near_miss_needs_the_suggest_floor_and_closer_edits_come_first():
     lex = corpus({"மனிதன்": 50_000, "மனிதர்": 300, "மனித": 150})
-    # One edit away, commoner by the ratio: offered, commonest first.
+    # One edit away and common enough to suggest: offered, commonest first.
     assert lex.near_miss("மனிதம்") == [("மனிதன்", 50_000), ("மனிதர்", 300)]
     # Below the suggest floor: never a suggestion, even one edit away.
     assert ("மனித", 150) not in lex.near_miss("மனிதம்")
-    # A word with its own count needs a neighbour `ratio` times commoner.
-    lex = corpus({"மனிதன்": 50_000, "மனிதம்": 2_000})
-    assert lex.near_miss("மனிதம்") == []
-    lex = corpus({"மனிதன்": 150_000, "மனிதம்": 2_000})
-    assert lex.near_miss("மனிதம்") == [("மனிதன்", 150_000)]
+
+
+def test_a_known_word_is_accepted_only_when_no_close_neighbour_is_commoner():
+    # The #246 review: a web corpus carries popular misspellings. कवियत्री (36x)
+    # is one vowel-sign swap from कवयित्री (137x); सन्यासी (129x) one anusvara
+    # from संन्यासी (240x). Neither was a cluster edit, and neither neighbour is
+    # 50x commoner, so the first rule accepted both.
+    lex = general_corpus.GeneralCorpus(
+        counts={"कवियत्री": 36, "कवयित्री": 137, "सन्यासी": 129, "संन्यासी": 240, "एससी": 1942,
+                "मोबाइल": 25_979}, key=NFC, manifest={}, accept_min=10, suggest_min=100)
+    swap = general_corpus.verdict(lex, token("कवियत्री"), irv_accept_min=5)
+    assert (swap.kind, [s["text"] for s in swap.suggestions]) == ("augment", ["कवयित्री"])
+    anusvara = general_corpus.verdict(lex, token("सन्यासी"), irv_accept_min=5)
+    assert anusvara.kind == "augment"
+    # The one-sign neighbour leads; a whole-cluster swap (एससी) is never a veto.
+    assert anusvara.suggestions[0]["text"] == "संन्यासी"
+    assert general_corpus.verdict(lex, token("मोबाइल"), irv_accept_min=5).kind == "accept"
+
+
+def test_suggestions_are_spellings_not_lookup_keys():
+    # Malayalam's canon writes a final ு as ്: the key ഒര് is not a spelling.
+    lex = general_corpus.GeneralCorpus(counts={"ഒര്": 364_846}, key=NFC, manifest={},
+                                       forms={"ഒര്": "ഒരു"}, accept_min=10, suggest_min=100)
+    said = general_corpus.verdict(lex, token("ഒറ്"), irv_accept_min=5)
+    assert [s["text"] for s in said.suggestions] == ["ഒരു"]
+    assert "ഒരു" in said.note
 
 
 def test_the_index_is_built_lazily_over_the_top_words_only():

@@ -16,7 +16,7 @@
  "match": {
   "type": "regex",
   "on": "visible",
-  "pattern": "(?<![\\p{L}\\p{M}])(?P<span>(?P<stem>[\\p{L}\\p{M}]{2,}?)(?<!ஐ|ை|விரு|பொரு)ந்து)(?=\\s*[.!?])"
+  "pattern": "(?<![\\p{L}\\p{M}])(?!(?:அரு|திரு|வரு|மு|பொரு)ந்து(?![\\p{L}\\p{M}]))(?P<span>(?P<stem>[\\p{L}\\p{M}]{2,}?)(?<!த்தை|ற்றை|பதினை|விரு|மரு|பரு)ந்து)(?=[\\s”’\\\"']*[.!?])"
  },
  "fix": {
   "type": "expand",
@@ -30,18 +30,6 @@
     "span": "பணிந்து",
     "fix": "பணிந்தது",
     "origin": "EXO 11:8"
-   },
-   {
-    "text": "ஞானமுள்ளவர்களுடைய நாவோ மருந்து.",
-    "span": "மருந்து",
-    "fix": "மருந்தது",
-    "origin": "PRO 12:18"
-   },
-   {
-    "text": "உண்மையுள்ள தூதுவர்களோ நல்மருந்து.",
-    "span": "நல்மருந்து",
-    "fix": "நல்மருந்தது",
-    "origin": "PRO 13:17"
    },
    {
     "text": "நாள் முடிந்து.",
@@ -84,6 +72,18 @@
     "span": "கொண்டிருந்து",
     "fix": "கொண்டிருந்தது",
     "origin": "derived from GEN 7:24 (the finite -ந்தது became the participle -ந்து)"
+   },
+   {
+    "text": "தண்ணீர் குறைந்து.",
+    "span": "குறைந்து",
+    "fix": "குறைந்தது",
+    "origin": "derived from GEN 8:3 (the finite -ந்தது became the participle -ந்து)"
+   },
+   {
+    "text": "வருகிறதுமாக இருந்து.",
+    "span": "இருந்து",
+    "fix": "இருந்தது",
+    "origin": "derived from GEN 8:7 (the finite -ந்தது became the participle -ந்து)"
    }
   ],
   "correct": [

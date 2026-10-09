@@ -355,8 +355,7 @@ def definitions(acc_roots, dat_roots, reviewed: dict[str, set[str]]) -> list[dic
             # a real word (முடிந்து for முடிந்தது) is invisible to any word list;
             # this is the one shape a surface rule can see.
             "match": {"type": "regex", "on": "visible",
-                      "pattern": r"(?<![\p{L}\p{M}])(?P<span>(?P<stem>[\p{L}\p{M}]{2,}?)(?<!ஐ|ை|விரு|பொரு)ந்து)"
-                                 r"(?=\s*[.!?])"},
+                      "pattern": r"(?<![\p{L}\p{M}])(?!(?:அரு|திரு|வரு|மு|பொரு)ந்து(?![\p{L}\p{M}]))(?P<span>(?P<stem>[\p{L}\p{M}]{2,}?)(?<!த்தை|ற்றை|பதினை|விரு|மரு|பரு)ந்து)(?=[\s”’\"']*[.!?])"},
             "fix": {"type": "expand", "template": r"\g<stem>ந்தது"},
             "provenance": "Real-word slip reproduced 2026-10-08 (#237, GEN 1:13 முடிந்து for முடிந்தது). "
                           "OV: 10 sentence-final -ந்து in 29,540 sentence ends; IRV GEN/LEV/PSA/1CO: 1 in 5,122.",
@@ -669,7 +668,7 @@ def main() -> int:
                            "human review; see docs/LANGUAGE_QA_RULE_PACK.md.",
             # indicQa: the OV dictionary layer (indic_qa_tamil.py), whose files
             # come from scripts/sync_indic_qa.py and build_indic_qa_packs.py.
-            **{k: previous[k] for k in ("lexicon", "confusion", "indicQa") if k in previous},
+            **{k: previous[k] for k in ("lexicon", "confusion", "indicQa", "generalCorpus") if k in previous},
             "rules": [f"rules/{rule['id']}.json" for rule in rules]}
     pack = loader._build(meta, rules)  # no examples yet: they are chosen with this pack
     examples = choose_examples(pack, verses, reviewed_places(args.reviews))

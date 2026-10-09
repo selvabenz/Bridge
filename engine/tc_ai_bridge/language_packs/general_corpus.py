@@ -36,15 +36,17 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import indic_qa_vendor
+from .indic.confusion import clusters
 from .lexicon import deletion_keys
 
 PACK_KEY = "generalCorpus"
-FORMAT = 1
+FORMAT = 2
+READABLE_FORMATS = (1, 2)
 FILE_NAME, MANIFEST_NAME = "general_corpus.tsv.gz", "general_corpus.json"
 RULE_TAIL = "lex.irv-consistent-slip"
 LABEL = "Used throughout the IRV, but unknown to the OV and to the general corpus, and one edit from a corpus word"
 # Thresholds a manifest may override (the build records what it used).
-ACCEPT_MIN, SUGGEST_MIN, SUGGEST_TOP, RATIO = 10, 200, 15_000, 50
+ACCEPT_MIN, SUGGEST_MIN, SUGGEST_TOP, RATIO = 10, 200, 15_000, 1
 MAX_NEAR = 3
 # Set by scripts/measure_indic_qa.py --without-corpus: the native-parity
 # comparison must see the checker alone.
@@ -98,7 +100,11 @@ class GeneralCorpus:
     suggest_min: int = SUGGEST_MIN
     suggest_top: int = SUGGEST_TOP
     ratio: int = RATIO
+    # key -> the commonest surface spelling, where it differs from the key
+    # (Malayalam's canon folds a final ു to ്: a key is not a spelling to offer).
+    forms: dict[str, str] = field(default_factory=dict)
     _index: Any = None
+    _alphabet: str | None = None
     _near: dict[str, list[tuple[str, int]]] = field(default_factory=dict)
 
     def count(self, word: str) -> int:
@@ -106,6 +112,10 @@ class GeneralCorpus:
 
     def known(self, word: str) -> bool:
         return self.count(word) >= self.accept_min
+
+    def form(self, key: str) -> str:
+        """The spelling to offer for a key."""
+        return self.forms.get(key, key)
 
     def _suggest_index(self) -> dict[str, list[str]]:
         """A one-deletion index over the words common enough to suggest, built
@@ -133,43 +143,90 @@ class GeneralCorpus:
         found.discard(word)
         return found
 
-    def near_miss(self, word: str) -> list[tuple[str, int]]:
-        """Suggestible corpus words one edit from `word` that are at least
-        `ratio` times commoner than it, commonest first, at most MAX_NEAR."""
+    def _edits(self, key: str) -> set[str]:
+        """Every string one code point away from `key`: a deletion, an
+        adjacent swap, a substitution or an insertion from the corpus's own
+        letters and signs. Looked up in the whole corpus, not an index, so a
+        rare correct form still counts: कवियत्री (36x) is one swap from
+        कवयित्री (137x), सन्यासी one inserted anusvara from संन्यासी."""
+        if self._alphabet is None:
+            self._alphabet = "".join(sorted({ch for word in self.counts for ch in word}))
+        out: set[str] = set()
+        for i in range(len(key)):
+            out.add(key[:i] + key[i + 1:])
+            if i + 1 < len(key):
+                out.add(key[:i] + key[i + 1] + key[i] + key[i + 2:])
+            for ch in self._alphabet:
+                out.add(key[:i] + ch + key[i + 1:])
+        for i in range(len(key) + 1):
+            for ch in self._alphabet:
+                out.add(key[:i] + ch + key[i:])
+        out.discard(key)
+        return out
+
+    def neighbours(self, word: str) -> list[tuple[str, int, int]]:
+        """Corpus keys one edit from `word` as (key, count, tier), closest
+        edit first, then commonest: tier 0 a one-code-point edit (a sign
+        swapped, dropped or added); tier 1 a whole grapheme cluster added or
+        dropped (தண்ணீ / தண்ணீர்); tier 2 one cluster replaced by another,
+        which can swap a conjunct for an unrelated syllable (सन्यासी / एससी)
+        and so only ever suggests, never vetoes."""
         key = self.key(word)
         if key not in self._near:
-            own = max(1, self.counts.get(key, 0))
-            found = [(c, self.counts[c]) for c in self.candidates(key)
-                     if self.counts.get(c, 0) >= max(self.suggest_min, self.ratio * own)]
-            found.sort(key=lambda pair: (-pair[1], pair[0]))
-            self._near[key] = found[:MAX_NEAR]
+            close = {v for v in self._edits(key) if v in self.counts}
+            size = len(clusters(key))
+            found = [(c, self.counts[c], 0) for c in close]
+            for c in self.candidates(key) - close - {key}:
+                found.append((c, self.counts[c], 1 if len(clusters(c)) != size else 2))
+            found.sort(key=lambda item: (item[2], -item[1], item[0]))
+            self._near[key] = found
         return self._near[key]
+
+    def dominant(self, word: str) -> list[tuple[str, int]]:
+        """Neighbours that make `word` look like their misspelling: one sign or
+        one cluster away (tiers 0-1), known, at least `ratio` times as common,
+        and commoner. A web corpus carries popular misspellings, so with ratio
+        1 a word is accepted only when nothing that close to it is commoner
+        (#246 review: कवियत्री 36x beside कवयित्री 137x)."""
+        own = self.count(word)
+        return [(c, n) for c, n, tier in self.neighbours(word)
+                if tier < 2 and n >= self.accept_min and n >= self.ratio * max(1, own) and n > own][:MAX_NEAR]
+
+    def near_miss(self, word: str) -> list[tuple[str, int]]:
+        """Suggestions for a word the corpus does not know: neighbours common
+        enough to suggest (`suggest_min`), closest edit first, at most MAX_NEAR."""
+        return [(c, n) for c, n, _tier in self.neighbours(word) if n >= self.suggest_min][:MAX_NEAR]
 
     def fingerprint(self) -> str:
         return f"{str(self.manifest.get('outputSha256') or '')[:12]}/{self.accept_min}/{self.suggest_min}/{self.ratio}"
 
 
-def read_rows(path: Path) -> dict[str, int]:
-    """key -> count. One decompress and one split, not a line iterator: the
-    300k-row Hindi file loads in about a third of the time that way."""
+def read_rows(path: Path) -> tuple[dict[str, int], dict[str, str]]:
+    """(key -> count, key -> surface form where it differs). One decompress
+    and one split, not a line iterator: the 300k-row Hindi file loads in
+    about a third of the time that way. Format 1 rows have three columns;
+    format 2 adds the commonest surface spelling."""
     counts: dict[str, int] = {}
+    forms: dict[str, str] = {}
     text = gzip.decompress(path.read_bytes()).decode("utf-8")
     for line in text.split("\n"):
         if not line or line[0] == "#":
             continue
-        word, _tab, rest = line.partition("\t")
-        n, _tab, _src = rest.partition("\t")
-        counts[word] = int(n)
-    return counts
+        parts = line.split("\t")
+        counts[parts[0]] = int(parts[1])
+        if len(parts) > 3 and parts[3] and parts[3] != parts[0]:
+            forms[parts[0]] = parts[3]
+    return counts, forms
 
 
 def load(path: Path, manifest_path: Path, key: Callable[[str], str]) -> GeneralCorpus | None:
     if not path.is_file() or not manifest_path.is_file():
         return None
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if int(manifest.get("format") or 0) != FORMAT:
+    if int(manifest.get("format") or 0) not in READABLE_FORMATS:
         return None
-    return GeneralCorpus(counts=read_rows(path), key=key, manifest=manifest,
+    counts, forms = read_rows(path)
+    return GeneralCorpus(counts=counts, key=key, manifest=manifest, forms=forms,
                          accept_min=int(manifest.get("acceptMin") or ACCEPT_MIN),
                          suggest_min=int(manifest.get("suggestMin") or SUGGEST_MIN),
                          suggest_top=int(manifest.get("suggestTop") or SUGGEST_TOP),
@@ -224,21 +281,26 @@ def verdict(corpus: GeneralCorpus, token: dict[str, Any], *, irv_accept_min: int
         if not near:
             return Verdict("none")
         best, n = near[0]
-        return Verdict("slip", [_suggestion(w, c) for w, c in near],
+        return Verdict("slip", [_suggestion(corpus.form(w), c) for w, c in near],
                        f"IRV {token.get('irv', 0)}×; not in the OV nor the general corpus; "
-                       f"nearest corpus word {best} {n}×")
+                       f"nearest corpus word {corpus.form(best)} {n}×")
     if status != "unknown":
         return Verdict("none")
-    near = corpus.near_miss(word)
     count = corpus.count(word)
-    if corpus.known(word) and not near:
-        return Verdict("accept", [], f"{count}× in the general corpus")
+    if corpus.known(word):
+        dominant = corpus.dominant(word)
+        if not dominant:
+            return Verdict("accept", [], f"{count}× in the general corpus")
+        best, n = dominant[0]
+        return Verdict("augment", [_suggestion(corpus.form(w), c) for w, c in dominant],
+                       f"{count}× in the general corpus, but {corpus.form(best)} {n}×")
+    near = corpus.near_miss(word)
     if not near:
         return Verdict("none")
-    kind = "augment"
-    note = (f"{count}× in the general corpus, but {near[0][0]} {near[0][1]}×" if count
-            else f"nearest corpus word {near[0][0]} {near[0][1]}×")
-    return Verdict(kind, [_suggestion(w, c) for w, c in near], note)
+    best, n = near[0]
+    note = (f"{count}× in the general corpus, but {corpus.form(best)} {n}×" if count
+            else f"nearest corpus word {corpus.form(best)} {n}×")
+    return Verdict("augment", [_suggestion(corpus.form(w), c) for w, c in near], note)
 
 
 def append_suggestions(existing: list[dict[str, Any]], extra: list[dict[str, Any]]) -> list[dict[str, Any]]:

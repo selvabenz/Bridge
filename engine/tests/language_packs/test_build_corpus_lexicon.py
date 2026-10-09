@@ -50,19 +50,31 @@ def test_keys_use_the_profiles_canon_for_hindi_and_nfc_only_for_tamil():
 
 def test_list_words_are_known_at_accept_min_but_never_suggestible():
     rows = build.merge(Counter({"common": 500, "rare": 3, "listed": 4}),
-                       {"h": {"listed", "only"}}, floor=10, accept_min=10, cap=10)
-    assert rows == [("common", 500, "c"), ("listed", 10, "h"), ("only", 10, "h")]
+                       {"h": {"listed", "only"}}, floor=10, accept_min=10, cap=10, forms={"common": "Common"})
+    assert rows == [("common", 500, "c", "Common"), ("listed", 10, "h", ""), ("only", 10, "h", "")]
     assert build.merge(Counter({"a": 20, "b": 20, "c": 20}), {}, floor=10, accept_min=10, cap=2) == [
-        ("a", 20, "c"), ("b", 20, "c")]
+        ("a", 20, "c", ""), ("b", 20, "c", "")]
+
+
+def test_each_key_keeps_its_commonest_spelling_when_the_key_is_not_one():
+    # Malayalam canon writes a final ு as ്: the key ഒര് is not a spelling.
+    _findall, key, _entry = build.tokenizer("ml")
+    counts = Counter({"ഒരു": 900, "ഒര്": 40, "പറഞ്ഞു": 300})
+    forms = build.surface_forms(counts, key)
+    assert forms[key("ഒരു")] == "ഒരു"
+    assert key("ഒരു") != "ഒരു" and key("പറഞ്ഞു") in forms
+    # A key that is its own commonest spelling carries none.
+    _findall, ta_key, _entry = build.tokenizer("ta")
+    assert build.surface_forms(Counter({"ஒரு": 5}), ta_key) == {}
 
 
 def test_output_is_byte_deterministic_and_round_trips(tmp_path):
-    rows = [("ஒரு", 100, "ck"), ("அவன்", 10, "k")]
+    rows = [("ஒரு", 100, "ck", ""), ("അവര്", 10, "c", "അവരു")]
     build.write_tsv_gz(tmp_path / "a.tsv.gz", rows)
     build.write_tsv_gz(tmp_path / "b.tsv.gz", rows)
     assert (tmp_path / "a.tsv.gz").read_bytes() == (tmp_path / "b.tsv.gz").read_bytes()
     assert build.read_tsv_gz(tmp_path / "a.tsv.gz") == rows
-    assert gzip.decompress((tmp_path / "a.tsv.gz").read_bytes()).startswith(b"#key\tcount\tsrc\n")
+    assert gzip.decompress((tmp_path / "a.tsv.gz").read_bytes()).startswith(b"#key\tcount\tsrc\tform\n")
 
 
 def _tar(path, members):

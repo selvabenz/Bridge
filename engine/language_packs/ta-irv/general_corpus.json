@@ -1,5 +1,5 @@
 {
- "format": 1,
+ "format": 2,
  "language": "ta",
  "file": "general_corpus.tsv.gz",
  "tokenizer": {
@@ -134,11 +134,11 @@
  "acceptMin": 10,
  "suggestMin": 200,
  "suggestTop": 15000,
- "ratio": 50,
+ "ratio": 1,
  "listed": 270774,
- "outputSha256": "5a070e463dcb4f9199ca70565e7e1245120f1d22be70064dd10a5a31fb036e2c",
- "outputBytes": 1665874,
+ "outputSha256": "f70c9a4a8a2519ba5571cfc091afeca1850767921e8f7eb1f70712512709e930",
+ "outputBytes": 1672738,
  "builtOn": "2026-10-09",
- "buildSeconds": 583.0,
+ "buildSeconds": 413.5,
  "builder": "scripts/build_corpus_lexicon.py"
 }
