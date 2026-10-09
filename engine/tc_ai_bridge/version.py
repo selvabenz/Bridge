@@ -16,6 +16,6 @@ does not ship it.
 """
 from __future__ import annotations
 
-BRIDGE_VERSION = "0.13.0"
+BRIDGE_VERSION = "0.14.0"
 
 __all__ = ["BRIDGE_VERSION"]

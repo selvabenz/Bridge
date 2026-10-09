@@ -1,6 +1,6 @@
 [project]
 name = "bridge-engine"
-version = "0.13.0"
+version = "0.14.0"
 description = "Bridge sidecar: tc_ai_bridge business logic + Greek Room QA, one protocol"
 requires-python = ">=3.11"
 dependencies = [
