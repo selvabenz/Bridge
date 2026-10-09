@@ -17699,3 +17699,34 @@ status stage advancing (before: first poll lost).
   while active, and two overlapping could leave stderr stuck.
 
 **Not run.** The desktop app: the panel was not watched recovering on screen.
+
+## 2026-10-09 — AI calls connect IPv4 first (#247); versification stops swapping stderr (#248)
+
+The two findings from the `ai.review.status` entry above, filed as fork
+#247 and #248 and fixed one commit each.
+
+**#247, `29c00d6`.** Every AI call spent ~43 s before the request was sent:
+urllib connects through `socket.create_connection`, which tries addresses in
+`getaddrinfo` order (IPv6 first) and gives each the whole timeout, and on this
+network every IPv6 connect to api.openai.com hangs 21 s (WinError 10060).
+`tc_ai_bridge/ai_http.py` is a urllib opener whose connections try IPv4 first
+and cap every address but the last at 5 s (`FALLBACK_CONNECT_TIMEOUT`); the
+last keeps the full timeout, so IPv6-only and slow networks still connect.
+Both `ai_client` call sites (`default_transport`, `test_connection`) use it;
+proxies, redirects and HTTP errors stay urllib's defaults. Against the real
+endpoint with an invalid key: HTTP 401 in 0.37-1.16 s, previously 42.5-43.0 s.
+`tests/ai/test_ai_http.py` pins the order and the timeouts, a dead first
+address (TEST-NET-1), IPv6 still reached when IPv4 is refused, and the opener
+wiring. One run of that file hung for over 2 minutes the first time; six
+later runs took ~3.5 s each and the cause was not found.
+
+**#248, `cb11aaa`.** `versification.py` wrapped `load_versifications` and
+`detect_schema`'s scan in `contextlib.redirect_stderr`, the same global swap
+as the `redirect_stdout` above, on stderr: other threads' trace lines and
+tracebacks were lost while it ran. Measured before removing them: the load
+and a whole-GEN `detect_schema` write **nothing** to stderr with the redirect
+disabled, because `_match_schema_cost` replaced the noisy `VersificationMatch`.
+Both are gone; what the vendored module still writes is an error and belongs
+in the log. `tests/service/test_no_global_stream_redirects.py` now fails on
+any `redirect_stdout`/`redirect_stderr` call in engine code outside `vendor/`
+and `tests/`; it and a `detect_schema` test fail before, pass after.
