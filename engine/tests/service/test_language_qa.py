@@ -996,6 +996,31 @@ def test_detection_metadata_conflicts_shared_scripts_and_mixed_input():
     assert detect_language("123")["language"] == "und"
 
 
+def test_the_language_message_says_what_the_pack_brings(tmp_path, monkeypatch):
+    # Every pack ships the OV dictionary and the general word list since #246;
+    # the old "spelling dictionaries are not included" was false.
+    detection = detect_language("தமிழ் மொழியில் எழுதப்பட்ட உரை. " * 10, "ta")
+    assert detection["pack"] == "ta-irv"
+    assert detection["message"] == ("Tamil rules with the OV dictionary and the general word list; "
+                                    "grammar and meaning are not checked.")
+    # Read from pack.json, so a pack with its corpus switched off says so.
+    import shutil
+    from tc_ai_bridge.language_packs import registry
+    copy = tmp_path / "packs"
+    shutil.copytree(registry.packs_dir(), copy, ignore=shutil.ignore_patterns("*.gz", "dictionary", "rules"))
+    meta = json.loads((copy / "ta-irv" / "pack.json").read_text(encoding="utf-8"))
+    meta["generalCorpus"]["enabled"] = False
+    (copy / "ta-irv" / "pack.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setenv(registry.ENV, str(copy))
+    registry.index.cache_clear()
+    try:
+        message = detect_language("தமிழ் மொழியில் எழுதப்பட்ட உரை. " * 10, "ta")["message"]
+        assert message == "Tamil rules with the OV dictionary; grammar and meaning are not checked."
+    finally:
+        monkeypatch.delenv(registry.ENV)
+        registry.index.cache_clear()
+
+
 def test_a_conflict_runs_common_checks_and_names_both_languages():
     detection = detect_language("தமிழ் மொழியில் எழுதப்பட்ட உரை. " * 10, "hin")
     assert detection["pack"] == "common" and detection["basis"] == "metadata-conflict"

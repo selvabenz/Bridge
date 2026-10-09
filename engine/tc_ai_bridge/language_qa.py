@@ -6,15 +6,17 @@ Unicode Tamil §12.6 permits decomposed two-part vowels and Grantha conjuncts.
 from __future__ import annotations
 
 import hashlib
+import json
 import unicodedata
 from collections import Counter
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import regex
 
 from . import check_timing
-from .language_packs.registry import language_code, language_name, select_pack
+from .language_packs.registry import language_code, language_name, packs_dir, select_pack
 from .language_packs.tokens import GRAPHEME, WORD
 from .usfm_verse import lift_verse
 
@@ -269,6 +271,34 @@ def stable_finding_id(book: str, chapter: str, verse: str, rule: str,
     return hashlib.sha1(identity.encode("utf-8", errors="surrogatepass")).hexdigest()[:20]
 
 
+def _pack_meta(path: str) -> dict[str, Any]:
+    """A pack's pack.json, read (never loaded as a pack), once per path."""
+    if path not in _PACK_META:
+        try:
+            _PACK_META[path] = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            _PACK_META[path] = {}
+    return _PACK_META[path]
+
+
+_PACK_META: dict[str, dict[str, Any]] = {}
+
+
+def pack_message(language: str, pack: str) -> str:
+    """What the selected pack brings, said from its pack.json without loading
+    it: a status request must never load a pack. Every pack has its character
+    rules; an indic-qa pack or layer adds the OV dictionary; a general corpus
+    that is switched on adds the general word list (#246). Grammar and meaning
+    are never checked (DECISIONS 2026-09-24)."""
+    meta = _pack_meta(str(packs_dir() / pack / "pack.json"))
+    has_dictionary = meta.get("engine") == "indic-qa" or bool(meta.get("indicQa"))
+    corpus = meta.get("generalCorpus") or {}
+    has_corpus = bool(corpus) and bool(corpus.get("enabled", True))
+    what = ("rules with the OV dictionary and the general word list" if has_dictionary and has_corpus
+            else "rules with the OV dictionary" if has_dictionary else "character rules")
+    return f"{language_name(language)} {what}; grammar and meaning are not checked."
+
+
 def detect_language(sample: str, declared: str = "") -> dict[str, Any]:
     """Which pack a project's text gets. Script evidence is not a general
     language classifier. Never guess Hindi.
@@ -318,7 +348,7 @@ def detect_language(sample: str, declared: str = "") -> dict[str, Any]:
                    f"{script.title()} script; common checks only. Choose the language under Settings > "
                    f"Language QA.")
     elif pack:
-        message = f"{language_name(language)} character rules available; grammar and spelling dictionaries are not included."
+        message = pack_message(language, pack)
     else:
         message = "Common technical checks only; language-specific checks unavailable."
     resolved = language if pack else code or "und"
