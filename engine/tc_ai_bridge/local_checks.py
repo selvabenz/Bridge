@@ -63,6 +63,9 @@ def target_editorial_checks(text: str, language: ProjectLanguageContext | None =
 def translationcore_check_issues(project: TranslationCoreProject, chapter: str, verse: str) -> list[QAIssue]:
     issues: list[QAIssue] = []
     checks = project.checks_for_verse(chapter, verse)
+    # The verse's selections, invalidations, comments and verse edits, read
+    # once: every check's staleness is answered from them (#240).
+    states = project.check_state_for_verse(chapter, verse)
     for entry in checks:
         ctx = entry.get('contextId', {})
         tool = str(ctx.get('tool', 'translationCore'))
@@ -71,7 +74,7 @@ def translationcore_check_issues(project: TranslationCoreProject, chapter: str, 
         selection = entry.get('selections', False)
         nothing = bool(entry.get('nothingToSelect', False))
         invalid = bool(entry.get('invalidated', False))
-        stale = project.check_staleness(chapter, verse, check_id, tool, group) == 'stale'
+        stale = project.check_staleness(chapter, verse, check_id, tool, group, state=states) == 'stale'
         if invalid or stale:
             reason = 'invalidated' if invalid else 'stale after a later Scripture edit'
             issues.append(QAIssue('TC_INVALIDATED' if invalid else 'TC_STALE_AFTER_EDIT', 'high', f'{tool}: recheck required', f'{group} / {check_id} is {reason}.', 'translationCore', check_id, group))
@@ -82,7 +85,6 @@ def translationcore_check_issues(project: TranslationCoreProject, chapter: str, 
     wa_state = project.word_alignment_state(chapter, verse)
     if wa_state == 'invalid':
         issues.append(QAIssue('WA_INVALID', 'high', 'Word Alignment recheck required', 'translationCore marks Word Alignment invalid after a target-text edit.', 'translationCore'))
-    states = project.check_state_for_verse(chapter, verse)
     if states.get('comments'):
         issues.append(QAIssue('TC_COMMENTS', 'info', 'Reviewer comments present', f'{len(states["comments"])} translationCore comment(s) exist for this verse.', 'translationCore'))
     if states.get('verseEdits'):

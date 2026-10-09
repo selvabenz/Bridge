@@ -17129,3 +17129,269 @@ from `tc_ai_bridge`. GEN:
   `npm run build` ok.
 - Rust is untouched; neither `cargo check` nor `cargo test` was run.
 - The desktop app was not run.
+
+## 2026-10-09 — A chapter cache behind TranslationCoreProject's read-only accessors (#239)
+
+**Problem.** `TranslationCoreProject` had no cache for chapter JSON. In a
+check job each verse parsed the target chapter three times and the alignment
+chapter twice. A further `project.verses()`/`chapters()` call at the USFM
+block re-parsed the alignment chapter and globbed the directory, and it ran
+outside every timing step.
+
+**Change** (`tc_project.py`).
+- `_cached_file_json` caches a parsed chapter file per (kind, chapter). Each
+  read checks the file's (file id, `st_mtime_ns`, `st_size`).
+- On a miss the file is read between two stats, and the parse is kept only
+  when the stats agree.
+- The file id is in the signature because NTFS timestamps tick roughly every
+  15 ms. An atomic replace gives a new file id, so two same-size writes in one
+  tick still differ. Checked on this machine.
+- It serves `load_verse_alignment`, `verses`, `chapters` (cached on the
+  directory's mtime) and `target_verse_text`.
+- `load_alignment_chapter` and `target_chapter` still return a fresh parse,
+  because writers mutate what they return.
+- Bridge's own writers and rollbacks also clear the cache: `save_verse_alignment`,
+  `restore_alignment_backup`, `apply_scripture_edit`, `_rollback_paths` and
+  `recover_incomplete_transactions`.
+- A miss is timed as `project.chapter_parse`.
+
+**Measured.** GEN copy, two whole-book jobs (`local+greekroom+languageQa`),
+cursor polls every 750 ms. Before is `main` at 5adc914.
+
+| | before, run 2 | after, run 2 |
+|---|---|---|
+| wall | 37.8 s | 23.4 s |
+| local stage | 32.0 s | 17.8 s |
+| `local.alignment_load` | 5.8 s | 0.34 s |
+| target reads (`verse.read_text` + `local.read_text` + `local.usfm`) | 2.1 s | 0.49 s |
+| local stage not covered by any step | ~9 s | ~2.5 s |
+| chapter parses in the job | (per verse) | run 1: 50, run 2: 0 |
+
+**Tests.**
+- `tests/project_io/test_tc_project_chapter_cache.py`:
+  - each file is parsed once while unchanged;
+  - another program's same-length `os.replace` rewrite is read on the next
+    access, as is an in-place write with a new mtime;
+  - Bridge's own writes are read back;
+  - a rolled-back write leaves the accessors equal to disk;
+  - the writer loaders stay fresh;
+  - chapters added or removed show up;
+  - the error messages are unchanged.
+- `tests/service/test_check_job_findings_identical.py`:
+  - a book job's findings equal `verse.runChecks ["local"]` for every verse,
+    byte for byte apart from `created_at` (the clock each run stamps). The
+    alignment and tC branches are confirmed to fire.
+  - an edit made mid-job, after chapter 2 was cached, is seen by 2:1;
+  - a job parses each chapter file at most once.
+- Engine `pytest -m "not slow"`: 4890 passed, 3 xfailed. The 11 failures in
+  that run were #240's test file, which was written during the run and fails
+  until #240 lands, as intended.
+
+## 2026-10-09 — tC check state read once per verse (#240)
+
+**Problem.** `translationcore_check_issues` called `check_staleness` once per
+tN/tW entry on the verse. Each call globbed and parsed every
+`checkData/selections/<book>/<ch>/<v>/*.json`, and the verse edits as well.
+`check_state_for_verse` then parsed all four state directories again. With N
+entries on a verse, its selections were parsed N+1 times.
+
+**Change.**
+- `check_staleness(..., state=...)` answers from the records that
+  `check_state_for_verse` already read.
+- The selection rule is now one helper, `_latest_matching`, used by both
+  paths. It covers the same order, the `modifiedTimestamp or timestamp or
+  file name` fallback, the `>=` tie-break, and tool/group matched only when
+  given.
+- `translationcore_check_issues` reads the state once and passes it in.
+- `_checks_by_verse` is timed as `tc.index_build`. That measures follow-up
+  issue B (index rebuilds forced by `check.listForVerse`); in the scripted
+  runs it built once per job.
+
+**Measured.** GEN, after #239 (run 2):
+- `local.tc_checks`: 1.86 s → 0.85 s.
+- Wall: 23.4 s → 21.9 s.
+
+GEN has few tC checks per verse. A project with more gains in proportion.
+
+**Tests.**
+- `tests/jobs/test_local_checks_tc_reads.py` compares `check_staleness`
+  with and without `state=` over current, stale and pending checks, a
+  timestamp-only record, a tie between two files, blank tool/group, and a
+  verse with no edits. It also checks that each state directory is listed
+  once per verse, and compares the issue list against a recording of the
+  pre-#240 code.
+  - That recording corrected my own expectation: a selection with only
+    `timestamp` counts as stale, because its blank `modifiedTimestamp`
+    sorts first.
+- New builders in `tests/support/tc_checks.py`. The private ones in
+  test_qa_report.py stay there.
+- The byte-identical job test's fixture now has tN/tW entries, a stale
+  selection, an invalidated word and a comment.
+- Engine `pytest -m "not slow"`: 4901 passed. The 3 failures are #241's
+  test file, written during the run.
+
+## 2026-10-09 — The gap check reads a job-owned prefetch (#241)
+
+**Problem.** For every verse, `alignment_gap_checks.gap_issues` read the
+verse's verdict with `workbench.get`. Each read opens a new SQLite connection
+and runs five PRAGMAs, about 3 ms on GEN. An aligned verse also read its links
+(2 connections) and its null decisions (1).
+
+**Change.**
+- `WorkbenchRepository.write_generation` counts committed row writes per
+  database file, in this process. It is bumped after the commit in `_write`,
+  `_delete`, `batch` (not after a rollback) and `import_events`.
+- The count is keyed by the file, not the repository object, because a
+  collection run can open the editor's book through a second project object.
+- `alignment_gap_checks.GapReads` reads every link, null decision and verdict
+  row of the book in three queries.
+- Its per-verse views select and order exactly as the readers they replace:
+  - links by the lifted (chapter, verse) and (target_chapter, target_verse)
+    columns;
+  - decisions by (chapter, verse);
+  - verdicts by row id.
+- It reads all rows, active or not, so the filters in `gap_issues` see what
+  they always saw. It does not use `active_links()`, which filters on a
+  different column.
+- `prefetch()` keeps it in a dict the job holds and reads again when the
+  generation moved. `gap_issues(reads=...)` uses it. `verse.runChecks` passes
+  no prefetch and reads per verse, as before. If the prefetch fails, the
+  per-verse reads are used.
+- The test stubs of `_run_verse_checks_for_project` now take `**_kwargs`, so
+  the next keyword does not break them as `reads=` did (#231).
+
+**Measured.** GEN, after #239 and #240 (run 2):
+
+| | before | after |
+|---|---|---|
+| wall | 21.9 s | 12.8 s |
+| `local.alignment_gap` | 5.8 s | 0.26 s |
+| `workbench.connect` | 3,177 connections | 1,641 connections |
+| `gap.prefetch` | (none) | 1 call, 11 ms |
+
+**Tests.**
+- `tests/persistence/test_workbench_write_generation.py`:
+  - writes and deletes count, and reads do not;
+  - a committed batch counts once, and a rolled-back one not at all;
+  - two repositories on one file share the count.
+- `tests/service/test_alignment_gap_prefetch.py` drives the automatic pass
+  through a fake model. `gap_issues` with and without the prefetch gives the
+  same issues:
+  - after the pass;
+  - after a null decision;
+  - after an edit that makes the verdict stale;
+  - after a revert.
+
+  `prefetch()` reads again after a write.
+- Two additions to the byte-identical job test:
+  - a null decision written mid-job is seen by the later verse, with the
+    prefetch read exactly twice;
+  - without writes it is read once.
+- Engine `pytest -m "not slow"`: 4910 passed, 1 failed. The failure was
+  #239's directory-listing test, a real race fixed in the next entry.
+
+## 2026-10-09 — Fix: the chapter cache trusted a timestamp from the same tick (#239)
+
+**Found by the suite.** After #241, one run of `pytest -n auto` failed
+`test_a_new_or_removed_chapter_shows_in_chapters`. It had passed in the two
+runs before.
+
+**Reproduced.**
+- With 8 processes each adding a chapter and then removing one straight
+  after, `chapters()` returned the stale list 27-47 times in 200 per process
+  after the removal. After the add it never did.
+- Cause: NTFS timestamps tick about every 15 ms. Two changes inside one tick
+  leave the directory's mtime where it was, so the cached listing matched.
+- The file cache had the same hole for a different case: an in-place,
+  same-size rewrite inside one tick keeps the file id, size and mtime. #239's
+  file id only covers atomic replaces.
+
+**Fix.** Git's "racy clean" rule (`_racy`). A cached listing or parse whose
+timestamp is less than 2 s old is read again rather than trusted. Older than
+that, a later change always moves the timestamp.
+
+**Verified.**
+- Stress after the fix: 0 stale in 1,600, after both the add and the
+  removal.
+- Two new tests:
+  - a same-size in-place rewrite with the mtime pinned;
+  - 50 add-then-remove rounds.
+
+  Both fail with `_racy` disabled and pass with it on.
+  - The first version of the tick test passed even with the rule off. Its
+    "same length" text was one code point shorter, so the size gave the
+    change away. It now uses ன → ள (both 3 bytes) and asserts the size.
+- The test fixtures that count parses now age their files by a minute, as
+  real project files are.
+- GEN: no extra parses (run 1: 50, run 2: 0). The local stage is unchanged
+  within noise.
+- Engine `pytest -m "not slow"`: 4913 passed, 3 xfailed.
+
+## 2026-10-09 — uroman loads off the dispatcher, after the sidecar is ready (#242)
+
+**Problem.**
+- `NamesAdapter.is_available()` built `Uroman()`, which takes 4.5-5.2 s.
+- `GreekRoomEngine.info()` calls it, and `TopBar.svelte` calls `engine.info`
+  on mount. So every app start held the single-threaded dispatcher about 5 s,
+  and nothing else was answered meanwhile. `engine-events.log` showed
+  `rpc engine.info took 4944ms` and `5810ms`.
+- Correction to the 2026-10-08 entry. Its "8.0-8.4 s first-open load" came
+  from a harness that never called `engine.info` first. In the desktop app
+  that cost was paid at startup, not at the first open.
+
+**Change.**
+- `names_adapter`:
+  - `_import_uroman()` checks the package and the data files its loader
+    needs, without building anything (about 0.06 s);
+  - `is_available()` = package and data present, plus SED, and no recorded
+    load failure;
+  - `_ensure_uroman()` records a failure reason and calls `gc.enable()` in a
+    `finally`. Uroman's own `__init__` disables gc with no try/finally, so a
+    failed load used to leave the collector off for the whole process;
+  - `load_state()` reports `not-loaded`, `loading`, `loaded` or `failed`;
+  - `preload_async()` starts an idempotent daemon thread named
+    `uroman-preload` and logs one `[trace] uroman preload took` line.
+- `CheckAdapter.status()` lets `engine.info` add `state` and `error` per
+  adapter. This is additive; the frontend reads nothing under `adapters`.
+- `run_stdio_loop(on_ready=...)` runs `on_ready` once, after `__ready__`. A
+  failure there is logged and never stops the loop.
+- `main.py` passes `engine.start_background_warmup`, and that is the only
+  starter. `BridgeEngine()` in tests starts no thread.
+- `smoke_sidecars.py`:
+  - waits for `__ready__` and prints the boot time;
+  - fails if `engine.info` takes 2 s or more;
+  - requires `state: loaded` after the names check.
+- `docs/DECISIONS.md` has an entry for this, and QA matrix row A15 now
+  covers the new assertions.
+
+**Measured.**
+- In-process: `engine.info` 56 ms, where it was about 5 s. The background
+  load took 5.47 s.
+- Frozen pair, built from this branch: ready in 1.28 s, `engine.info` 31 ms,
+  names `loaded` after the check.
+- The smoke test passed: Hindi 3.31 s, ta-irv layer 3.88 s.
+
+**Tests.**
+- `greek_room_engine/tests/test_names_adapter.py`:
+  - `is_available` never constructs;
+  - a failed construction reports `failed`, restores gc, and makes
+    `check_book` raise `NamesCheckError` with the reason;
+  - the preload runs once on `uroman-preload`.
+- `tests/service/test_names_check.py`:
+  - `engine.info` builds nothing and names still finds Tituss, with exactly
+    one construction;
+  - a book whose names cache matches never loads uroman.
+- `tests/service/test_stdio_e2e.py`: a real `main.py` answers `engine.info` in
+  under 2 s and reaches `loaded`.
+- Engine `pytest -m "not slow"`: 4918 passed, 3 xfailed. stdio e2e: 2 passed.
+- Not run: the frontend gate, since no frontend file changed; cargo; the
+  desktop app.
+
+**Follow-ups filed, not done.**
+- #243: the second `Uroman()` in alignment statistics.
+- #244: `check.listForVerse` rebuilds the tN/tW index on every call.
+- #245: `decisions.reapply` reads one connection per verse. It is now the
+  largest local-stage step on GEN.
+- The stdio e2e `Sidecar` helper also pipes stderr without draining it. The
+  preload adds one short line, under the pipe buffer, but it is the same
+  hazard `d2a0a8d` fixed in the smoke harness.

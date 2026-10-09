@@ -527,7 +527,7 @@ def test_check_job_can_cancel_and_retry(fixture_project, monkeypatch):
     entered = threading.Event()
     release = threading.Event()
 
-    def slow_check(project, chapter, verse, checks, reads=None):
+    def slow_check(project, chapter, verse, checks, **_kwargs):
         entered.set()
         release.wait(timeout=2)
         return []
@@ -636,7 +636,7 @@ def test_check_job_rejects_a_second_active_job(fixture_project, monkeypatch):
     entered = threading.Event()
     release = threading.Event()
 
-    def slow_check(project, chapter, verse, checks, reads=None):
+    def slow_check(project, chapter, verse, checks, **_kwargs):
         entered.set()
         release.wait(timeout=2)
         return []
@@ -1275,7 +1275,7 @@ def test_failed_check_job_does_not_mark_chapter_ai_checked(fixture_project, monk
     engine = BridgeEngine()
     call(engine, "project.open", {"path": str(fixture_project)})
 
-    def failing_verse_checks(project, chapter, verse, checks, reads=None):
+    def failing_verse_checks(project, chapter, verse, checks, **_kwargs):
         raise RuntimeError("simulated verse-check failure")
 
     monkeypatch.setattr(engine, "_run_verse_checks_for_project", failing_verse_checks)

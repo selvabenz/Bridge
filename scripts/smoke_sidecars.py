@@ -192,9 +192,27 @@ def main() -> int:
             raise SystemExit(f"Request {request_id} timed out" + (f"; engine stderr ends:\n{tail}" if tail else ""))
 
         try:
+            # Boot first, on its own clock: request() would otherwise count the
+            # onefile unpack and imports against the first request (#242).
+            boot_started = time.monotonic()
+            while True:
+                try:
+                    frame = frames.get(timeout=max(0.01, 60 - (time.monotonic() - boot_started)))
+                except queue.Empty:
+                    raise SystemExit("Frozen engine never reported ready")
+                if frame.get("id") == "__ready__":
+                    break
+            print(f"Frozen engine ready in {time.monotonic() - boot_started:.2f}s.")
+            info_started = time.monotonic()
             info = request("info", "engine.info", {})
+            info_seconds = time.monotonic() - info_started
             if not info.get("success"):
                 raise SystemExit(f"Request info failed: {info}")
+            # engine.info used to build uroman on the dispatcher, ~5 s with
+            # nothing else answered; it now loads on a background thread (#242).
+            if info_seconds >= 2.0:
+                raise SystemExit(f"engine.info took {info_seconds:.2f}s; it must not wait for uroman")
+            print(f"engine.info answered in {info_seconds * 1000:.0f}ms.")
             if info.get("result", {}).get("bridgeVersion") != expected_bridge_version:
                 raise SystemExit(f"Frozen engine version is stale or inconsistent: {info}")
             wildebeest = (
@@ -379,6 +397,10 @@ def main() -> int:
                 raise SystemExit(
                     f"Frozen names/transliteration check missed Titus/Tituss: {names_check}"
                 )
+            names_state = (request("info-after-names", "engine.info", {}).get("result", {})
+                           .get("greekRoom", {}).get("adapters", {}).get("names", {}))
+            if names_state.get("state") != "loaded":
+                raise SystemExit(f"Frozen uroman did not report loaded after the names check: {names_state}")
 
             alignment = request("alignment-get", "alignment.get", {"chapter": "1", "verse": "1"})
             if not alignment.get("success") or not alignment["result"].get("sourceAvailable"):
