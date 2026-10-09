@@ -717,3 +717,38 @@ know.
 **Rules out:** guessing a pack from the script for Devanagari or Bengali; a
 setting stored per machine rather than with the project.
 **Revisit when:** the team hub (#46) syncs project settings.
+
+## 2026-10-09 — A general corpus accepts unknown words and reports IRV-wide consistent slips
+**Decision:** Every indic-qa pack may ship a Bridge-owned general-corpus
+lexicon (`general_corpus.tsv.gz` + manifest, pack.json `generalCorpus`),
+consulted after the vendored checker on the two exits it leaves unexplained.
+An unknown word the corpus knows, with no corpus neighbour 50x commoner, is
+accepted; otherwise the finding keeps its rule and gains the corpus's
+one-cluster-edit neighbours after the checker's own suggestions. A word the
+IRV repeats `irv_accept_min` times that neither the OV nor the corpus knows,
+one edit from a corpus word, is `<code>.lex.irv-consistent-slip`, low
+severity, medium confidence, never inline, once per book, shipped off until
+the owner's spot check (its GEN hits were mostly Bible names). Sources are limited
+to what Bridge's GPL-3 can ship: IndicCorp v2 (CC0), the Kaniyam Tamil
+counts (public domain), the Hindi hunspell list (GPL-3). The IndicCorp sample
+is eight evenly spaced byte windows totalling 1.5 GB per language, read by
+HTTP Range at development time; the floor is 10 in the sample; the shipped
+file is capped at 300k rows and 5 MB per language.
+**Because:**
+- The dictionaries are the 1957 OV; Tamil GEN carried 1,152 `lex.unknown`
+  findings, mostly modern words, drowning the real typos (#237, #246).
+- Benz's decision (2026-10-08): fetch whatever dictionary is needed and fix
+  it for every indic-qa language, within 5 MB per language, GPL-compatible
+  sources only.
+- A prefix of a crawl shard is one or two sites in crawl order; spaced
+  windows cost nothing more over Range requests.
+- The ratio guard, not the floor, keeps popular web typos out: a slip seen
+  12 times is accepted only if no neighbour is 600 times commoner.
+**Rules out:** AI4Bharat IndicNLP v1's frequency files (CC BY-NC-SA); writing
+the vendored dictionaries or `extra_words.txt`; a runtime fetch; a corpus
+suggestion ahead of a reviewed, learned or OV one; touching the checker's
+near-miss and compound branches; a per-project corpus toggle (follow-up).
+**Revisit when:** a human-label gate reports `lost_tp` after a corpus lands
+(raise the floor), the measured working set exceeds +60 MB per language (a
+hashed membership array), or a language's IRV-wide slips are below 0.5
+precision on Benz's spot check (ship the rule `enabled: false`).

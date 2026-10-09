@@ -134,6 +134,7 @@ byte-exact and pinned, and the pack folder still holds only data.
 | `rule_versions.json` | One entry per rule of the profile's `RULES`: category, layer, severity, confidence, `enabled`, `inline`, `revision` | the same script adds new rules; reviewed values are edited by hand |
 | `dictionary/` | The OV-built dictionary the profile reads, and `MANIFEST.json` with its hashes | `scripts/sync_indic_qa.py` |
 | `irv_state.json.gz` | The checker's index of the whole IRV | `scripts/build_indic_qa_packs.py --irv-state <code> <IRV folder>` |
+| `general_corpus.tsv.gz`, `general_corpus.json` | Word counts from general written use of the language, outside the Bible, with a manifest naming every source, byte range, hash and licence (see "General corpus" below) | `scripts/build_corpus_lexicon.py <code>` |
 
 ### How it fits the engine
 
@@ -332,6 +333,61 @@ The web app's Settings dialog, per collection. The RPCs are
   replaced by "agreement across a whole clause", because corpus-attested pairs
   are flagged.
 
+### General corpus (every indic-qa pack)
+
+Every spelling dictionary above is the Old Version Bible's own word list, so a
+modern IRV word the OV never used is "unknown" unless the IRV itself repeats
+it. The general corpus (fork issue #246, DECISIONS 2026-10-09) is a second,
+Bridge-owned word list per pack: how often each form occurs in general
+written use of the language, outside the Bible. It is pack data beside the
+IRV snapshot, outside `dictionary/`, so nothing vendored and no sha256 pin
+changes.
+
+- **Files.** `general_corpus.tsv.gz` (`key`, `count`, source letters: `c`
+  IndicCorp, `k` Kaniyam, `h` hunspell) and `general_corpus.json`: every
+  source with its URL pinned to a commit or LFS sha256, the byte ranges
+  sampled and their hashes, licence, token counts, the floors and thresholds,
+  the tokeniser (the vendored profile's `token_re` and `canon`, so a
+  re-vendor that changes either fails the pack's data test until the corpus
+  is rebuilt), and the output's sha256. `pack.json` names them under
+  `generalCorpus` (`enabled: false` switches the layer off for a pack).
+- **Sources** (Bridge is GPL-3; every source is compatible): AI4Bharat
+  IndicCorp v2 (CC0; raw text on Hugging Face, 2-80 GB per language, of
+  which eight evenly spaced byte windows totalling 1.5 GB are read by HTTP
+  Range request); for Tamil the KaniyamFoundation `all_tamil_words` counts
+  (public domain); for Hindi the `hindi-hunspell` list (GPL-3, membership
+  only). AI4Bharat IndicNLP v1's ready-made frequency files are CC BY-NC-SA
+  and are not used.
+- **Build.** `python scripts/build_corpus_lexicon.py <code>` at development
+  time only; `--verify` checks a shipped file against its manifest. The app
+  never fetches anything. Keys are NFC, then the profile's `canon` for hi, ml
+  and or. A form's count is its IndicCorp sample count when that reached the
+  floor (10); a form only a list vouches for gets exactly `acceptMin`, so it
+  is known but never suggested (suggestions need `suggestMin`, 200).
+- **What it does at runtime** (`general_corpus.py`, consulted after the
+  checker in `indic_qa_adapter._items` and `indic_qa_tamil._token_item`):
+  an `unknown` word the corpus knows, with no corpus neighbour 50 times
+  commoner, is accepted and counted in the pass's coverage note; otherwise
+  the finding stays and the corpus's one-edit neighbours follow the
+  checker's own suggestions (reviewed, learned, OV first). Neighbours are one
+  grapheme cluster away, as the ta-irv lexicon's are. A word the IRV uses
+  `irv_accept_min` times that neither the OV nor the corpus knows, one edit
+  from a corpus word, is `<code>.lex.irv-consistent-slip`
+  (`indicqa.lex.irv-consistent-slip` for the Tamil layer): low severity,
+  medium confidence, never inline, once per book at its first place. It
+  ships **off**: on GEN its hits were mostly Bible names (hi 1 of 1, pa 9 of
+  13), with one reviewer-confirmed misspelling among Malayalam's 8, so it
+  waits for the owner's spot check (BUILD_LOG 2026-10-09); the Checker
+  settings dialog switches it on per project. The checker's own near-miss
+  and compound branches are untouched.
+- **What it cannot do.** A slip that lands on another real word is invisible
+  to any word list; that is a context rule (#238).
+- **Measuring.** `scripts/measure_indic_qa.py <code> <IRV folder> <BOOK>`
+  reports `generalCorpus` (words accepted, consistent slips) beside the
+  parity figures, which exclude Bridge's own rule; `--without-corpus` runs
+  the checker alone. The human-label gate must report no `lost_tp` after a
+  corpus lands; raise the floor until it does.
+
 ### Measured against indic-qa itself
 
 `scripts/measure_indic_qa.py <code> <IRV folder> <BOOK>` runs indic-qa the
@@ -387,7 +443,7 @@ checker runs as a layer of ta-irv"), its `pack.json` also carries:
 "indicQa": {"profile": "ta", "dictionary": "dictionary", "rules": "indic_qa_rules.json"}
 ```
 
-`load_pack` then appends the layer's 17 `indicqa.*` rules to the pack
+`load_pack` then appends the layer's 18 `indicqa.*` rules to the pack
 (`indic_qa_adapter.layer_rules`). They are `match_type="indic-qa"` and
 `stage="book"`, the same as a profile pack's. The catalogue is
 `tc_ai_bridge/language_packs/indic_qa_tamil.py`, because indic-qa's Tamil
@@ -401,6 +457,7 @@ the layer and says so in its problems.
 | `dictionary/` | The BSI 1957 OV dictionary: wordlists, `words.tsv`, `sandhi_pairs.tsv`, `final_consonant_words.tsv`, the reviewer's `corrections.tsv` and `sandhi_rules.tsv`, `verses.tsv`, and `MANIFEST.json` | `scripts/sync_indic_qa.py` |
 | `indic_qa_rules.json` | One entry per layer rule | `scripts/build_indic_qa_packs.py --ta-layer` adds new rules; reviewed values are edited by hand |
 | `irv_state.json.gz` | The whole-IRV index, including each book's ஒற்று pair and form counts and its headings and footnotes | `scripts/build_indic_qa_packs.py --irv-state ta <IRV folder>` |
+| `general_corpus.tsv.gz`, `general_corpus.json` | General-use word counts, consulted by the layer on its two unexplained exits (see "General corpus" below) | `scripts/build_corpus_lexicon.py ta` |
 
 What the layer does differently from a profile pack:
 

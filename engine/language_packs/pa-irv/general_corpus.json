@@ -1,0 +1,94 @@
+{
+ "format": 1,
+ "language": "pa",
+ "file": "general_corpus.tsv.gz",
+ "tokenizer": {
+  "indicQaCommit": "ab53636ba0fa0fd2aa347f66b5241c8a0f340226",
+  "tokenRe": "[ਁ-ੵ]+(?:-[ਁ-ੵ]+)*",
+  "canon": "nfc"
+ },
+ "sources": [
+  {
+   "name": "IndicCorpV2",
+   "url": "https://huggingface.co/datasets/ai4bharat/IndicCorpV2/resolve/2d7285e6ce14fdb3fb2449c9f89427b9f582ac3f/data/pa.txt",
+   "repoCommit": "2d7285e6ce14fdb3fb2449c9f89427b9f582ac3f",
+   "fileSha256": "a186e2aa7395e1799b533ed6c6c2a0579b1572dc31775de1e0e23feceb48367e",
+   "fileBytes": 9480517356,
+   "ranges": [
+    {
+     "start": 0,
+     "end": 187500000,
+     "sha256": "f1e49ecc95d18fc4bf41296a727eb92b5a2a492c0829b6bdc1d1335ad7c7c143",
+     "bytesUsed": 187499107,
+     "tokens": 14217846
+    },
+    {
+     "start": 1327573908,
+     "end": 1515073908,
+     "sha256": "5d4c7c4f1426564196a75db8479f284dabf514b47e911ac1c087d2d3ee8ecacc",
+     "bytesUsed": 187498763,
+     "tokens": 14217788
+    },
+    {
+     "start": 2655147816,
+     "end": 2842647816,
+     "sha256": "d27962e36f6628a39f5804e8587b281611277aa86084d7cae22ad7a371df1440",
+     "bytesUsed": 187497840,
+     "tokens": 14210781
+    },
+    {
+     "start": 3982721724,
+     "end": 4170221724,
+     "sha256": "252ec264ede80be3be89bc9e88cd0288040c7eb85bea3e24e37056c32b73bfbe",
+     "bytesUsed": 187499354,
+     "tokens": 14216946
+    },
+    {
+     "start": 5310295632,
+     "end": 5497795632,
+     "sha256": "2e5d6591d3eeacff114aaa7c6f544e60574a7d984e5acaca29301b63f39efc66",
+     "bytesUsed": 187499469,
+     "tokens": 14219962
+    },
+    {
+     "start": 6637869540,
+     "end": 6825369540,
+     "sha256": "d61c70be986ac1b22b0cb80407f5de6a1448dc3be909430a23f856bef9e06fbe",
+     "bytesUsed": 187499597,
+     "tokens": 14213696
+    },
+    {
+     "start": 7965443448,
+     "end": 8152943448,
+     "sha256": "7d500d4b5d9ba3ad0b9f5acb8002b100bc4f779b1f47c2ee6574d5e10d6c4202",
+     "bytesUsed": 187496686,
+     "tokens": 14214271
+    },
+    {
+     "start": 9293017356,
+     "end": 9480517356,
+     "sha256": "5c1f2689ae782362d5216fdb9ae51cb9da548d6e3cfc0b494627e7f6652c170d",
+     "bytesUsed": 187499930,
+     "tokens": 14216129
+    }
+   ],
+   "bytesUsed": 1499990746,
+   "tokens": 113727419,
+   "distinct": 979408,
+   "licence": "CC0-1.0",
+   "src": "c"
+  }
+ ],
+ "floor": 10,
+ "cap": 300000,
+ "acceptMin": 10,
+ "suggestMin": 200,
+ "suggestTop": 15000,
+ "ratio": 50,
+ "listed": 113646,
+ "outputSha256": "2ce4157d75ff3f555b62c6428a113096c798f4296dc33cb6cbce86879efd01fc",
+ "outputBytes": 642767,
+ "builtOn": "2026-10-09",
+ "buildSeconds": 272.9,
+ "builder": "scripts/build_corpus_lexicon.py"
+}

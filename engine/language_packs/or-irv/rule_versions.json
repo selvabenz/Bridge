@@ -341,9 +341,9 @@
    "layer": "lexicon",
    "severity": "low",
    "confidence": "medium",
-   "enabled": true,
+   "enabled": false,
    "inline": false,
-   "note": "IRV-wide form absent from the general corpus; one edit from a corpus word"
+   "note": "IRV-wide form absent from the general corpus; one edit from a corpus word. Off until the owner's spot check: on GEN its hits were mostly Bible names"
   }
  }
 }

@@ -58,12 +58,18 @@ def rule_id(code: str) -> str:
 
 
 # code -> catalogue entry in the profile's shape: (group, label, inline upstream, on by default).
+# Off by default: on GEN the rule's hits were mostly Bible names (hi: गमोरा;
+# pa: 9 of 13 names) with one reviewer-confirmed misspelling among ml's 8, so
+# it waits for the owner's spot check (BUILD_LOG 2026-10-09). The Checker
+# settings dialog switches it on per project like any indic-qa rule.
 RULES: dict[str, dict[str, tuple[str, str, bool, bool]]] = {
-    code: {rule_id(code): ("Lexicon", LABEL, False, True)}
+    code: {rule_id(code): ("Lexicon", LABEL, False, False)}
     for code in indic_qa_vendor.PROFILES + indic_qa_vendor.LAYER_PROFILES
 }
 DEFAULT_ENTRY = {"category": "typo", "layer": "lexicon", "severity": "low", "confidence": "medium",
-                 "note": "IRV-wide form absent from the general corpus; one edit from a corpus word"}
+                 "enabled": False,
+                 "note": "IRV-wide form absent from the general corpus; one edit from a corpus word. Off until "
+                         "the owner's spot check: on GEN its hits were mostly Bible names"}
 
 
 def key_function(code: str) -> Callable[[str], str]:
@@ -144,13 +150,16 @@ class GeneralCorpus:
 
 
 def read_rows(path: Path) -> dict[str, int]:
+    """key -> count. One decompress and one split, not a line iterator: the
+    300k-row Hindi file loads in about a third of the time that way."""
     counts: dict[str, int] = {}
-    with gzip.open(path, "rt", encoding="utf-8") as handle:
-        for line in handle:
-            if line.startswith("#"):
-                continue
-            word, n, _src = line.rstrip("\n").split("\t")
-            counts[word] = int(n)
+    text = gzip.decompress(path.read_bytes()).decode("utf-8")
+    for line in text.split("\n"):
+        if not line or line[0] == "#":
+            continue
+        word, _tab, rest = line.partition("\t")
+        n, _tab, _src = rest.partition("\t")
+        counts[word] = int(n)
     return counts
 
 
