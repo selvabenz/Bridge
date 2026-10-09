@@ -372,10 +372,22 @@
     }
   }
 
-  async function pollAIJob(jobId: string, sequence: number): Promise<void> {
+  // A failed poll says nothing about the job, which keeps running in the
+  // engine: one lost `ai.review.status` used to freeze the panel on its last
+  // snapshot for good. Polling continues through a few failures in a row, and
+  // the first answer after them clears the error they put up.
+  const AI_POLL_MAX_FAILURES = 5;
+  let aiPollFailed = false;
+
+  async function pollAIJob(jobId: string, sequence: number, failures = 0): Promise<void> {
     try {
       const snapshot = await bridge.aiReviewStatus(jobId);
       if (sequence !== aiPollSequence) return;
+      if (aiPollFailed) {
+        aiPollFailed = false;
+        aiExplainError = "";
+        aiExplainErrorJobId = "";
+      }
       aiJob = snapshot;
       syncAIJobResult(snapshot);
       if (["queued", "running", "cancelling"].includes(snapshot.state)) {
@@ -397,6 +409,10 @@
         aiExplainError = error instanceof Error ? error.message : String(error);
         aiExplainErrorJobId = jobId;
         aiExplainErrorReference = "";
+        aiPollFailed = true;
+        if (failures + 1 < AI_POLL_MAX_FAILURES) {
+          aiPollTimer = setTimeout(() => void pollAIJob(jobId, sequence, failures + 1), 650);
+        }
       }
     }
   }
@@ -412,6 +428,7 @@
       `Run AI review for this ${scope}? Each verse may use one or two model requests and incur API charges.`,
     )) return;
     aiExplainError = "";
+    aiPollFailed = false;
     aiExplainErrorJobId = "";
     aiExplainErrorReference = "";
     aiExplainResult = null;
@@ -451,6 +468,7 @@
   async function retryAIReview(): Promise<void> {
     if (!aiJob || !["failed", "cancelled"].includes(aiJob.state)) return;
     aiExplainError = "";
+    aiPollFailed = false;
     aiExplainErrorJobId = "";
     aiExplainErrorReference = "";
     try {
@@ -474,6 +492,7 @@
     aiJob = null;
     aiExplainResult = null;
     aiExplainError = "";
+    aiPollFailed = false;
     aiExplainErrorJobId = "";
     aiExplainErrorReference = "";
     aiPollSequence += 1;
