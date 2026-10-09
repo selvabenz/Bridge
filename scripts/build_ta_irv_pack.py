@@ -341,6 +341,27 @@ def definitions(acc_roots, dat_roots, reviewed: dict[str, set[str]]) -> list[dic
                           "each with its -வதற்கு form attested; -வதற்கு 328.",
         },
         {
+            "id": "typo.participle.sentence-final", "version": 1,
+            "category": "typo", "severity": "low", "confidence": "medium", "inline": False,
+            "title": {"ta": "-ந்து வாக்கிய இறுதியில்", "en": "Adverbial participle ends the sentence"},
+            "message": {"en": '"{span}" ends the sentence as an adverbial participle; the finite "{fix}" is '
+                              'expected. Verify before editing.'},
+            "rationale": "A sentence ends in a finite verb; a -ந்து participle needs a verb after it",
+            # A stem of two or more letters, -ந்து, then the sentence's end. Not the
+            # numerals (ஐந்து, -ைந்து) nor விருந்து / the பொருந்து forms, which end a
+            # sentence legitimately. Measured 2026-10-09 (#238): sentence-final
+            # -ந்து is 10 of 29,540 OV sentence ends and 1 of 5,122 in IRV
+            # GEN/LEV/PSA/1CO (PSA 8:6 தந்து, as in the OV). A slip that lands on
+            # a real word (முடிந்து for முடிந்தது) is invisible to any word list;
+            # this is the one shape a surface rule can see.
+            "match": {"type": "regex", "on": "visible",
+                      "pattern": r"(?<![\p{L}\p{M}])(?P<span>(?P<stem>[\p{L}\p{M}]{2,}?)(?<!ஐ|ை|விரு|பொரு)ந்து)"
+                                 r"(?=\s*[.!?])"},
+            "fix": {"type": "expand", "template": r"\g<stem>ந்தது"},
+            "provenance": "Real-word slip reproduced 2026-10-08 (#237, GEN 1:13 முடிந்து for முடிந்தது). "
+                          "OV: 10 sentence-final -ந்து in 29,540 sentence ends; IRV GEN/LEV/PSA/1CO: 1 in 5,122.",
+        },
+        {
             "id": "integrity.digits-in-text", "version": 1, "enabled": False,
             "category": "typo", "layer": "integrity", "severity": "low", "confidence": "low", "inline": False,
             "title": {"ta": "எண்கள் வசனத்தில்", "en": "Digits in verse text"},
@@ -466,6 +487,7 @@ def correct_examples(rule, verses, flagged) -> list[dict]:
         corrected = {"typo.divine-name.vowel-drop": r"யெகோவாவ[\p{L}\p{M}]*",
                      "typo.divine-name.dative-stem": r"யெகோவாவுக்கு",
                      "typo.suffix.dropped-tha": r"\p{L}[\p{L}\p{M}]*வதற்கு",
+                     "typo.participle.sentence-final": r"\p{L}[\p{L}\p{M}]*ந்தது(?=\s*[.!?])",
                      "integrity.space-before-note-end": None}[rule.id]
         if corrected:
             for book, chapter, verse, text in verses:
@@ -504,6 +526,8 @@ def top_up(examples: dict[str, list], rule_id: str, verses) -> None:
         return
     edits = {
         "typo.suffix.dropped-tha": (r"(\p{L}[\p{L}\p{M}]{2,}?)வதற்கு(?![\p{L}\p{M}])", r"\1வற்கு", "த removed from -வதற்கு"),
+        "typo.participle.sentence-final": (r"(\p{L}[\p{L}\p{M}]{2,}?)ந்தது(?=\s*[.!?])", r"\1ந்து",
+                                           "the finite -ந்தது became the participle -ந்து"),
         "sandhi.vallinam.wrong-consonant": None,
         "sandhi.clitic.fused": ("(?<![\\p{L}\\p{M}])(" + "|".join(MANNER + CLITIC_ACCUSATIVES)
                                 + "|\\p{L}[\\p{L}\\p{M}]*(?:க்கு|ற்கு))த்தான்(?![\\p{L}\\p{M}])",

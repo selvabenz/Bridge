@@ -1,0 +1,140 @@
+{
+ "id": "typo.participle.sentence-final",
+ "version": 1,
+ "category": "typo",
+ "severity": "low",
+ "confidence": "medium",
+ "inline": false,
+ "title": {
+  "ta": "-ந்து வாக்கிய இறுதியில்",
+  "en": "Adverbial participle ends the sentence"
+ },
+ "message": {
+  "en": "\"{span}\" ends the sentence as an adverbial participle; the finite \"{fix}\" is expected. Verify before editing."
+ },
+ "rationale": "A sentence ends in a finite verb; a -ந்து participle needs a verb after it",
+ "match": {
+  "type": "regex",
+  "on": "visible",
+  "pattern": "(?<![\\p{L}\\p{M}])(?P<span>(?P<stem>[\\p{L}\\p{M}]{2,}?)(?<!ஐ|ை|விரு|பொரு)ந்து)(?=\\s*[.!?])"
+ },
+ "fix": {
+  "type": "expand",
+  "template": "\\g<stem>ந்தது"
+ },
+ "provenance": "Real-word slip reproduced 2026-10-08 (#237, GEN 1:13 முடிந்து for முடிந்தது). OV: 10 sentence-final -ந்து in 29,540 sentence ends; IRV GEN/LEV/PSA/1CO: 1 in 5,122.",
+ "examples": {
+  "incorrect": [
+   {
+    "text": "என்னிடம் வந்து, பணிந்து. நீயும் உன்னைப்",
+    "span": "பணிந்து",
+    "fix": "பணிந்தது",
+    "origin": "EXO 11:8"
+   },
+   {
+    "text": "ஞானமுள்ளவர்களுடைய நாவோ மருந்து.",
+    "span": "மருந்து",
+    "fix": "மருந்தது",
+    "origin": "PRO 12:18"
+   },
+   {
+    "text": "உண்மையுள்ள தூதுவர்களோ நல்மருந்து.",
+    "span": "நல்மருந்து",
+    "fix": "நல்மருந்தது",
+    "origin": "PRO 13:17"
+   },
+   {
+    "text": "நாள் முடிந்து.",
+    "span": "முடிந்து",
+    "fix": "முடிந்தது",
+    "origin": "derived from GEN 1:5 (the finite -ந்தது became the participle -ந்து)"
+   },
+   {
+    "text": "தந்திரமுள்ளதாக இருந்து. அது",
+    "span": "இருந்து",
+    "fix": "இருந்தது",
+    "origin": "derived from GEN 3:1 (the finite -ந்தது became the participle -ந்து)"
+   },
+   {
+    "text": "வருத்தமாக இருந்து.",
+    "span": "இருந்து",
+    "fix": "இருந்தது",
+    "origin": "derived from GEN 6:6 (the finite -ந்தது became the participle -ந்து)"
+   },
+   {
+    "text": "கொடுமையினால் நிறைந்திருந்து.",
+    "span": "நிறைந்திருந்து",
+    "fix": "நிறைந்திருந்தது",
+    "origin": "derived from GEN 6:11 (the finite -ந்தது became the participle -ந்து)"
+   },
+   {
+    "text": "மேல் மிதந்து.",
+    "span": "மிதந்து",
+    "fix": "மிதந்தது",
+    "origin": "derived from GEN 7:17 (the finite -ந்தது became the participle -ந்து)"
+   },
+   {
+    "text": "மிதந்து கொண்டிருந்து.",
+    "span": "கொண்டிருந்து",
+    "fix": "கொண்டிருந்தது",
+    "origin": "derived from GEN 7:18 (the finite -ந்தது became the participle -ந்து)"
+   },
+   {
+    "text": "மூடிக் கொண்டிருந்து.",
+    "span": "கொண்டிருந்து",
+    "fix": "கொண்டிருந்தது",
+    "origin": "derived from GEN 7:24 (the finite -ந்தது became the participle -ந்து)"
+   }
+  ],
+  "correct": [
+   {
+    "text": "நாள் முடிந்தது.",
+    "origin": "GEN 1:5 (correct form)"
+   },
+   {
+    "text": "ஓங்கி வளர்ந்தது.",
+    "origin": "GEN 41:5 (correct form)"
+   },
+   {
+    "text": "எழுத்தாகவும் இருந்தது.",
+    "origin": "EXO 32:16 (correct form)"
+   },
+   {
+    "text": "வரை இருந்தது.",
+    "origin": "NUM 9:15 (correct form)"
+   },
+   {
+    "text": "கோத்திரத்தார்களுக்கு விழுந்தது.",
+    "origin": "JOS 19:24 (correct form)"
+   },
+   {
+    "text": "இஸ்ரவேலுக்கெல்லாம் வந்தது. இஸ்ரவேலர்கள்:",
+    "origin": "1SA 4:1 (correct form)"
+   },
+   {
+    "text": "ஒன்றும் தெரியாதிருந்தது.",
+    "origin": "1SA 20:39 (correct form)"
+   },
+   {
+    "text": "விண்ணப்பமாக இருந்தது.",
+    "origin": "1KI 3:10 (correct form)"
+   },
+   {
+    "text": "ஏழாக இருந்தது.",
+    "origin": "1KI 7:17 (correct form)"
+   },
+   {
+    "text": "கொண்டே இருந்தது.",
+    "origin": "1KI 17:17 (correct form)"
+   },
+   {
+    "text": "பேர்களாக இருந்தது.",
+    "origin": "1CH 7:2 (correct form)"
+   },
+   {
+    "text": "நடந்து கொண்டிருந்தது.",
+    "origin": "2CH 12:15 (correct form)"
+   }
+  ]
+ }
+}

@@ -22,6 +22,7 @@
   "rules/typo.divine-name.vowel-drop.json",
   "rules/typo.divine-name.dative-stem.json",
   "rules/typo.suffix.dropped-tha.json",
+  "rules/typo.participle.sentence-final.json",
   "rules/integrity.digits-in-text.json",
   "rules/integrity.space-before-note-end.json",
   "rules/lexicon.known-split.json",

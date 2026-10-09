@@ -170,6 +170,33 @@ def test_known_irv_defect_shapes(text, rule_id, span, fix):
     assert finding["category"] == "typo"
 
 
+# The real-word slip of #237 (GEN 1:13): a word list cannot see it, the
+# sentence's end can (#238, stage 1).
+def test_a_participle_ending_the_sentence_is_flagged_with_its_finite_form():
+    text = "சாயங்காலமும் விடியற்காலமுமாகி மூன்றாம் நாள் முடிந்து."
+    [finding] = by_rule(text, "typo.participle.sentence-final")
+    assert finding["originalText"] == "முடிந்து" and finding["suggestedReplacement"] == "முடிந்தது"
+    assert (finding["severity"], finding["confidence"], finding["inline"]) == ("low", "medium", False)
+    # Mid-sentence, the participle is what it should be.
+    assert not by_rule("நாள் முடிந்து, அவன் போனான்.", "typo.participle.sentence-final")
+
+
+@pytest.mark.parametrize("text", [
+    "மூன்றாம் நாள் முடிந்தது.",             # the finite form
+    "அதற்கு இடம் உண்டு.",                    # a legitimate sentence-final form
+    "அவன் வயது ஐந்து.",                      # a numeral
+    "அவர்கள் பதினைந்து.",                    # a numeral ending -ைந்து
+    "அவன் ஆயத்தம் செய்தது ஒரு விருந்து.",    # a noun
+    "அது அதற்குப் பொருந்து.",                 # an excluded stem
+    # PSA 8:6 ends a verse in -ந்து in both the OV and the IRV, the one such
+    # sentence end in 5,122 on four books (#238). Its stem is one letter, and
+    # the rule asks for two, so it is not reported: zero false alarms measured.
+    "உன் கரங்களின் செயல்களின்மேல் ஆளுகையைத் தந்து.",
+])
+def test_legitimate_sentence_final_forms_are_not_flagged(text):
+    assert by_rule(text, "typo.participle.sentence-final") == []
+
+
 def test_space_before_a_note_end_is_found_on_the_raw_text_at_raw_offsets():
     text = "அவன் சொன்னான்\\f + \\ft குறிப்பு. \\f* பின்பு."
     [finding] = by_rule(text, "integrity.space-before-note-end")
