@@ -2,6 +2,7 @@
   import { onDestroy, tick } from "svelte";
   import { bridge } from "../api/bridgeClient";
   import { languageQaChannel, nudgeLanguageQa } from "../languageQaInline";
+  import { languageQaPanelToggle } from "../languageQaPanelUi";
   import type { BookWordRow, LanguageQaFlag, LanguageQaStatus, LanguageQaView, LearnedFix } from "../types/languageQa";
   import type { HouseStyleEntry } from "../types/houseStyle";
   import { addProjectWords } from "../projectWords";
@@ -18,8 +19,44 @@
 
   export let projectPath: string;
   export let onNavigate: (book: string, chapter: string, verse: string) => void;
+  /** The editor screen has a status-bar button that opens this panel, so
+   * there the launcher may step aside: it hides itself a few seconds after
+   * a pass completes, or at once from its close button, and comes back when
+   * the next pass starts. Elsewhere it is the only way in and always shows. */
+  export let launcherHides = false;
 
   let expanded = false;
+  const LAUNCHER_HIDE_MS = 6000;
+  let launcherHidden = false;
+  let launcherTimer: ReturnType<typeof setTimeout> | undefined;
+  let launcherKey = "";
+  // Each poll publishes a fresh status object, so the reactive call below
+  // runs on every poll; only a change of these four restarts the clock.
+  function trackLauncher(hides: boolean, state: string, open: boolean, failed: boolean): void {
+    const key = `${hides}|${state}|${open}|${failed}`;
+    if (key === launcherKey) return;
+    launcherKey = key;
+    stopLauncherTimer();
+    if (!hides || failed || state !== "completed") {
+      launcherHidden = false;
+      return;
+    }
+    if (!open && !launcherHidden) launcherTimer = setTimeout(() => (launcherHidden = true), LAUNCHER_HIDE_MS);
+  }
+  function stopLauncherTimer(): void {
+    if (launcherTimer) clearTimeout(launcherTimer);
+    launcherTimer = undefined;
+  }
+  function hideLauncher(): void {
+    stopLauncherTimer();
+    launcherHidden = true;
+  }
+  // The status bar's button: every press after mount toggles the panel.
+  let seenToggle: number | null = null;
+  const stopToggle = languageQaPanelToggle.subscribe((count) => {
+    if (seenToggle !== null && count !== seenToggle) toggle();
+    seenToggle = count;
+  });
   // Which list is paged: every open finding; those shown again because the
   // rule changed since they were ignored; or those marked as false positives.
   let view: LanguageQaView = "findings";
@@ -92,12 +129,16 @@
   $: channel = $languageQaChannel.projectPath === projectPath ? $languageQaChannel : null;
   $: live = channel?.status ?? null;
   $: error = localError || channel?.error || "";
+  $: trackLauncher(launcherHides, live?.state ?? "", expanded, Boolean(error));
   $: status = expanded ? (page ?? live) : live;
   $: scopeChapter = listScope === "book" ? "" : $currentChapter;
   $: pageKey = expanded && live && listScope !== "verse"
     ? `${view}|${offset}|${live.generation}|${live.state}|${scopeChapter}|${shownCategories.join(",")}` : "";
+  // The state is part of the key: a pass publishes its findings under the
+  // generation it started with, so the list read while it was queued (the
+  // previous pass's findings) must be read again once it completes (#237).
   $: verseKeyNow = expanded && live && listScope === "verse" && $selectedVerse
-    ? `${live.generation}|${$currentChapter}|${$selectedVerse}` : "";
+    ? `${live.generation}|${live.state}|${$currentChapter}|${$selectedVerse}` : "";
   $: if (verseKeyNow) void loadVerseList(verseKeyNow, $currentChapter, $selectedVerse ?? "");
   // The verse scope reads languageQa.verse; its kinds are counted here.
   $: verseCounts = verseList.reduce<Record<string, number>>((counts, f) => {
@@ -412,6 +453,8 @@
   onDestroy(() => {
     disposed = true;
     ++sequence;
+    stopLauncherTimer();
+    stopToggle();
   });
 </script>
 
@@ -720,10 +763,18 @@
       {/if}
     </section>
   {/if}
-  <button class="launcher" on:click={toggle} aria-expanded={expanded} aria-controls="language-qa-results">
-    Language QA · {error ? "unavailable" : live?.state ?? "starting"}
-    {#if live?.totalFindings} · {live.totalFindings}{/if}
-  </button>
+  {#if expanded || !launcherHidden}
+    <div class="launcher-row">
+      <button class="launcher" on:click={toggle} aria-expanded={expanded} aria-controls="language-qa-results">
+        Language QA · {error ? "unavailable" : live?.state ?? "starting"}
+        {#if live?.totalFindings} · {live.totalFindings}{/if}
+      </button>
+      {#if launcherHides && !expanded}
+        <button class="launcher-close" on:click={hideLauncher} aria-label="Hide until the next check"
+          title="Hide until the next check. The Language QA button in the status bar opens the panel.">✕</button>
+      {/if}
+    </div>
+  {/if}
 </aside>
 
 <style>
@@ -733,7 +784,9 @@
   h2 { font-size: 15px; margin: 0; }
   button { cursor: pointer; border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; background: var(--surface); color: inherit; }
   button:disabled { opacity: .5; cursor: default; }
-  .launcher { display: block; margin-left: auto; }
+  .launcher-row { display: flex; justify-content: flex-end; align-items: center; gap: 4px; }
+  .launcher { display: block; }
+  .launcher-close { padding: 4px 7px; line-height: 1; }
   p { margin: 8px 0; overflow-wrap: anywhere; }
   ol { padding-left: 22px; }
   li { padding: 8px 0; border-bottom: 1px solid var(--border, #ddd); }

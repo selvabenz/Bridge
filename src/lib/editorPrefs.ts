@@ -33,6 +33,20 @@ const isBoolean = (value: unknown): value is boolean => typeof value === "boolea
 /** The reference Bible beside the text. Off by default: it narrows the text column. */
 export const referencePanelOpen = persisted("bridge.editor.referencePanel.v1", false, isBoolean);
 
+/** The reference panel's width in px, set by dragging its left edge. */
+export const REFERENCE_WIDTH = { min: 200, max: 640, initial: 300 } as const;
+export function clampReferenceWidth(px: number): number {
+  return Math.round(Math.min(REFERENCE_WIDTH.max, Math.max(REFERENCE_WIDTH.min, px)));
+}
+const isReferenceWidth = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value === clampReferenceWidth(value);
+export const referencePanelWidth = persisted<number>(
+  "bridge.editor.referencePanelWidth.v1", REFERENCE_WIDTH.initial, isReferenceWidth);
+
+/** The review panel folded to a narrow strip at the right edge, giving the
+ * text the room. Its contents stay mounted, so nothing in it is lost. */
+export const reviewPanelCollapsed = persisted("bridge.editor.reviewPanelCollapsed.v1", false, isBoolean);
+
 /** The verse text exactly as stored, USFM markers and all, instead of the
  * reader's clean text. Marks stay on the same characters. */
 export const rawView = persisted("bridge.editor.rawView.v1", false, isBoolean);

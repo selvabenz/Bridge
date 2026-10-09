@@ -26,6 +26,8 @@ vi.mock("../../api/bridgeClient", () => ({
 import ReviewPanel from "../ReviewPanel.svelte";
 import { currentChapter, project, selectedVerse, verseTexts, verseKey } from "../../stores";
 import { languageQaChannel } from "../../languageQaInline";
+import { reviewPanelCollapsed } from "../../editorPrefs";
+import { get } from "svelte/store";
 import { lqaFinding } from "./languageQaFixture";
 import { scopeDialog } from "../../scopedApply";
 import type { LanguageQaStatus } from "../../types/languageQa";
@@ -131,5 +133,43 @@ describe("ReviewPanel Language QA tab", () => {
     await fireEvent.click(screen.getByRole("button", { name: "False positive" }));
     expect(await screen.findByText("disk full")).toBeInTheDocument();
     expect(document.querySelector('[data-lqa-id="lqa-p"]')).not.toBeNull();
+  });
+});
+
+describe("ReviewPanel folding (#236)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    project.set({ path: "/p", bookId: "php" } as never);
+    currentChapter.set("1");
+    verseTexts.set({ [verseKey("1", "6")]: "அந்த காகம் பறந்தது." });
+    languageQaVerse.mockResolvedValue({
+      projectPath: "/p", generation: 3, state: "completed", chapter: "1", verse: "6",
+      findings: [lqaFinding({ id: "lqa-p", rule: "tamil.wordlist-variant", inline: false })], hidden: [],
+    });
+    channel(3);
+    selectedVerse.set("6");
+  });
+
+  afterEach(() => {
+    reviewPanelCollapsed.set(false);
+    selectedVerse.set(null);
+    languageQaChannel.set({ projectPath: "", status: null, error: "" });
+  });
+
+  it("folds to a strip that keeps its contents mounted, and remembers it", async () => {
+    render(ReviewPanel);
+    await fireEvent.click(screen.getByRole("tab", { name: /Language QA/ }));
+    await screen.findByText("ta-irv/tamil.wordlist-variant");
+
+    await fireEvent.click(screen.getByRole("button", { name: "Hide the review panel" }));
+    expect(get(reviewPanelCollapsed)).toBe(true);
+    expect(localStorage.getItem("bridge.editor.reviewPanelCollapsed.v1")).toBe("true");
+    expect(document.querySelector(".panel-body")?.classList.contains("folded")).toBe(true);
+    // Folded, not unmounted: the finding and the open tab are still there.
+    expect(document.querySelector('[data-lqa-id="lqa-p"]')).not.toBeNull();
+
+    await fireEvent.click(screen.getByRole("button", { name: "Show the review panel" }));
+    expect(document.querySelector(".panel-body")?.classList.contains("folded")).toBe(false);
+    expect(screen.getByRole("tab", { name: /Language QA/ }).getAttribute("aria-selected")).toBe("true");
   });
 });

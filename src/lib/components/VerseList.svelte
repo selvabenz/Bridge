@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { onDestroy, tick } from "svelte";
   import { verseNums, verseTexts, verseDisplay, headingsByVerse, findingsByVerse, checkStatusByVerse, alignmentStatusByVerse, selectedVerse, selectedVerseSet, currentChapter, verseKey, nativeChecksByVerse, aiCheckReviewsByVerse, checkingProgress, languageQaFindingsByVerse, project, flagsByVerse, historyCountByVerse, activeLanguageQaFindingId } from "../stores";
   import { rangeBetween } from "../crossVerseRange";
   import { unionInChapterOrder } from "../crossVerseSuggest";
@@ -88,6 +88,21 @@
   let activeFindingIndex = 0;
   let contextNotice = "";
   let contextNoticeError = false;
+  // A notice clears itself; an error stays longer so it can be read.
+  // Hovering holds it on screen, and the close button clears it at once.
+  const NOTICE_MS = 5000;
+  const NOTICE_ERROR_MS = 10000;
+  let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+  $: scheduleNoticeClear(contextNotice);
+  function scheduleNoticeClear(text: string): void {
+    holdNotice();
+    if (text) noticeTimer = setTimeout(() => (contextNotice = ""), contextNoticeError ? NOTICE_ERROR_MS : NOTICE_MS);
+  }
+  function holdNotice(): void {
+    if (noticeTimer) clearTimeout(noticeTimer);
+    noticeTimer = undefined;
+  }
+  onDestroy(holdNotice);
 
   /**
    * The same two actions ReviewPanel offers on an open Greek Room finding
@@ -498,7 +513,7 @@
     if (!finding) return;
     event.preventDefault();
     event.stopPropagation();
-    onSelect(verse);
+    selectFromList(verse);
     contextMenu = { finding, verse, x: event.clientX, y: event.clientY };
   }
 
@@ -534,7 +549,7 @@
     if (!finding) return;
     event.preventDefault();
     event.stopPropagation();
-    onSelect(verse);
+    selectFromList(verse);
     menuRelated = null;
     langQaContextMenu = { finding, verse, x: event.clientX, y: event.clientY };
     void loadMenuRelated(finding);
@@ -563,7 +578,7 @@
       // finding, each with its own actions, rather than the first one winning.
       event.preventDefault();
       event.stopPropagation();
-      onSelect(verse);
+      selectFromList(verse);
       mixedMenu = { verse, qa, lqa, x: event.clientX, y: event.clientY };
     } else if (qa.length > 0) {
       openFindingMenu(event, findingIds, findings, verse);
@@ -769,14 +784,14 @@
   ): void {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      onSelect(verse);
+      selectFromList(verse);
       return;
     }
     const isMenuKey = event.key === "ContextMenu" || (event.shiftKey && event.key === "F10");
     if (findingIds.length === 0) {
       if (!isMenuKey) return;
       event.preventDefault();
-      onSelect(verse);
+      selectFromList(verse);
       const row = event.currentTarget as HTMLElement;
       const rect = row.getBoundingClientRect();
       const text = row.querySelector(".vtext");
@@ -788,8 +803,7 @@
     const index = activeIndexFor(key, findingIds.length);
     if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
       event.preventDefault();
-      activeLanguageQaFindingId.set(null);
-      onSelect(verse);
+      selectFromList(verse);
       activeFindingVerseKey = key;
       activeFindingIndex =
         (index + (event.key === "ArrowRight" ? 1 : -1) + findingIds.length) % findingIds.length;
@@ -801,7 +815,7 @@
     // The raw store copy, not the display one: the fix splices the raw verse.
     const langFinding = finding ? undefined : langFindings.find((item) => item.id === findingIds[index]);
     if (!finding && !langFinding) return;
-    onSelect(verse);
+    selectFromList(verse);
     activeFindingVerseKey = key;
     activeFindingIndex = index;
     const row = event.currentTarget as HTMLElement;
@@ -948,7 +962,7 @@
     if (event.shiftKey && anchor) {
       const run = rangeBetween($verseNums, anchor, verse);
       selectedVerseSet.set(run.length > 1 ? run : []);
-      onSelect(verse);
+      selectFromList(verse);
       return;
     }
     if (event.ctrlKey || event.metaKey) {
@@ -957,7 +971,7 @@
         ? base.filter((v) => v !== verse)
         : unionInChapterOrder($verseNums, base, [verse]);
       selectedVerseSet.set(next.length > 1 ? next : []);
-      if (!base.includes(verse)) onSelect(verse);
+      if (!base.includes(verse)) selectFromList(verse);
       return;
     }
     selectedVerseSet.set([]);
@@ -1102,6 +1116,7 @@
                 class:active-finding={$activeLanguageQaFindingId
                   ? piece.seg.findingIds.includes($activeLanguageQaFindingId)
                   : $selectedVerse === v && activeFindingId !== undefined && piece.seg.findingIds.includes(activeFindingId)}
+                class:panel-ring={!!$activeLanguageQaFindingId && piece.seg.findingIds.includes($activeLanguageQaFindingId)}
                 data-finding-ids={piece.seg.findingIds.join(" ")}
                 title={piece.seg.title}
                 on:contextmenu={(event) => onMarkContextMenu(event, piece.seg.findingIds, findings, langFindings, v)}
@@ -1156,7 +1171,11 @@
 </div>
 
 {#if contextNotice}
-  <p class="context-notice" class:error={contextNoticeError} role="status">{contextNotice}</p>
+  <p class="context-notice" class:error={contextNoticeError} role="status"
+    on:mouseenter={holdNotice} on:mouseleave={() => scheduleNoticeClear(contextNotice)}>
+    {contextNotice}
+    <button type="button" class="notice-undo" on:click={() => (contextNotice = "")} aria-label="Dismiss" title="Dismiss">✕</button>
+  </p>
 {/if}
 
 {#if $houseStyleNotice}
@@ -1283,8 +1302,13 @@
   .vtext { font-family: var(--font-target); font-size: calc(var(--fs-xl) * var(--verse-scale, 1)); line-height: 1.85; color: var(--text); }
   .finding-num { font-size: var(--fs-2xs); font-weight: 700; color: var(--accent); margin-left: 1px; }
   /* Where Shift+F10 would open the menu. A visible ring, not colour alone:
-     the underline classes already carry the finding's source colour. */
-  mark.active-finding { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
+     the underline classes already carry the finding's source colour. It is
+     drawn only while the row has keyboard focus: after a mouse click or
+     right-click it sat on the verse's first underline, whichever word was
+     clicked. The ring the panel's F8 puts on a finding always shows. */
+  mark.active-finding { border-radius: 2px; }
+  .verse:focus-visible mark.active-finding, mark.panel-ring { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .verse:focus:not(:focus-visible) { outline: none; }
   /* Sits inline where the note was, like a printed Bible's callout. A plain
      letter, not an icon font: an offline PyInstaller build can't reach a CDN
      and icon-only controls render as empty boxes there. */

@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { get } from "svelte/store";
+import { tick } from "svelte";
 
 const { decideVerse, editVerse, runVerseChecks, languageQaHistory, housestyleRecord, housestyleSetState, languageQaLearnedForget, languageQaScopeFind, verseHistory, languageQaWordsAdd, languageQaOccurrences } = vi.hoisted(() => ({
   languageQaWordsAdd: vi.fn(),
@@ -1012,6 +1013,7 @@ describe("VerseList ring from the panel's F8", () => {
       return mark as HTMLElement;
     });
     expect(ringed.textContent).toBe("यीशु");
+    expect(ringed.classList.contains("panel-ring")).toBe(true);
     await fireEvent.click(document.querySelector('[data-verse-key="1:6"]') as HTMLElement);
     expect(get(activeLanguageQaFindingId)).toBeNull();
   });
@@ -1086,5 +1088,80 @@ describe("VerseList word actions, as the indic-qa editor offers them", () => {
     render(VerseList, { props: { onSelect: vi.fn() } });
     await fireEvent.contextMenu(document.querySelector('[data-finding-ids~="m1"]') as HTMLElement);
     expect(screen.queryByRole("menuitem", { name: /to the project word list/ })).toBeNull();
+  });
+});
+
+describe("VerseList right-click, ring and notices (#236)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    activeLanguageQaFindingId.set(null);
+  });
+
+  /** seed() plus a second verse, 7, carrying one underlined finding. */
+  function seedTwoVerses(): void {
+    seed("alpha beta");
+    chapterVerseNums.set({ "1": ["6", "7"] });
+    verseTexts.update((texts) => ({ ...texts, [verseKey("1", "7")]: "gamma delta" }));
+    verseDisplay.update((display) => ({ ...display, [verseKey("1", "7")]: displayFor("gamma delta") }));
+    findingsByVerse.update((map) => ({ ...map, [verseKey("1", "7")]: [
+      finding({ id: "f7", verse: 7, start_offset: 0, end_offset: 5, original_text: "gamma" })] }));
+  }
+
+  it("does not scroll a verse to the top when one of its underlined words is right-clicked", async () => {
+    seedTwoVerses();
+    const scrollTo = vi.spyOn(Element.prototype, "scrollTo");
+    try {
+      render(VerseList, { props: { onSelect: (verse: string) => selectedVerse.set(verse) } });
+      // Navigation that is not a click (Go to, a report row) still scrolls.
+      selectedVerse.set("6");
+      await waitFor(() => expect(scrollTo).toHaveBeenCalled());
+      scrollTo.mockClear();
+
+      await fireEvent.contextMenu(document.querySelector('[data-finding-ids~="f7"]') as HTMLElement);
+      expect(get(selectedVerse)).toBe("7");
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+      await tick();
+      await tick();
+      expect(scrollTo).not.toHaveBeenCalled();
+    } finally {
+      scrollTo.mockRestore();
+    }
+  });
+
+  it("keeps the panel's F8 ring apart from the keyboard ring a right-click would leave", async () => {
+    seed("alpha beta", [
+      finding({ id: "f1", start_offset: 0, end_offset: 5, original_text: "alpha" }),
+      finding({ id: "f2", start_offset: 6, end_offset: 10, original_text: "beta" }),
+    ]);
+    render(VerseList, { props: { onSelect: (verse: string) => selectedVerse.set(verse) } });
+    await fireEvent.contextMenu(document.querySelector('[data-finding-ids~="f2"]') as HTMLElement);
+    // The keyboard ring (drawn only under :focus-visible) is not the F8 ring.
+    expect(document.querySelector("mark.panel-ring")).toBeNull();
+  });
+
+  it("clears an error notice by itself, and sooner from its close button", async () => {
+    vi.useFakeTimers();
+    seed("alpha beta", [finding({
+      start_offset: 0, end_offset: 5, original_text: "moved", suggested_replacement: "omega",
+    })]);
+    render(VerseList, { props: { onSelect: vi.fn() } });
+    await fireEvent.contextMenu(document.querySelector("mark") as HTMLElement);
+    await fireEvent.click(screen.getByRole("menuitem", { name: "Accept finding" }));
+    const notice = () => document.querySelector(".context-notice");
+    expect(notice()?.textContent).toMatch(/stale/i);
+
+    // An error stays long enough to read, then goes.
+    vi.advanceTimersByTime(9_000);
+    await tick();
+    expect(notice()).not.toBeNull();
+    vi.advanceTimersByTime(1_500);
+    await tick();
+    expect(notice()).toBeNull();
+
+    // Shown again, the close button clears it at once.
+    await fireEvent.click(screen.getByRole("menuitem", { name: "Accept finding" }));
+    expect(notice()).not.toBeNull();
+    await fireEvent.click(within(notice() as HTMLElement).getByRole("button", { name: "Dismiss" }));
+    expect(notice()).toBeNull();
   });
 });

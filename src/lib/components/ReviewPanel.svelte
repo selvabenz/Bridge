@@ -29,8 +29,10 @@
   } from "../verseEditor";
   import { alignmentOpen, alignmentKey, openAlignment } from "../alignmentUi";
   import { aiReviewRequest, aiJobActive } from "../aiReviewUi";
+  import { reviewPanelCollapsed } from "../editorPrefs";
   import type { AiExplainResult, AIReviewJobSnapshot, FindingStatus } from "../types/finding";
 
+  $: openFindingCount = $selectedFindings.filter((f) => f.status === "open").length;
   let greekRoomChecking = false;
   let lastCheckedKey = "";
   let liveCheckSequence = 0;
@@ -562,7 +564,18 @@
   }
 </script>
 
-<div class="panel">
+<div class="panel" class:collapsed={$reviewPanelCollapsed}>
+  {#if $reviewPanelCollapsed}
+    <button type="button" class="expand-rail" on:click={() => reviewPanelCollapsed.set(false)}
+      aria-expanded="false" aria-label="Show the review panel" title="Show the review panel">
+      <span aria-hidden="true">◀</span>
+      <span class="rail-label">Review{#if $selectedVerse} {$currentChapter}:{$selectedVerse}{/if}</span>
+      {#if openFindingCount}<span class="rail-count">{openFindingCount}</span>{/if}
+    </button>
+  {/if}
+  <!-- Folded, not unmounted: a running check, an open tab or a draft in
+       here carries on while the panel is out of the way. -->
+  <div class="panel-body" class:folded={$reviewPanelCollapsed}>
   {#if $selectedVerse}
     <!-- Title and the two per-verse actions share one row where they fit;
          the row wraps the buttons onto their own line rather than squeezing
@@ -573,7 +586,7 @@
       <div class="header-title">
         <div class="ref">Review {($project?.bookId ?? "").toUpperCase()} {$currentChapter}:{$selectedVerse}</div>
         <div class="sub">
-          {$selectedFindings.filter((f) => f.status === "open").length} open finding(s)
+          {openFindingCount} open finding(s)
         </div>
       </div>
       <div class="verse-actions">
@@ -589,6 +602,8 @@
           disabled={$checkingProgress.running || Boolean($editingChapter) || $editSaving || Boolean($recheckingKey)}
           title={$checkingProgress.running ? "Wait for background checking to finish before editing" : "Edit this verse"}
         >✎ Edit verse</button>
+        <button type="button" class="collapse-btn" on:click={() => reviewPanelCollapsed.set(true)}
+          aria-expanded="true" aria-label="Hide the review panel" title="Hide the review panel">▶</button>
       </div>
     </div>
 
@@ -977,8 +992,13 @@
     </div>
 
   {:else}
-    <div class="empty-panel">Select a verse to review its findings.</div>
+    <div class="empty-panel">
+      <span>Select a verse to review its findings.</span>
+      <button type="button" class="collapse-btn" on:click={() => reviewPanelCollapsed.set(true)}
+        aria-expanded="true" aria-label="Hide the review panel" title="Hide the review panel">▶</button>
+    </div>
   {/if}
+  </div>
 </div>
 
 {#if $alignmentOpen && $selectedVerse}
@@ -1001,6 +1021,21 @@
 
 <style>
   .panel { width: 400px; flex-shrink: 0; background: var(--surface); display: flex; flex-direction: column; overflow: hidden; border-left: 1px solid var(--border); }
+  .panel.collapsed { width: 32px; }
+  .panel-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .panel-body.folded { display: none; }
+  .expand-rail {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px 0;
+    border: 0; background: var(--surface-2); color: var(--text-2); cursor: pointer; font: inherit; font-size: var(--fs-2xs);
+  }
+  .expand-rail:hover { background: var(--accent-bg); color: var(--accent); }
+  .rail-label { writing-mode: vertical-rl; font-weight: 700; white-space: nowrap; }
+  .rail-count { font-size: var(--fs-3xs); font-weight: 700; padding: 1px 5px; border-radius: 999px; background: var(--accent); color: white; }
+  .collapse-btn {
+    flex-shrink: 0; width: 28px; height: 28px; padding: 0; border-radius: 6px; border: 1px solid var(--border-strong);
+    background: var(--surface); color: var(--text-2); cursor: pointer; font-size: var(--fs-2xs);
+  }
+  .collapse-btn:hover { background: var(--surface-2); color: var(--text); }
   .panel-header { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
   .header-title { flex: 1 1 auto; min-width: 0; }
   .panel-pinned { flex-shrink: 0; padding: 14px 16px; border-bottom: 1px solid var(--border); overflow-y: auto; max-height: 60vh; }
@@ -1095,7 +1130,8 @@
   .ai-run-buttons { display: flex; gap: 6px; margin-left: auto; }
   .ai-scope-btn { padding: 7px 12px; font-size: var(--fs-xs); font-weight: 700; border-radius: 7px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--accent); cursor: pointer; white-space: nowrap; }
   .edit-btn:disabled, .align-btn:disabled, .ai-scope-btn:disabled { opacity: .55; cursor: not-allowed; }
-  .empty-panel { padding: 24px 16px; font-size: var(--fs-sm); color: var(--text-3); }
+  .empty-panel { padding: 24px 16px; font-size: var(--fs-sm); color: var(--text-3); display: flex; align-items: flex-start; gap: 10px; }
+  .empty-panel span { flex: 1; }
   .ai-explain-section { border-color: var(--accent); }
   .ai-cost { margin-left: auto; font-size: var(--fs-2xs); font-weight: 400; color: var(--text-3); }
   .ai-summary { font-size: var(--fs-sm); color: var(--text); line-height: 1.5; margin: 0 0 10px; }

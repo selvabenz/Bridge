@@ -10,6 +10,9 @@ vi.mock("../../api/bridgeClient", () => ({ bridge: { languageQaReference, langua
 import ReferencePanel from "../ReferencePanel.svelte";
 import RelatedWords from "../RelatedWords.svelte";
 import { currentChapter, project, selectedVerse } from "../../stores";
+import { REFERENCE_WIDTH, referencePanelWidth } from "../../editorPrefs";
+import { get } from "svelte/store";
+import { tick } from "svelte";
 
 const READY = {
   ready: true, configured: true, source: { path: "D:/OV", label: "Old Version", kind: "tsv" },
@@ -104,5 +107,49 @@ describe("RelatedWords", () => {
     languageQaRelated.mockResolvedValueOnce({ word: "x", ready: false, configured: false, equivalents: [], family: [] });
     render(RelatedWords, { props: { projectPath: "/p", word: "x", onShowOccurrences: vi.fn() } });
     expect(await screen.findByText(/No reference Bible is set/)).toBeTruthy();
+  });
+});
+
+describe("ReferencePanel width (#236)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    project.set({ path: "/p", bookId: "rut" } as never);
+    currentChapter.set("1");
+    referencePanelWidth.set(REFERENCE_WIDTH.initial);
+  });
+
+  afterEach(() => referencePanelWidth.set(REFERENCE_WIDTH.initial));
+
+  it("resizes from its left edge by keyboard and by drag, within limits, and remembers the width", async () => {
+    languageQaReference.mockResolvedValue(READY);
+    render(ReferencePanel);
+    const handle = screen.getByRole("separator", { name: "Resize the reference panel" });
+    const width = () => (document.querySelector(".reference-panel") as HTMLElement).style.width;
+    expect(width()).toBe("300px");
+
+    // Moving the left edge left widens the panel.
+    await fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    expect(width()).toBe("316px");
+    expect(localStorage.getItem("bridge.editor.referencePanelWidth.v1")).toBe("316");
+    await fireEvent.keyDown(handle, { key: "End" });
+    expect(width()).toBe(`${REFERENCE_WIDTH.max}px`);
+    await fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    expect(width()).toBe(`${REFERENCE_WIDTH.max}px`);
+
+    // A drag shows as it goes and is saved when it ends. jsdom has no
+    // PointerEvent, so a MouseEvent carries the pointer event's name and fields.
+    const pointer = async (type: string, clientX = 0) => {
+      handle.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, clientX }));
+      await tick();
+    };
+    await pointer("pointerdown", 500);
+    await pointer("pointermove", 700);
+    expect(width()).toBe("440px");
+    expect(get(referencePanelWidth)).toBe(REFERENCE_WIDTH.max);
+    await pointer("pointerup");
+    expect(get(referencePanelWidth)).toBe(440);
+
+    await fireEvent.dblClick(handle);
+    expect(width()).toBe("300px");
   });
 });

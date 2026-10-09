@@ -35,6 +35,8 @@ vi.mock("../../api/bridgeClient", () => ({ bridge: {
 } }));
 import LanguageQaPanel from "../LanguageQaPanel.svelte";
 import { languageQaChannel } from "../../languageQaInline";
+import { toggleLanguageQaPanel } from "../../languageQaPanelUi";
+import { tick } from "svelte";
 
 function snapshot(overrides: Partial<LanguageQaStatus> = {}): LanguageQaStatus {
   return {
@@ -399,6 +401,25 @@ describe("Language QA panel: kinds, scope and F8", () => {
     expect(screen.getByRole("group", { name: "Kinds of finding" })).toHaveTextContent(/Possible typo\s*1/);
   });
 
+  it("reads the verse list again when the pass after an edit completes (#237)", async () => {
+    currentChapter.set("2");
+    selectedVerse.set("3-4");
+    const verseResult = (message: string) => ({ projectPath: "C:/project", generation: 2, state: "completed",
+      chapter: "2", verse: "3-4", hidden: [],
+      findings: [lqaFinding({ id: message, chapter: "2", verse: "3-4", message, category: "typo" })] });
+    await openPanel();
+    // The edit: a new generation, queued. The engine still holds the last
+    // pass's findings for the verse until this one finishes.
+    verseCall.mockResolvedValue(verseResult("Before the edit."));
+    publish({ generation: 2, state: "queued" });
+    await fireEvent.click(screen.getByRole("radio", { name: "Verse" }));
+    expect(await screen.findByText("Before the edit.")).toBeTruthy();
+    // Same generation, now completed: the list must be read again.
+    verseCall.mockResolvedValue(verseResult("The new misspelling."));
+    publish({ generation: 2, state: "completed" });
+    expect(await screen.findByText("The new misspelling.")).toBeTruthy();
+  });
+
   it("F8 and Shift+F8 walk the marks in reading order, and typing in a box is left alone", async () => {
     project.set({ path: "C:/project", bookId: "php", chapters: ["1", "2"] } as never);
     currentChapter.set("1");
@@ -425,5 +446,48 @@ describe("Language QA panel: kinds, scope and F8", () => {
     await fireEvent.keyDown(window, { key: "F8" });
     await fireEvent.keyDown(window, { key: "F8" });
     expect(onNavigate).toHaveBeenCalledWith("php", "2", "");
+  });
+});
+
+describe("Language QA launcher on the editor screen (#236)", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("hides itself a few seconds after a pass completes and comes back for the next pass", async () => {
+    vi.useFakeTimers();
+    render(LanguageQaPanel, { projectPath: "C:/project", onNavigate: vi.fn(), launcherHides: true });
+    await tick();
+    expect(screen.getByRole("button", { name: /Language QA · completed/ })).toBeTruthy();
+    vi.advanceTimersByTime(5_000);
+    await tick();
+    expect(screen.getByRole("button", { name: /Language QA · completed/ })).toBeTruthy();
+    vi.advanceTimersByTime(1_000);
+    await tick();
+    expect(screen.queryByRole("button", { name: /Language QA · completed/ })).toBeNull();
+
+    publish({ generation: 2, state: "running" });
+    await tick();
+    expect(screen.getByRole("button", { name: /Language QA · running/ })).toBeTruthy();
+  });
+
+  it("hides at once from its close button, and the status bar's toggle still opens the panel", async () => {
+    render(LanguageQaPanel, { projectPath: "C:/project", onNavigate: vi.fn(), launcherHides: true });
+    await fireEvent.click(await screen.findByRole("button", { name: "Hide until the next check" }));
+    expect(screen.queryByRole("button", { name: /Language QA · completed/ })).toBeNull();
+
+    toggleLanguageQaPanel();
+    await screen.findByText("Check source encoding.");
+    // While open, the launcher is back: it is how the panel closes.
+    expect(screen.getByRole("button", { name: /Language QA · completed/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Hide until the next check" })).toBeNull();
+  });
+
+  it("never hides where it is the only way into the panel", async () => {
+    vi.useFakeTimers();
+    render(LanguageQaPanel, { projectPath: "C:/project", onNavigate: vi.fn() });
+    await tick();
+    expect(screen.queryByRole("button", { name: "Hide until the next check" })).toBeNull();
+    vi.advanceTimersByTime(60_000);
+    await tick();
+    expect(screen.getByRole("button", { name: /Language QA · completed/ })).toBeTruthy();
   });
 });

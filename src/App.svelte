@@ -41,7 +41,8 @@
     aiCheckReviewsByVerse, diagnosticsOpen, engineLog, appendEngineLog, navigationStatus,
   } from "./lib/stores";
   import { editingChapter, editingVerse, editSaving } from "./lib/verseEditor";
-  import { nudgeLanguageQa, startLanguageQaInline } from "./lib/languageQaInline";
+  import { languageQaChannel, nudgeLanguageQa, startLanguageQaInline } from "./lib/languageQaInline";
+  import { toggleLanguageQaPanel } from "./lib/languageQaPanelUi";
   import { collectionQaRunning, stopCollectionQa } from "./lib/collectionQa";
   import CollectionQaPanel from "./lib/components/CollectionQaPanel.svelte";
 
@@ -1154,7 +1155,9 @@
     {/key}
   {:else}
     <div class="body">
-      <div class="editor-col" style:--verse-scale={$textScale}>
+      <!-- The toolbar spans the text and the reference panel, so the two start
+           at the same height under it. The review panel keeps the full height. -->
+      <div class="work-col" style:--verse-scale={$textScale}>
         <div class="editor-toolbar">
           <span>Chapter {$currentChapter} of {$project?.chapters.length ?? "?"}</span>
           <button class="whole-book-btn" on:click={runWholeBook} disabled={Boolean(activeJobId)}>
@@ -1195,20 +1198,18 @@
             <button class="whole-book-btn" title="Larger text" aria-label="Larger text"
               disabled={$textScale === TEXT_SCALES[TEXT_SCALES.length - 1]} on:click={() => bumpTextScale(1)}>A+</button>
           </span>
-          <span class="grow" />
-          <span title="Word-alignment status for this chapter">
-            Alignment: {alignmentChapterSummary.complete} complete · {alignmentChapterSummary.partial} partial
-            {#if alignmentChapterSummary.invalid} · {alignmentChapterSummary.invalid} invalid{/if}
-          </span>
-          <span>{bookSummary.approvedChapters}/{bookSummary.totalChapters} chapters approved</span>
         </div>
-        <VerseList onSelect={selectVerse} onNavigate={navigateToReportRow} />
+        <div class="work-row">
+          <div class="editor-col">
+            <VerseList onSelect={selectVerse} onNavigate={navigateToReportRow} />
+          </div>
+          {#if $referencePanelOpen && $project}
+            {#key $project.path}
+              <ReferencePanel onOpenSettings={() => openSettings("languageQa")} onSelectVerse={selectVerse} />
+            {/key}
+          {/if}
+        </div>
       </div>
-      {#if $referencePanelOpen && $project}
-        {#key $project.path}
-          <ReferencePanel onOpenSettings={() => openSettings("languageQa")} onSelectVerse={selectVerse} />
-        {/key}
-      {/if}
       <ReviewPanel onNavigate={navigateToReportRow} />
     </div>
 
@@ -1217,8 +1218,19 @@
         <span>Project: <b>{$project.bookName}</b></span>
         <span>Chapter: <b>{$currentChapter}</b></span>
         <span style="color:var(--success);">✓ Approved: {$approvedCount}/{$verseNums.length}</span>
+        <span title="Word-alignment status for this chapter">
+          Alignment: {alignmentChapterSummary.complete} complete · {alignmentChapterSummary.partial} partial
+          {#if alignmentChapterSummary.invalid} · {alignmentChapterSummary.invalid} invalid{/if}
+        </span>
+        <span>{bookSummary.approvedChapters}/{bookSummary.totalChapters} chapters approved</span>
       {/if}
       <span class="grow" />
+      {#if $project && opened}
+        <button class="diagnostics-btn" on:click={toggleLanguageQaPanel}
+          title="Open or close the Language QA panel">
+          Language QA{#if $languageQaChannel.status}: {$languageQaChannel.status.state}{#if $languageQaChannel.status.totalFindings} · {$languageQaChannel.status.totalFindings}{/if}{/if}
+        </button>
+      {/if}
       {#if engineNotice}<span class="engine-notice">{engineNotice}</span>{/if}
       <span>Engine: {engineStatus}</span>
       <button class="diagnostics-btn" on:click={() => diagnosticsOpen.set(true)}>
@@ -1230,7 +1242,8 @@
 
   {#if $project && opened}
     {#key $project.path}
-      <LanguageQaPanel projectPath={$project.path} onNavigate={navigateToReportRow} />
+      <LanguageQaPanel projectPath={$project.path} onNavigate={navigateToReportRow}
+        launcherHides={screen === "editor"} />
     {/key}
     <ScopeNotice />
     {#if $scopeDialog}<ScopeConfirmDialog />{/if}
@@ -1291,7 +1304,9 @@
   .body { flex: 1; display: flex; overflow: hidden; }
   /* A 66-book table must not push the dashboard off screen: it scrolls. */
   .collection-qa-host { flex-shrink: 0; max-height: 40vh; overflow: auto; padding: 12px 16px 0; background: var(--bg); }
-  .editor-col { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .work-col { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .work-row { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+  .editor-col { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
   .text-size { display: inline-flex; gap: 2px; }
   /* min-height + wrap, not a fixed height: on a narrow window the items used to
      shrink, break their labels onto two lines and get clipped by the 34px box.

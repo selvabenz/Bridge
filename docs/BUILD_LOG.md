@@ -17129,3 +17129,90 @@ from `tc_ai_bridge`. GEN:
   `npm run build` ok.
 - Rust is untouched; neither `cargo check` nor `cargo test` was run.
 - The desktop app was not run.
+
+## 2026-10-08 — Verse screen UI fixes (#236) and the "misspelling not underlined" report (#237)
+
+Fork issues #236 and #237, from Benz's review of the verse screen. Frontend only;
+no engine, schema or protocol change.
+
+**#236, the seven UI items.**
+- Review panel folds to a 32px strip (▶ in its header, ◀ on the strip). The
+  contents stay mounted (`.panel-body.folded` is `display: none`), so a running
+  check, the open tab and a draft survive. Persisted as
+  `bridge.editor.reviewPanelCollapsed.v1` in `editorPrefs.ts`.
+- Reference panel has a drag handle on its left edge (`role="separator"`):
+  drag, ←/→ (Shift for 3×), Home/End, double-click to reset. 200–640px, capped
+  at 45vw in CSS, saved when the drag ends as
+  `bridge.editor.referencePanelWidth.v1`. Svelte flags a focusable separator
+  as non-interactive, so the handle carries a `svelte-ignore`; without it
+  svelte-check reports two a11y warnings.
+- Editor and reference start at the same height: the toolbar now spans both
+  (`.work-col` > toolbar + `.work-row`), and the review panel keeps the full
+  height. Side effect: `--verse-scale` now reaches the reference panel, so
+  A−/A+ resize its text too (it already used the variable but sat outside the
+  element that set it).
+- The context notice ("Finish the current check or edit…", copy, ignore…)
+  clears itself after 5 s, or 10 s for an error; hovering holds it, ✕ clears
+  it. One reactive timer on `contextNotice` covers all ~15 places that set it.
+  The house-style notice is unchanged: it carries an Undo and already has ✕.
+- The Language QA launcher, on the editor screen only, hides 6 s after a pass
+  completes or at once from its ✕, and comes back for the next pass. The
+  status bar gains a "Language QA" button that opens and closes the panel
+  (`languageQaPanelUi.ts`, a counter store). On the dashboard, report and
+  alignment-review screens there is no status bar, so there the launcher never
+  hides (`launcherHides={screen === "editor"}`).
+- Right-click on an underlined word no longer scrolls the verse to the top.
+  Cause: the reactive `scrollSelectedToTop` fires when `$selectedVerse`
+  changes to a key other than `lastScrolledKey`; a left click went through
+  `selectFromList()`, which sets that key first, but the three `<mark>`
+  right-click handlers, the keyboard paths and Shift/Ctrl-click called
+  `onSelect` directly. All of them now use `selectFromList`. The new test
+  fails on the old call (checked by putting it back).
+- No focus box on right-click. The box was `mark.active-finding`: where
+  Shift+F10 would open the menu. The mouse path never set the active index,
+  so it fell back to 0 and the ring sat on the verse's first underline,
+  whichever word was clicked. The ring is now drawn only under
+  `.verse:focus-visible`; the panel's F8 ring is a separate `panel-ring`
+  class and always shows. Keyboard behaviour is unchanged (row is still the
+  single tab stop).
+- "Alignment: N complete · N partial" and "N/M chapters approved" moved from
+  the toolbar to the status bar.
+
+**#237, the misspelling that was not underlined.**
+- Benz's typo tests were in GEN, not LEV: the LEV import has no edits. GEN's
+  learned fixes record each test edit (old → typed). Replayed every one on a
+  scratch copy of GEN with the real engine and the real indic-qa Tamil layer
+  (`LOCALAPPDATA` pointed at the scratch folder; real slider settings
+  precision 0 / floor "low"):
+
+  | Verse | Typed | Drawn on the word |
+  |---|---|---|
+  | 1:9 | தண்ணீ | `indicqa.lex.unknown` |
+  | 1:12 | தங்கள்தங்க | `indicqa.lex.compound` |
+  | 1:12 | வகைகயின்படியே | `indicqa.lex.unknown` |
+  | 1:13 | முடிநதது (added) | `indicqa.lex.near-miss` |
+  | 1:9 | சேர்நது (added) | `indicqa.lex.near-miss` |
+  | 1:13 | முடிந்து | nothing |
+
+- முடிந்து is a real word: OV 4× (`words.tsv`, DEU 9:11, JOB). A dictionary
+  check accepts it correctly. The slip is grammatical (a participle ending
+  the sentence where the finite verb முடிந்தது belongs), which ta-irv
+  declares out of scope. In GEN's correct text no sentence ends in -ந்து
+  (0 of 1,533 verses), so a narrow rule looks feasible; filed as #238
+  rather than added here, because it widens the pack's declared coverage.
+- Each pass after an edit took about 5 s on GEN (the indic-qa layer runs over
+  the whole book), and the edited verse has no marks until it completes.
+- Fixed on the way: the panel's Verse scope keyed its list on
+  `generation|chapter|verse`. A pass publishes under the generation it was
+  scheduled with, and `_by_verse` holds the previous pass until then, so the
+  list fetched while `queued` showed pre-edit findings and was never read
+  again. The key now includes the state. The new test fails without it.
+
+**Verified.**
+- `npm run check` 0 errors / 0 warnings; `npm run test` 648 passed (50 files);
+  `npm run build` ok.
+- The replay above ran against the real engine from source.
+- Not run: the desktop app. Nothing here was seen at 1366×768; jsdom does not
+  lay out, so the folded strip, the drag handle and the shared top edge are
+  checked by structure only. Engine, Rust and the frozen pair are untouched,
+  so pytest, cargo and the frozen smoke were not run.
