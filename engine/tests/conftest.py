@@ -62,6 +62,7 @@ _FILE_MARKERS = {
     "test_indic_qa_vendor.py": ("packs",),
     "test_indic_qa_packs.py": ("packs",),
     "test_indic_qa_tamil_layer.py": ("packs",),
+    "test_indic_qa_general_corpus.py": ("packs",),
     "test_import_indic_qa_labels.py": ("external",),
 }
 

@@ -79,21 +79,22 @@ def rule_versions() -> int:
             print(f"{code}: wrote pack.json")
         path = folder / adapter.RULE_VERSIONS
         current = json.loads(path.read_text(encoding="utf-8"))["rules"] if path.is_file() else {}
-        lost = sorted(set(current) - set(profile.RULES))
+        catalogue = adapter.catalogue(profile, code)
+        lost = sorted(set(current) - set(catalogue))
         if lost:
             sys.exit(f"{code}: the profile no longer has {lost}; remove them from {path} by hand "
                      f"(their findings' decisions stop applying)")
-        added = [rid for rid in profile.RULES if rid not in current]
+        added = [rid for rid in catalogue if rid not in current]
         for rid in added:
-            group, _label, _inline, on = profile.RULES[rid]
+            group, _label, _inline, on = catalogue[rid]
             current[rid] = adapter.default_entry(rid, group, on)
         write_json(path, {
             "description": "Bridge's view of each indic-qa rule. `revision` expires earlier ignores when "
                            "bumped; `inline` needs the human gate (DECISIONS 2026-09-28). Written by "
                            "scripts/build_indic_qa_packs.py --rule-versions, then reviewed by hand.",
-            "rules": {rid: current[rid] for rid in profile.RULES},
+            "rules": {rid: current[rid] for rid in catalogue},
         })
-        print(f"{code}: {len(profile.RULES)} rules, {len(added)} added")
+        print(f"{code}: {len(catalogue)} rules, {len(added)} added")
     return 0
 
 

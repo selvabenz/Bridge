@@ -44,7 +44,10 @@ grey compound mark says.
 """
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any, NamedTuple
+
+from . import general_corpus
 
 PROFILE = "ta"
 # pack.json key, and the file of Bridge's per-rule view.
@@ -66,6 +69,8 @@ RULES: dict[str, tuple[str, str, bool, bool]] = {
     "indicqa.lex.near-miss": ("Lexicon", "Not in the OV dictionary, and one typing slip from a known word", False, True),
     "indicqa.lex.compound": ("Lexicon", "Not in the OV dictionary, but splits into two known words", False, True),
     "indicqa.lex.unknown": ("Lexicon", "Not in the OV dictionary, and rare in the IRV", False, True),
+    # Bridge's own, over the general corpus (general_corpus.py, #246).
+    "indicqa.lex.irv-consistent-slip": ("Lexicon", general_corpus.LABEL, False, True),
     "indicqa.shape.malformed": ("Shape", "Malformed Tamil spelling", False, True),
     "indicqa.shape.initial-pulli": ("Shape", "Word starts with a consonant + புள்ளி (broken word?)", False, True),
     "indicqa.shape.unusual-initial": ("Style", "Unusual first letter: no Tamil word starts with ங ண ழ ள ற ன ட", False, True),
@@ -92,6 +97,7 @@ DEFAULT_ENTRIES: dict[str, dict[str, Any]] = {
     "indicqa.lex.unknown": {
         "category": "typo", "layer": "lexicon", "severity": "low", "confidence": "low",
         "note": "not in the OV and used fewer than 5 times in the IRV; drawn under the Settings slider (confidence low)"},
+    "indicqa.lex.irv-consistent-slip": dict(general_corpus.DEFAULT_ENTRY),
     "indicqa.shape.malformed": {"category": "unicode", "layer": "integrity", "severity": "medium", "confidence": "medium"},
     "indicqa.shape.initial-pulli": {"category": "word-joining", "layer": "pattern", "severity": "medium",
                                     "confidence": "medium"},
@@ -186,8 +192,11 @@ def _counts(token: dict[str, Any]) -> str:
     return f"OV {token.get('ov', 0)}× (with its sandhi forms {token.get('ov_lemma', 0)}×), IRV {token.get('irv', 0)}×"
 
 
-def _token_item(token: dict[str, Any]) -> tuple[str, list, str] | None:
-    """(rule, suggestions, why) for a word, or None when the checker accepted it."""
+def _token_item(token: dict[str, Any], corpus: Any = None, stats: Counter | None = None,
+                ) -> tuple[str, list, str] | None:
+    """(rule, suggestions, why) for a word, or None when the checker accepted
+    it. The general corpus (#246) speaks only on the two exits below that the
+    checker left unexplained: house practice and the plain unknown word."""
     status = token["status"]
     if token.get("ignored_once") or status not in ("malformed", "unknown", "compound"):
         return None
@@ -206,8 +215,18 @@ def _token_item(token: dict[str, Any]) -> tuple[str, list, str] | None:
         split = [_suggestion(f"{first} {second}", "rule", f"two known words ({how} junction)", kind="split")
                  ] if first else []
         return "indicqa.lex.compound", split + suggestions, f"{first} + {second}; {evidence}"
+    said = general_corpus.verdict(corpus, token, irv_accept_min=IRV_ACCEPT_MIN) if corpus is not None else None
     if token.get("irv", 0) >= IRV_ACCEPT_MIN:
+        if said is not None and said.kind == "slip":
+            return general_corpus.rule_id("ta"), said.suggestions, f"{evidence}; {said.note}"
         return None  # house practice
+    if said is not None and said.kind == "accept":
+        if stats is not None:
+            stats["accepted"] += 1
+        return None
+    if said is not None and said.kind == "augment":
+        return ("indicqa.lex.unknown", general_corpus.append_suggestions(suggestions, said.suggestions),
+                f"{evidence}; {said.note}")
     return "indicqa.lex.unknown", suggestions, evidence
 
 
@@ -256,7 +275,7 @@ def _warning_item(warning: dict[str, Any], text: str, context: str) -> tuple[str
     return rule, suggestions, WARNING_LABELS.get(kind, "")
 
 
-def items(block: dict[str, Any]) -> list[Item]:
+def items(block: dict[str, Any], corpus: Any = None, *, stats: Counter | None = None) -> list[Item]:
     """Every finding in one checked line (Checker.check_line's block)."""
     out: list[Item] = []
     for seg in block["segs"]:
@@ -264,7 +283,7 @@ def items(block: dict[str, Any]) -> list[Item]:
             continue
         at, stream, context = seg["s"], int(seg.get("stream") or 0), str(seg.get("ctx") or "verse")
         for token in seg.get("tokens", ()):
-            hit = _token_item(token)
+            hit = _token_item(token, corpus, stats)
             if hit:
                 out.append(Item(hit[0], at + token["s"], at + token["e"], hit[1], hit[2],
                                 token.get("rule") or token["status"], at, stream, context))

@@ -334,6 +334,16 @@
    "confidence": "low",
    "enabled": false,
    "inline": false
+  },
+  "or.lex.irv-consistent-slip": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "lexicon",
+   "severity": "low",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false,
+   "note": "IRV-wide form absent from the general corpus; one edit from a corpus word"
   }
  }
 }

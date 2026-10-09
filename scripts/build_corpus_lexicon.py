@@ -116,6 +116,20 @@ def _open(url: str, headers: dict[str, str] | None = None, timeout: float = 120)
     return urllib.request.urlopen(request, timeout=timeout)
 
 
+def prefer_ipv4() -> None:
+    """Resolve names to IPv4 only. Measured 2026-10-09 on the build machine: a
+    urllib connection to huggingface.co took 168 s (an IPv6 attempt timing
+    out before the fallback) against 0.4 s resolved to IPv4; curl, which
+    races both, was never slow. `--allow-ipv6` leaves resolution alone."""
+    import socket
+    real = socket.getaddrinfo
+
+    def ipv4_only(host, port, family=0, *args, **kwargs):
+        return real(host, port, socket.AF_INET, *args, **kwargs)
+
+    socket.getaddrinfo = ipv4_only
+
+
 def hf_file_meta(path: str, *, repo: str = HF_REPO, revision: str = HF_REVISION) -> dict:
     """size and sha256 (the LFS oid) of one file, from the tree listing."""
     folder = path.rsplit("/", 1)[0]
@@ -474,10 +488,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--kaniyam-path", type=Path, help="a local copy of the Tamil tar.bz2")
     parser.add_argument("--hunspell-path", type=Path, help="a local copy of hi_IN.txt")
     parser.add_argument("--offline", action="store_true", help="use only what the cache holds")
+    parser.add_argument("--allow-ipv6", action="store_true", help="do not force IPv4 name resolution")
     parser.add_argument("--verify", action="store_true", help="check the shipped file against its manifest")
     args = parser.parse_args(argv)
     if args.verify:
         return verify(args.code)
+    if not args.allow_ipv6 and not args.offline:
+        prefer_ipv4()
     build(args.code, cache_dir=args.cache_dir, sample_bytes=args.sample_bytes, windows=args.windows,
           floor=args.floor, cap=args.cap, accept_min=args.accept_min, suggest_min=args.suggest_min,
           suggest_top=args.suggest_top, ratio=args.ratio, kaniyam_floor=args.kaniyam_floor,

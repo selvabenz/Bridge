@@ -50,7 +50,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from . import indic_qa_tamil, indic_qa_vendor, ov_reference
+from . import general_corpus, indic_qa_tamil, indic_qa_vendor, ov_reference
 from .. import check_timing
 from ..usfm_verse import lift_verse
 from .loader import PackError, RulePack, Rule
@@ -126,6 +126,8 @@ def default_entry(rule_id: str, group: str, on_by_default: bool) -> dict[str, An
         category = "punctuation"
     if tail in {"lex.known-misspelling", "style.divine-names", "style.rejected-names"}:
         confidence = "high"
+    if tail == general_corpus.RULE_TAIL:
+        severity, confidence = general_corpus.DEFAULT_ENTRY["severity"], general_corpus.DEFAULT_ENTRY["confidence"]
     if tail == "lex.unknown":
         # Not verifiable is not an error (the Hindi review found 22 of 25 such
         # words correct), but it is the web app's main mark, and a word with no
@@ -137,7 +139,20 @@ def default_entry(rule_id: str, group: str, on_by_default: bool) -> dict[str, An
              "confidence": confidence, "enabled": bool(on_by_default), "inline": False}
     if tail == "lex.unknown":
         entry["note"] = "not verifiable from the dictionary; drawn under the Settings slider (confidence low)"
+    if tail == general_corpus.RULE_TAIL:
+        entry["note"] = general_corpus.DEFAULT_ENTRY["note"]
     return entry
+
+
+def catalogue(profile: Any, code: str) -> dict[str, tuple[str, str, bool, bool]]:
+    """A profile pack's rule catalogue: the profile's RULES, then Bridge's own
+    rule over the general corpus (#246), in that order."""
+    return {**profile.RULES, **general_corpus.RULES.get(code, {})}
+
+
+def catalogue_provenance(code: str) -> str:
+    module = indic_qa_vendor.modules().langs.MODULE.get(code, code)
+    return f"indic-qa qa_app/langs/{module}.py RULES; Bridge general_corpus.py over the general corpus"
 
 
 def _rules(catalogue: Any, entries: dict[str, Any], pack_name: str, *,
@@ -194,7 +209,7 @@ def build_pack(meta: dict[str, Any], directory: Path) -> RulePack:
     except ImportError as exc:
         raise PackError(f"{name}: the vendored indic-qa checker is unavailable: {exc}") from exc
     entries = json.loads((directory / RULE_VERSIONS).read_text(encoding="utf-8")).get("rules") or {}
-    rules = _rules(profile, entries, name)
+    rules = _rules(catalogue(profile, code), entries, name, provenance=catalogue_provenance(code))
     return RulePack(name, str(meta.get("version") or "0"), str(meta.get("language") or code), rules,
                     str(meta.get("description") or ""), directory=directory, meta=meta)
 
@@ -654,14 +669,20 @@ def _suggestion(text: str, source: str, rationale: str, *, kind: str = "", freq:
     return out
 
 
-def _items(block: dict[str, Any], profile: Any) -> list[indic_qa_tamil.Item]:
+def _items(block: dict[str, Any], profile: Any, corpus: Any = None, *, irv_accept_min: int = 5,
+           stats: Counter | None = None) -> list[indic_qa_tamil.Item]:
     """Every finding in one checked line of a profile pack's book, offsets
     within the line text (an item's own offsets are within its run, which
-    starts at the run's `s`)."""
+    starts at the run's `s`). With a general corpus (#246): an unknown word
+    the corpus knows is accepted and counted in `stats`; one it does not know
+    gains the corpus's near-misses after the checker's suggestions; a word the
+    IRV uses `irv_accept_min` times that neither the OV nor the corpus knows,
+    one edit from a corpus word, is the consistent-slip rule."""
     out = []
     switch = getattr(profile, "SHAPE_RULE_SWITCH", {})
     status_rule = getattr(profile, "STATUS_RULE", {})
     generic = getattr(profile, "GENERIC_WARNING_RULE", {})
+    slip_rule = general_corpus.rule_id(profile.PROFILE.code) if corpus is not None else ""
     for seg in block["segs"]:
         if seg.get("k") != "t" or not seg.get("checked"):
             continue
@@ -671,7 +692,18 @@ def _items(block: dict[str, Any], profile: Any) -> list[indic_qa_tamil.Item]:
             return indic_qa_tamil.Item(rule, start, end, suggestions, why, detail, at, 0, "verse")
 
         for token in seg.get("tokens", ()):
-            if token.get("ignored_once") or token["status"] not in FINDING_STATUSES:
+            if token.get("ignored_once"):
+                continue
+            said = general_corpus.verdict(corpus, token, irv_accept_min=irv_accept_min) if corpus is not None else None
+            if said is not None and said.kind == "accept":
+                if stats is not None:
+                    stats["accepted"] += 1
+                continue
+            if said is not None and said.kind == "slip":
+                out.append(item(slip_rule, at + token["s"], at + token["e"], said.suggestions, said.note,
+                                token["status"]))
+                continue
+            if token["status"] not in FINDING_STATUSES:
                 continue
             detail = token.get("rule") or status_rule.get(token["status"], "")
             suggestions = [_suggestion(s["w"], "lexicon", f"{s.get('cls') or s.get('op') or ''}"
@@ -680,6 +712,9 @@ def _items(block: dict[str, Any], profile: Any) -> list[indic_qa_tamil.Item]:
                                        freq=s.get("freq") if isinstance(s.get("freq"), int) else None)
                            for s in token.get("sugg", ()) if s.get("w")]
             why = "; ".join(token.get("why") or ())
+            if said is not None and said.kind == "augment":
+                suggestions = general_corpus.append_suggestions(suggestions, said.suggestions)
+                why = f"{why}; {said.note}" if why else said.note
             out.append(item(switch.get(detail, detail), at + token["s"], at + token["e"], suggestions, why, detail))
         for lead in seg.get("sandhi", ()):
             if lead.get("ignored"):
@@ -746,6 +781,15 @@ def profile_findings(pack: RulePack, book: str, chapters: dict[str, dict[str, An
                 checker.build_index()
             loaded.built_for = {key: Counter(counts)}
         occurrences: Counter = Counter()
+        # The general corpus (#246): consulted after the checker, in Bridge's
+        # code. The slip rule reports a word once per book, at its first place.
+        with timings.step("lqa.indicqa.corpus_load"):
+            corpus = general_corpus.for_pack(pack.meta, pack.directory, config["profile"])
+        corpus_stats: Counter = Counter()
+        slip_rule = general_corpus.rule_id(config["profile"]) if corpus is not None else ""
+        slips_seen: set[str] = set()
+        irv_accept_min = int((checker.settings.get("lex") or {}).get("irv_accept_min")
+                             or indic_qa_tamil.IRV_ACCEPT_MIN)
         for n in range(1, len(synthetic.chapters)):
             if not proceed():
                 return None
@@ -758,7 +802,8 @@ def profile_findings(pack: RulePack, book: str, chapters: dict[str, dict[str, An
                 ref = refs.get(lo + offset)
                 if ref is None:
                     continue
-                found = indic_qa_tamil.items(block) if layer else _items(block, loaded.profile)
+                found = (indic_qa_tamil.items(block, corpus, stats=corpus_stats) if layer
+                         else _items(block, loaded.profile, corpus, irv_accept_min=irv_accept_min, stats=corpus_stats))
                 for item in found:
                     rule = pack.by_id(item.rule)
                     if rule is None:
@@ -766,6 +811,11 @@ def profile_findings(pack: RulePack, book: str, chapters: dict[str, dict[str, An
                         continue
                     if not rule.enabled:
                         continue
+                    if item.rule == slip_rule:
+                        word = ref.text[ref.base + item.start:ref.base + item.end] if item.stream == 0 else ""
+                        if not word or word in slips_seen:
+                            continue
+                        slips_seen.add(word)
                     if item.stream > 0:
                         raw_at = dict(ref.notes).get(item.seg_start)
                         span = (None if raw_at is None else
@@ -807,6 +857,9 @@ def profile_findings(pack: RulePack, book: str, chapters: dict[str, dict[str, An
                             finding["reference"] = reference
                     findings.append(finding)
             map_items.__exit__(None, None, None)
+    if corpus_stats["accepted"]:
+        notes.append(f"{corpus_stats['accepted']} word(s) outside the OV accepted from the general corpus "
+                     f"({pack.name}).")
     if crossing:
         notes.append(f"{crossing} {pack.name} {crossing_note}")
     if unmapped:

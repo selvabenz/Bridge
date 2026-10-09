@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from tc_ai_bridge.language_packs import default_pack, indic_qa_adapter, indic_qa_vendor
+from tc_ai_bridge.language_packs import default_pack, general_corpus, indic_qa_adapter, indic_qa_vendor
 from tc_ai_bridge.language_packs.loader import apply_overrides
 from tc_ai_bridge.language_packs.registry import packs_dir
 from tests.support.indic_qa import check
@@ -19,7 +19,8 @@ PACKS = [f"{code}-irv" for code in indic_qa_vendor.PROFILES]
 def test_each_pack_lists_every_profile_rule_and_ships_its_data(name):
     pack = default_pack(name)
     profile = indic_qa_vendor.profile(pack.meta["profile"])
-    assert [r.id for r in pack.rules] == list(profile.RULES)
+    # The profile's rules, then Bridge's own over the general corpus (#246).
+    assert [r.id for r in pack.rules] == list(profile.RULES) + list(general_corpus.RULES[pack.meta["profile"]])
     assert not [r.id for r in pack.rules if r.inline], "inline needs the human gate"
     assert not [r.id for r in pack.rules if (r.severity, r.confidence) == ("high", "high")]
     provenance = json.loads(json.dumps(indic_qa_adapter.state_digest(pack)))

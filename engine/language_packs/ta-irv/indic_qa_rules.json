@@ -29,6 +29,16 @@
    "inline": false,
    "note": "not in the OV and used fewer than 5 times in the IRV; drawn under the Settings slider (confidence low)"
   },
+  "indicqa.lex.irv-consistent-slip": {
+   "revision": 1,
+   "category": "typo",
+   "layer": "lexicon",
+   "severity": "low",
+   "confidence": "medium",
+   "enabled": true,
+   "inline": false,
+   "note": "IRV-wide form absent from the general corpus; one edit from a corpus word"
+  },
   "indicqa.shape.malformed": {
    "revision": 1,
    "category": "unicode",
