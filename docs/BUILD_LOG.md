@@ -17216,3 +17216,160 @@ no engine, schema or protocol change.
   lay out, so the folded strip, the drag handle and the shared top edge are
   checked by structure only. Engine, Rust and the frozen pair are untouched,
   so pytest, cargo and the frozen smoke were not run.
+
+
+## 2026-10-09 — Compact review header and one-line tabs (#236); the general corpus for every indic-qa pack (#246); the Tamil sentence-final participle rule (#238, stage 1)
+
+Benz's follow-up to the #236/#237 round: the review panel's header wrapped,
+its tab labels broke across lines, and "no misspelling will be left" was the
+ask for item 5. Decisions taken with Benz (AskUserQuestion, 2026-10-08):
+a general-corpus lexicon per language **and** context rules for real-word
+slips; GPL-3-compatible sources only; 5 MB per language; the tN/tW tab reads
+"Core check".
+
+**Header and tabs (87b01f8).** Measured in Segoe UI, the UI font on Windows:
+the four labels in bold at 12px (the stylesheet's minimum) are 78 + 69 + 80
++ 61 = 288px, a count pill 22px, the panel's content width 367px. So the
+labels fit on one line only with the counts out of the flow; they sit in the
+tab's corner now. "tN/tW/Alignment" (106px) did not fit and is "Core check"
+with the tooltip "Translation Notes, Words alignment". The header is two
+rows (reference + a 22px ghost fold button; open count + the two actions),
+about 74px against about 110px wrapped. Not seen in the desktop app.
+
+**The general corpus: what it is.** DECISIONS 2026-10-09 and the
+LANGUAGE_QA_PACKS.md subsection "General corpus" have the design. In short:
+`general_corpus.tsv.gz` + manifest per pack, Bridge-owned, outside
+`dictionary/` (no vendored file, no sha256 pin moves), consulted after the
+checker on the two exits it leaves unexplained; a new listed-only rule
+`<code>.lex.irv-consistent-slip`.
+
+**Sources and licences, checked, not assumed.**
+- The "IIT corpus" Benz had in mind is AI4Bharat's (IIT Madras). Its v1,
+  IndicNLP corpus, ships ready-made word-frequency files but is
+  **CC BY-NC-SA 4.0**: non-commercial, not shippable under Bridge's GPL-3.
+  Excluded.
+- IndicCorp v2 (ACL 2023): the AI4Bharat README says CC0; the aikosh listing
+  says CC BY-SA 4.0; either is compatible. Raw text only, on Hugging Face:
+  ta 11.8 GB, ml 26.3 GB, hi 3 × 26.7 GB, pa 9.5 GB, or 2.2 GB. The server
+  answers Range requests (206, `accept-ranges: bytes`) through its CDN
+  redirect, so the build reads eight evenly spaced 187.5 MB windows per
+  language and never the whole file.
+- KaniyamFoundation `all_tamil_words`: public domain; `word,count` per
+  source site; one member (`azhiyasudargal`) is letter pairs from a broken
+  tokenisation and is skipped by a median-length check.
+- Shreeshrii `hindi-hunspell` `hi_IN.txt`: GPL-3 (its LICENSES-en.txt);
+  476,642 lines, no affix flags.
+
+**A urllib finding.** The first Hindi build sat for minutes: every fresh
+urllib connection to huggingface.co took 168 s, while curl connected at
+once. Resolving to IPv4 only brought it to 0.4 s (an IPv6 attempt timing out
+before the fallback). The script forces IPv4 unless `--allow-ipv6`.
+
+**Builds.**
+
+| Pack | IndicCorp sample | distinct forms | list source | rows shipped | gz bytes | build |
+|---|---|---|---|---|---|---|
+| hi | 111.9M tokens | 807,939 | hunspell 392,324 | 300,000 (cap; 198,900 list-only) | 1,374,457 | 251 s |
+| ml | 53.0M tokens | 3,424,346 | — | 278,908 | 1,876,849 | 264 s |
+| ta | 59.2M tokens | 2,613,708 | Kaniyam 68,904 (floor 20) | 270,774 | 1,665,874 | 583 s |
+| pa | 113.7M tokens | 979,408 | — | 113,646 | 642,767 | 273 s |
+| or | 79.2M tokens | 1,171,247 | — | 158,865 | 967,004 | 486 s |
+
+Malayalam's 3.4M distinct forms in 53M tokens says how inflected the
+language is in web text; only 278,908 reached the floor of 10.
+
+**Hindi, GEN, before → after** (`measure_indic_qa.py`; timings taken while
+other builds ran, so the seconds are noisy):
+- `hi.lex.unknown` 4 → 3; one word accepted from the corpus; one
+  `hi.lex.irv-consistent-slip`: **गमोरा** (Gomorrah). A proper name: the
+  false-positive class this rule will mostly see. It stays listed-only at
+  low severity for Benz's spot check.
+- Human gate (120 label rows): pass, nothing lost. Parity with indic-qa's own
+  run holds under `--without-corpus` (0 missing, 0 extra); with the corpus
+  on, the one accepted word is the one "missing", as intended.
+- Peak working set 192.6 → 232.0 MB; the corpus load is 764 ms on the first
+  pass (the loader was then changed to one decompress and split: 0.48 s
+  against 0.67 s on the same file).
+- मनूष्य, the test fixture's vowel-length slip, is not in the corpus; मनुष्य
+  is (4,536×). The checker's answer is unchanged.
+
+**Malayalam, GEN, before → after.** `ml.lex.unknown` 647 → 481; 177 words
+accepted; the book's 3,000-finding cap, reached before, is not reached after
+(2,842). Eight `irv-consistent-slip` words, among them അങ്ങേയുടെ, അയയ്ക്കേണം,
+വയ്ക്കേണം: IRV verb forms the web lacks, so mostly not slips. The gate
+passes with the same 323 labels and nothing lost; four labels moved rules
+(two to chillu-conjunct, one to vowel-length, one to the slip rule: a
+reviewer-confirmed misspelling the IRV repeats, reported where it was house
+practice). Peak 424.9 → 467.9 MB; corpus load 622 ms.
+
+**Punjabi, GEN:** `pa.lex.unknown` 118 → 78, 40 accepted; 14 slip words, of
+which 9 of the 13 listed are Bible names (ਅਫ਼ਰੋਨ, ਪੇਲੇਗ, ਮੇਸ਼ੇਕ, ਲੋਤਾਨ …).
+Peak 157.2 → 177.6 MB. No labels exist for pa, so no gate.
+
+**Odia, GEN:** `or.lex.unknown` 60 → 48, 12 accepted, no slips. Peak
+239.8 → 265.3 MB. No labels, no gate.
+
+**The slip rule ships off.** Three of the four languages with hits show
+names or house verb forms; one reviewer-confirmed catch in Malayalam. By the
+plan's own rule (below ≈0.5 precision, ship `enabled: false`) it is off in
+every pack until Benz's spot check; the word lists above are the material.
+
+**Tamil, GEN / LUK** (scratch copies of the real projects, the real engine,
+`count_tamil_unknown.py` in the session scratch; counts over every verse,
+not the 3,000-finding summary): `indicqa.lex.unknown` GEN 1,194 → 801 with
+395 words accepted, LUK 1,139 → 659 with 480 accepted; near-miss and
+compound unchanged. The plan's target was ≤ 700 on both; GEN is above it.
+The remaining unknowns are either absent from a 59M-token web sample at a
+floor of 10 or have a corpus neighbour 50× commoner; lowering the floors
+(IndicCorp 10, Kaniyam 20) is a rebuild with its own gate run, not done
+here. The Tamil gate passes with the same 340 labels and nothing lost.
+
+**Replay of the #237 typos** (`replay_typos.py`, scratch GEN, corpus on):
+GEN's first pass 1,529 → 1,136 findings. தண்ணீ stays `lex.unknown`: the web
+has it 69 times, but தண்ணீர் is in the corpus far above the 50× ratio, so it
+is a popular slip, not a word; the finding's message now says so. தங்கள்தங்க
+compound, வகைகயின்படியே unknown, முடிநதது and சேர்நது near-miss: unchanged.
+முடிந்து is now found by `typo.participle.sentence-final`, in the panel's
+list but not underlined: a pack rule is drawn only once inline, and inline
+needs the human gate (20 labels at 0.90), which this rule cannot reach on
+correct text. That is the pack's existing policy, not a gap in the rule.
+
+**The Tamil rule (c105c5f).** A `token-context` rule cannot see a sentence
+end (it needs a next word), so the rule is `regex` with an `expand` fix, as
+`typo.suffix.dropped-tha`. Counted on the pack data and the four local Tamil
+books: sentence-final -ந்து is 10 of 29,540 OV sentence ends (numerals,
+விருந்து, six verse-end participles) and 1 of 5,122 in IRV GEN/LEV/PSA/1CO
+(PSA 8:6 தந்து), whose one-letter stem the rule does not match. The bare
+statistic "this word never ends a sentence" would have been about 164 false
+alarms per 1,000 verses on GEN; the neighbour gate is what discriminates.
+`build_ta_irv_pack.py` derived the ten incorrect examples from real verses;
+run without `--reviews`, it also regenerated the other rules' examples, and
+those changes were discarded.
+
+**Verified.**
+- Frontend: `npm run check` 0/0, `npm run test` 649 passed, `npm run build` ok
+  (for the header and tabs).
+- Engine: `pytest -n auto -m "not slow"` 4,912 passed, 3 xfailed, with all
+  five corpora shipped and the slip rule off. New tests: the build script
+  offline (9), `general_corpus.py` (9), the real hi-irv pack and ta-irv layer
+  over a synthetic corpus through `profile_findings` (6, the slip rule
+  enabled by overrides), the Tamil token exits, the shipped-pack test that
+  runs `build_corpus_lexicon.py --verify` on every pack, the sentence-final
+  rule (3).
+- Human gates with the corpora on: hi pass (120 labels), ml pass (323,
+  nothing lost, four reattributed), ta pass (340, unchanged). Parity with
+  indic-qa's own run holds under `--without-corpus` (hi GEN: 0 missing,
+  0 extra).
+- Timings on the idle machine, corpus on, GEN (first / second pass, peak
+  working set, corpus load): hi 3.75 / 1.92 s, 232 MB, 316 ms; ml 6.51 /
+  1.74 s, 468 MB, 299 ms; pa 2.72 / 1.44 s, 178 MB, 115 ms; or 3.81 / 1.52 s,
+  265 MB, 157 ms. The before-numbers above were taken while other builds ran,
+  so the seconds do not compare; the peak working set does: +39 MB (hi),
+  +43 (ml), +20 (pa), +25 (or), within the +60 MB bound.
+- Frozen pair rebuilt (`build-sidecars.ps1`) and `smoke_sidecars.py` passed
+  with the new pack data: Hindi pack 2.53 s, ta-irv layer 3.78 s.
+
+
+**Not run.** The desktop app, so the header, the tabs and the corpus's
+effect on the verse underlines were not seen on screen. Benz's spot check
+of the slip-rule word lists is the open decision.
