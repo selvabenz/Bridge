@@ -263,7 +263,7 @@ An entry may hide findings, add list members, reorder suggestions, or propose a 
 **Decision:** Every Language QA status carries a structured `coverage` from `language_qa.coverage()`: the categories it checks, and the ones it never checks (agreement, pronoun/number shifts, meaning shifts, omissions/additions, textual basis, theology). Each item is in Tamil and English, and the statement names a hand-off doc. The panel shows it whenever it is open, not behind a disclosure. The out-of-scope list is a permanent boundary of the offline engine (LANGUAGE_QA_PLAN LQA-3), not a backlog.
 **Because:** a clean text-only scan says nothing about meaning or agreement. The brief (Phase 7) requires the boundary to be visible, so a clean result is not taken for a review.
 **Rules out:** offline heuristics for the out-of-scope items; a "Coverage details" disclosure that hides the boundary; English-only wording for a Tamil team.
-**Revisit when:** a native reviewer has checked the Tamil strings (pending), or a project supplies its own hand-off procedure.
+**Revisit when:** a native reviewer has checked the Tamil strings (pending), or a project supplies its own hand-off procedure. **Superseded in part (2026-10-09):** the statement now sits behind an (i) in the panel's header, at Benz's request; see that day's entry.
 
 ## 2026-09-28 — Inline means at least 0.90 human-labelled precision; AI agreement is diagnostic only
 
@@ -771,3 +771,20 @@ not known at startup and which takes 0.03-0.09 s.
 **Revisit when:** startup contention matters. The load disables the garbage
 collector process-wide for about 5 s and shares the GIL with the first
 requests. Starting it at the end of `open_project` instead is the fallback.
+
+## 2026-10-09 — The Language QA boundary sits behind an (i), at Benz's request
+**Decision:** The open Language QA panel shows the coverage statement (what
+it checks, what it never checks, the reasons, the hand-off doc, how the
+language was decided and the pack's message) behind an (i) button in its
+sticky header, not inline. The statement's content, wording and languages are
+unchanged; only where it is shown. This reverses the "not behind a
+disclosure" part of 2026-09-24.
+**Because:** Benz's decision (2026-10-08): the panel was crowded, the
+statement took most of the first screen above the findings, and it is the
+same on every open. Offered the alternative of a one-line boundary kept in
+view with the full list in the (i); chose the (i) for all of it.
+**Rules out:** nothing new. The out-of-scope list is still a permanent
+boundary of the offline engine (2026-09-24, LQA-3).
+**Revisit when:** a reviewer or consultant reads a clean Language QA result as
+a review of grammar, meaning or the source; then bring a one-line boundary
+back into view (the alternative offered on 2026-10-08).

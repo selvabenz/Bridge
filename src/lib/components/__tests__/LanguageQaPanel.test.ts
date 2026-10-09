@@ -160,26 +160,73 @@ describe("Language QA", () => {
     await fireEvent.click(await screen.findByRole("button", { name: /Language QA · completed/ }));
     const heading = screen.getByText(/hi-irv rules/, { selector: "p" });
     expect(heading.textContent).toMatch(/^\s*Hindi/);
+    await fireEvent.click(screen.getByRole("button", { name: "About these checks" }));
     const scope = screen.getByLabelText("What Language QA checks");
     expect(scope.textContent).toContain("Spelling consistency");
     expect(scope.querySelector('span[lang="ta"]')).toBeNull();
     expect(scope.textContent).not.toContain("Tamil");
   });
 
-  it("always states what it checks and what it does not, in Tamil and English", async () => {
+  it("states what it checks and what it does not, in Tamil and English, behind the (i)", async () => {
     publish({ totalFindings: 0, findings: [] });
     statusCall.mockResolvedValue(snapshot({ totalFindings: 0, findings: [] }));
     render(LanguageQaPanel, { projectPath: "C:/project", onNavigate: vi.fn() });
     await fireEvent.click(await screen.findByRole("button", { name: /Language QA · completed/ }));
+    // Behind the (i) since DECISIONS 2026-10-09 (Benz), superseding 2026-09-24.
+    expect(screen.queryByLabelText("What Language QA checks")).toBeNull();
+    const info = screen.getByRole("button", { name: "About these checks" });
+    expect(info.getAttribute("aria-expanded")).toBe("false");
+    await fireEvent.click(info);
+    expect(info.getAttribute("aria-expanded")).toBe("true");
     const scope = screen.getByLabelText("What Language QA checks");
+    expect(scope.textContent).toContain("Language supplied by the project.");
+    expect(scope.textContent).toContain("Tamil character rules available.");
+    expect(scope.textContent).toContain("Session results.");
     expect(scope.textContent).toContain("Sandhi");
     expect(scope.textContent).toContain("சந்திப் பிழைகள்");
     expect(scope.textContent).toContain("Does not check");
     expect(scope.textContent).toContain("திணை, பால், எண் இயைபு");
     expect(scope.textContent).toContain("Checked in the Round 2 review.");
     expect(scope.textContent).toContain("docs/LANGUAGE_QA_REVIEW_HANDOFF.md");
-    // Not behind a disclosure: visible whether or not there are findings.
-    expect(scope.closest("details")).toBeNull();
+    // Escape closes it and gives focus back to the (i); so does a click elsewhere.
+    await fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByLabelText("What Language QA checks")).toBeNull();
+    expect(document.activeElement).toBe(info);
+    await fireEvent.click(info);
+    await fireEvent.pointerDown(document.body);
+    expect(screen.queryByLabelText("What Language QA checks")).toBeNull();
+  });
+
+  it("keeps the title, the (i), Pause and Close in one sticky header, with the status line under it", async () => {
+    render(LanguageQaPanel, { projectPath: "C:/project", onNavigate: vi.fn() });
+    await fireEvent.click(await screen.findByRole("button", { name: /Language QA · completed/ }));
+    await screen.findByText("Check source encoding.");
+    const region = screen.getByRole("region", { name: "Language QA results" });
+    const head = region.firstElementChild as HTMLElement;
+    expect(head.classList.contains("panel-head")).toBe(true);
+    for (const name of ["About these checks", "Pause checks", "Close Language QA"]) {
+      expect(head.contains(screen.getByRole("button", { name }))).toBe(true);
+    }
+    expect(head.querySelector(".status-line")?.textContent?.replace(/\s+/g, " ")).toMatch(/completed · 1\/1 chapters · 1 review candidates/);
+    // The tab bar follows the header (and the (i) panel when it is open).
+    expect(head.nextElementSibling?.getAttribute("role")).toBe("tablist");
+  });
+
+  it("lays the filters out as labelled rows, and Clear drops every ticked kind", async () => {
+    statusCall.mockImplementation(async (_path, _offset, limit) => snapshot({
+      findings: limit ? snapshot().findings : [], categoryCounts: { typo: 2, sandhi: 1 } }));
+    render(LanguageQaPanel, { projectPath: "C:/project", onNavigate: vi.fn() });
+    await fireEvent.click(await screen.findByRole("button", { name: /Language QA · completed/ }));
+    await screen.findByText("Check source encoding.");
+    const labels = [...document.querySelectorAll(".filters .filter-label")].map((n) => n.textContent);
+    expect(labels).toEqual(["List", "Show", "Kinds"]);
+    expect(screen.queryByRole("button", { name: "Clear" })).toBeNull();
+    const typo = screen.getByRole("button", { name: /Possible typo/ });
+    await fireEvent.click(typo);
+    expect(typo.getAttribute("aria-pressed")).toBe("true");
+    await fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(typo.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.queryByRole("button", { name: "Clear" })).toBeNull();
   });
 
   it("pauses through the project-guarded endpoint", async () => {
