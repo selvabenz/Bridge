@@ -17373,3 +17373,63 @@ those changes were discarded.
 **Not run.** The desktop app, so the header, the tabs and the corpus's
 effect on the verse underlines were not seen on screen. Benz's spot check
 of the slip-rule word lists is the open decision.
+
+## 2026-10-09 — `ai.review.status` timed out: `redirect_stdout` on a job thread swallowed the response
+
+Benz's screenshot: a chapter AI review on GEN 1 stuck at "Preparing AI review ·
+0% · 0/30 verses" with "sidecar request 'ai.review.status' timed out" twice.
+This is the timeout the 2026-10-08 entry left "not explained here".
+
+**What the log said.** `engine-events.log`: `ai.review.start` took 103 ms;
+30 s later `ai.review.status`, `languageQa.status` and `navigation.poll` all
+timed out, and no request in that window was traced as slow (every RPC over
+100 ms is). So the dispatcher was not busy; the answers were going missing.
+
+**Cause, reproduced.** A stdio driver over `main.py` on a scratch copy of GEN,
+real endpoint with an invalid key (401, no charge), polling like the panel: the
+second status poll after the start timed out. Instrumented, the engine *read*
+that request, *handled* it and *wrote* an 875-byte response at the same instant,
+and the bytes never reached the pipe. `usfm_parser._usfmtc_documents` ran every
+parse under `contextlib.redirect_stdout(io.StringIO())`, which swaps the
+process-global `sys.stdout` for every thread. The AI worker's "Mapping source
+meanings" step parses the book (`passage_semantic_runtime.py:186` →
+`parse_usfm`), so any response the dispatcher printed during that parse went
+into the worker's StringIO. Any background parse (check job, Language QA) can
+do the same to any request. Two overlapping redirects can also restore each
+other's StringIO and leave `sys.stdout` stuck on it -- every later response
+lost until restart, which fits the 2026-10-08 log's wall of timeouts.
+
+**Not the cause, measured.** The job manager's locks (status never slow
+in-process, worst 10 ms over 13 verses with a fake provider); GIL starvation by
+the urllib/ssl worker (worst main-thread lag 31 ms); the Rust reader loop.
+
+**Fix.**
+- `stdio_transport.run_stdio_loop` writes responses only to `sys.__stdout__`,
+  captured once (a thread mid-redirect cannot hand it a StringIO), and points
+  `sys.stdout` at stderr, so a stray `print` goes to the log, not the protocol.
+- `usfm_parser` no longer redirects; the docstring note that justified it says why.
+- `ReviewPanel.pollAIJob` kept no poll alive after one failure, so the panel
+  froze on the start snapshot while the job ran on. It now keeps polling
+  through up to five failures in a row and clears its error on the next answer.
+
+**Verified.** `tests/service/test_stdio_protocol_stream.py` (new, `subprocess`):
+300 requests while a job thread loops `redirect_stdout` and prints -- fails
+before the fix (300 of 300 lost without the prints; a JSONDecodeError with
+them), passes after. `ReviewPanelAiPolling.test.ts` (new): fails before, passes
+after. Engine suite `-n auto`: 5124 passed, 1 failed --
+`test_logos_get_state_spawns_the_real_helper...` (the real PowerShell helper not
+up in time under 16 workers); it passes alone with and without this change.
+Frontend: check 0/0, 651 tests, build. Frozen pair rebuilt, `smoke_sidecars.py`
+passed; the stdio driver against the frozen exe: 197 of 197 answered, the
+status stage advancing (before: first poll lost).
+
+**Found on the way, not fixed here.**
+- On this machine every AI call spends ~43 s before the request is sent: an
+  IPv6 connect to api.openai.com hangs 21 s per address (WinError 10060), IPv4
+  connects in 0.04 s. A one-verse review took ~88 s for two model calls.
+- `versification.py` uses `contextlib.redirect_stderr` twice (load, and
+  `detect_schema` under `_lock`): the same global swap on stderr. It cannot
+  drop a response, but it swallows other threads' trace lines and tracebacks
+  while active, and two overlapping could leave stderr stuck.
+
+**Not run.** The desktop app: the panel was not watched recovering on screen.
