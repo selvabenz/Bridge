@@ -17804,3 +17804,76 @@ concurrent commit cannot pick it up.
 - Not run: the desktop app, so the sticky header, the (i) and the folded
   dashboard were not seen on screen; the frozen pair was not rebuilt for a
   message string.
+
+## 2026-10-09 — A fresh review of the session's work: what it found, what changed
+
+Benz asked whether the work was done and whether to review it again. Two
+reviewers were given the commits, not my conclusions: one for the frontend
+(fe65e58, 87b01f8, the Collection QA part of b0d1db3, 107f9f3), one for the
+engine (eb954a0, 5c3d0da, d7cd0f2, c105c5f, a8e3c90, the data commits).
+Every finding below was checked against the code or by running it before
+anything changed. Fixes: 8945ef1 (frontend), 91a533d (engine).
+
+**Engine, the serious ones.**
+- **The corpus hid real misspellings.** कवियत्री (web 36x) beside कवयित्री
+  (137x), one vowel sign swapped; सन्यासी (129x) beside संन्यासी (240x), one
+  anusvara. Neither is a grapheme-cluster edit, neither neighbour is 50x
+  commoner, and the checker offered no suggestion of its own, so both were
+  accepted. A web corpus is a quarter to a half misspelled for such words;
+  the 50x guard was wishful. Now a known word is accepted only when no word
+  one code point away (searched in the whole corpus, 0.34 s per 200 words)
+  or one cluster added or dropped is commoner. My claim of 2026-10-09 that
+  "the ratio guard keeps popular web typos out" was wrong; DECISIONS carries
+  the amendment.
+- **Malayalam suggestions were lookup keys.** canon folds a final ു to ്, so
+  ഒറു was offered ഒര്, which Use would have written into Scripture. Format 2
+  stores each key's commonest spelling; ഒറു now gets ഒരു.
+- **The Tamil rule flagged correct verses.** Its own "incorrect" examples
+  included PRO 12:18 மருந்து and PRO 13:17 நல்மருந்து, nouns. My "zero false
+  alarms" covered four books; the rule had never been run over all 66. Its ை
+  exclusion, meant for numerals, also skipped every verb stem in ை (குறைந்து,
+  நிறைந்து), a recall hole the first version already had. A first fix that
+  excluded திரு anywhere broke -ந்திருந்து forms; the builder's own example check
+  caught it. Final: nouns and numeral endings in any compound, imperatives
+  only as whole words, a closing quote allowed before the full stop.
+- **build_ta_irv_pack.py dropped pack.json's generalCorpus key** on every
+  rebuild; it now keeps it.
+- Smaller: the slip rule's once-per-book key sliced the raw verse with
+  display offsets (the rule ships off); the language message now checks the
+  corpus file exists; measure_indic_qa.py no longer exits 1 for the corpus's
+  own acceptances.
+
+**After the engine fixes** (all five corpora rebuilt from the cached
+windows):
+
+| GEN unless said | unknown before the corpus | first rule | now | accepted now |
+|---|---|---|---|---|
+| ta | 1,194 | 801 | 994 | 200 |
+| ta LUK | 1,139 | 659 | 892 | — |
+| ml | 647 | 481 | 546 | 112 |
+| pa | 118 | 78 | 106 | 12 |
+| or | 60 | 48 | 52 | 8 |
+| hi | 4 | 3 | 3 | 1 |
+
+The first rule's larger drop was partly misspellings disappearing. Human
+gates: hi 120, ml 323, ta 340 labels, all pass, nothing lost. The five #237
+typos keep their rules. 565 targeted engine tests pass; the frozen pair was
+rebuilt and `smoke_sidecars.py` passed (Hindi pack 3.31 s, ta-irv layer
+5.08 s).
+
+**Frontend.** The status-bar Language QA button showed a stale count after a
+failed poll (now "unavailable"); an AI review started from the verse menu ran
+inside the folded review panel (it now unfolds it and opens the AI tab); the
+(i) box opened above the visible area once the panel had scrolled (it is now
+inside the sticky header, capped and scrolling in place); an open coverage-
+details list could push the sticky header past the panel's height (capped at
+120 px); the status line cut off its counts (it wraps); a pass that finished
+between two polls did not bring the launcher back (the generation is now in
+its key); Collection QA errors were hidden while folded; the reference panel
+saved 640 px while CSS drew 45vw (one cap in code now); and one VerseList test
+could not fail (it now checks that a right-click clears the panel's F8 ring).
+npm run check 0/0, npm run test 655 passed, npm run build ok.
+
+**Not done.** The desktop app was not run. The Hindi file's hunspell source
+is GPL-3, the same licence as Bridge, but a maintainer should confirm it with
+the OV licence question in NOTICE.md before an installer ships.
