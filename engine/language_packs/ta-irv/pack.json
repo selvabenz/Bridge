@@ -32,5 +32,10 @@
   "rules/lexicon.known-misspelling.json",
   "rules/lexicon.rare-near-common.json",
   "rules/tamil.wordlist-variant.json"
- ]
+ ],
+ "generalCorpus": {
+  "file": "general_corpus.tsv.gz",
+  "manifest": "general_corpus.json",
+  "enabled": true
+ }
 }

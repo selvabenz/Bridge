@@ -1,0 +1,144 @@
+{
+ "format": 1,
+ "language": "ta",
+ "file": "general_corpus.tsv.gz",
+ "tokenizer": {
+  "indicQaCommit": "ab53636ba0fa0fd2aa347f66b5241c8a0f340226",
+  "tokenRe": "[ஂ-்ௐௗ]+(?:-[ஂ-்ௐௗ]+)*",
+  "canon": "nfc"
+ },
+ "sources": [
+  {
+   "name": "IndicCorpV2",
+   "url": "https://huggingface.co/datasets/ai4bharat/IndicCorpV2/resolve/2d7285e6ce14fdb3fb2449c9f89427b9f582ac3f/data/ta.txt",
+   "repoCommit": "2d7285e6ce14fdb3fb2449c9f89427b9f582ac3f",
+   "fileSha256": "1097ca76c20bcf76403176f56240a962c7f4165f81c3b7dd71985b1f6e89d0fa",
+   "fileBytes": 11790368869,
+   "ranges": [
+    {
+     "start": 0,
+     "end": 187500000,
+     "sha256": "af8bf0b6dec3371bdbb06b4fdf4bb5c3d9b8bd6c3aa897bfc9b2f3f279fa3f54",
+     "bytesUsed": 187499857,
+     "tokens": 7406620
+    },
+    {
+     "start": 1657552695,
+     "end": 1845052695,
+     "sha256": "adb9d0fee88bcbad4512bd2ce1e4cefc264e9653bf3ce5aa8bbfcffb03e0bec2",
+     "bytesUsed": 187499679,
+     "tokens": 7407895
+    },
+    {
+     "start": 3315105390,
+     "end": 3502605390,
+     "sha256": "affa8b4791ca4a1eff6c0e2bf0bc1d9ae60452c0a2fba3a1e8f6b4dce3db4483",
+     "bytesUsed": 187408427,
+     "tokens": 7402321
+    },
+    {
+     "start": 4972658085,
+     "end": 5160158085,
+     "sha256": "f836dcbbd5ca626799d9bd5f953ffb8232cd84a6ed0c2b0032b4d0ad77b5c305",
+     "bytesUsed": 187497616,
+     "tokens": 7409243
+    },
+    {
+     "start": 6630210780,
+     "end": 6817710780,
+     "sha256": "4249337e09387167296e0160f39fcff73199dcbe105112535ac66664a8eaa7a1",
+     "bytesUsed": 187472960,
+     "tokens": 7407069
+    },
+    {
+     "start": 8287763475,
+     "end": 8475263475,
+     "sha256": "0358319f893f8965a561709fb3c2e4fc5a6b34d668428d81f7102e342621653c",
+     "bytesUsed": 187489227,
+     "tokens": 7400684
+    },
+    {
+     "start": 9945316170,
+     "end": 10132816170,
+     "sha256": "8abd9e9069b669364242e4e70840f1733c94408275f8be9e267563955b9e185d",
+     "bytesUsed": 187495579,
+     "tokens": 7404456
+    },
+    {
+     "start": 11602868865,
+     "end": 11790368865,
+     "sha256": "4341b6d25153adaf6fd3ef272d65bb47975292ba15760f8f42796a26383777cc",
+     "bytesUsed": 187498789,
+     "tokens": 7402786
+    }
+   ],
+   "bytesUsed": 1499862134,
+   "tokens": 59241074,
+   "distinct": 2613708,
+   "licence": "CC0-1.0",
+   "src": "c"
+  },
+  {
+   "name": "all_tamil_words",
+   "url": "https://raw.githubusercontent.com/KaniyamFoundation/all_tamil_words/a8eeb4b0cea35c515f17224e669c774d535fed46/words_and_frequency.tar.bz2",
+   "repoCommit": "a8eeb4b0cea35c515f17224e669c774d535fed46",
+   "sha256": "36e34057c623b7cbd969047980d6eaca5f49973ffc7ea520fcf126ff60e594b6",
+   "licence": "public domain",
+   "floor": 20,
+   "kept": 68904,
+   "src": "k",
+   "members": [
+    {
+     "name": "words_and_frequency/frequency+words_in_Dinamalar_dataset_2009_2019.csv",
+     "rows": 170837,
+     "kept": 169496
+    },
+    {
+     "name": "words_and_frequency/frequency+words_in_wiki.txt",
+     "rows": 273692,
+     "kept": 271466
+    },
+    {
+     "name": "words_and_frequency/frequency+words_in_Tamilmurasu_dataset_06_Jan_2011_06_Jan_2020.csv",
+     "rows": 15663,
+     "kept": 15637
+    },
+    {
+     "name": "words_and_frequency/frequency+words_in_sirukathaigal.com.html",
+     "rows": 255420,
+     "kept": 254757
+    },
+    {
+     "name": "words_and_frequency/frequency+words_in_solvanam.html",
+     "rows": 127727,
+     "kept": 127212
+    },
+    {
+     "name": "words_and_frequency/frequency+words_in_gurunithya.wordpress.com.html",
+     "rows": 3062,
+     "kept": 3060
+    },
+    {
+     "name": "words_and_frequency/frequency+words_in_ta_dedup.txt",
+     "rows": 553880,
+     "kept": 540616
+    }
+   ],
+   "skippedMembers": [
+    "words_and_frequency/frequency+words_in_azhiyasudargal.html"
+   ]
+  }
+ ],
+ "floor": 10,
+ "cap": 300000,
+ "acceptMin": 10,
+ "suggestMin": 200,
+ "suggestTop": 15000,
+ "ratio": 50,
+ "listed": 270774,
+ "outputSha256": "5a070e463dcb4f9199ca70565e7e1245120f1d22be70064dd10a5a31fb036e2c",
+ "outputBytes": 1665874,
+ "builtOn": "2026-10-09",
+ "buildSeconds": 583.0,
+ "builder": "scripts/build_corpus_lexicon.py"
+}
