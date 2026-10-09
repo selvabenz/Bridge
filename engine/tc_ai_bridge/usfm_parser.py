@@ -20,8 +20,12 @@ Things measured, not read from docs (usfmtc 0.4.8, 2026-09-29):
   ``os.path.exists`` says so, and raises FileNotFoundError for any short
   single-line string that is not one. Input is always passed as a StringIO.
 - Only the ``usfmtc`` CLI, ``etCmp`` and a debug path print; the parse path does
-  not. Parsing still runs under ``redirect_stdout``, because one stray print
-  would corrupt the sidecar's JSON-lines protocol and look like a timeout.
+  not. Parsing must not run under ``contextlib.redirect_stdout``: that swaps the
+  process-global ``sys.stdout``, and a parse on a background job thread then
+  swallowed the dispatcher's response to whatever request it was answering
+  (``ai.review.status`` timing out, 2026-10-09). The stdio transport writes to
+  the stream it captured at start-up and points ``sys.stdout`` at stderr, so a
+  stray print cannot reach the protocol anyway.
 - ``\\zaln-s``/``\\zaln-e`` are reported as "Unknown tag" warnings but parse, so
   aligned USFM is read in the default lenient mode.
 - ``import usfmtc`` costs ~100 ms, so it is imported on first parse, not at
@@ -40,7 +44,6 @@ Things measured, not read from docs (usfmtc 0.4.8, 2026-09-29):
 from __future__ import annotations
 
 import bisect
-import contextlib
 import io
 import re
 from pathlib import Path
@@ -185,11 +188,10 @@ def _usfmtc_documents(text: str) -> tuple[list[Any], list[Any]]:
     roots: list[Any] = []
     errors: list[Any] = []
     try:
-        with contextlib.redirect_stdout(io.StringIO()):
-            for chunk in _chapter_chunks(text):
-                document = usfmtc.USX.fromUsfm(io.StringIO(chunk))
-                roots.append(document.xml)
-                errors.extend(document.errors or [])
+        for chunk in _chapter_chunks(text):
+            document = usfmtc.USX.fromUsfm(io.StringIO(chunk))
+            roots.append(document.xml)
+            errors.extend(document.errors or [])
     except Exception as exc:  # usfmtc raises a wide variety on hostile input
         raise UsfmParseError(f"{type(exc).__name__}: {exc}") from exc
     return roots, errors

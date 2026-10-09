@@ -52,6 +52,7 @@ _SLOW_FILES = (
 )
 _FILE_MARKERS = {
     "test_stdio_e2e.py": ("subprocess", "slow"),
+    "test_stdio_protocol_stream.py": ("subprocess",),
     "test_versification_concurrency.py": ("subprocess", "slow"),
     "test_semantic_mapping_stage3.py": ("stage3db",),
     "test_correction_acceptance_queue_visibility.py": ("external",),
