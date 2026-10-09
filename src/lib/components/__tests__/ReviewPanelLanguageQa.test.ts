@@ -156,6 +156,19 @@ describe("ReviewPanel folding (#236)", () => {
     languageQaChannel.set({ projectPath: "", status: null, error: "" });
   });
 
+  it("keeps the four tabs to one line each, the helps tab as Core check with its tooltip", async () => {
+    render(ReviewPanel);
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((tab) => tab.textContent?.trim().replace(/\s*\d+$/, ""))).toEqual(
+      ["Greek Room", "Core check", "Language QA", "AI review"]);
+    expect(screen.getByRole("tab", { name: /Core check/ }).getAttribute("title")).toBe("Translation Notes, Words alignment");
+    // The fold button shares the title row; the actions share the count row.
+    const rows = document.querySelectorAll(".panel-header .header-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].querySelector(".collapse-btn")).not.toBeNull();
+    expect(rows[1].querySelector(".verse-actions")).not.toBeNull();
+  });
+
   it("folds to a strip that keeps its contents mounted, and remembers it", async () => {
     render(ReviewPanel);
     await fireEvent.click(screen.getByRole("tab", { name: /Language QA/ }));

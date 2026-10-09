@@ -577,19 +577,21 @@
        here carries on while the panel is out of the way. -->
   <div class="panel-body" class:folded={$reviewPanelCollapsed}>
   {#if $selectedVerse}
-    <!-- Title and the two per-verse actions share one row where they fit;
-         the row wraps the buttons onto their own line rather than squeezing
-         them when the reference or the finding count runs long. The AI run
-         is not here -- it lives in the AI review tab with its progress and
-         errors, so a run can be started and watched in one place. -->
+    <!-- Two short rows, neither of which wraps: the reference with the fold
+         button, then the open count with the two per-verse actions. At the
+         panel's 400px the title and both buttons do not fit on one row, and
+         a wrapped row cost a third line of height. The AI run is not here --
+         it lives in the AI review tab with its progress and errors, so a run
+         can be started and watched in one place. -->
     <div class="panel-header">
-      <div class="header-title">
+      <div class="header-row">
         <div class="ref">Review {($project?.bookId ?? "").toUpperCase()} {$currentChapter}:{$selectedVerse}</div>
-        <div class="sub">
-          {openFindingCount} open finding(s)
-        </div>
+        <button type="button" class="collapse-btn" on:click={() => reviewPanelCollapsed.set(true)}
+          aria-expanded="true" aria-label="Hide the review panel" title="Hide the review panel">▶</button>
       </div>
-      <div class="verse-actions">
+      <div class="header-row">
+        <div class="sub">{openFindingCount} open finding(s)</div>
+        <div class="verse-actions">
         <button
           class="align-btn"
           on:click={() => openAlignment($currentChapter, $selectedVerse ?? "")}
@@ -602,8 +604,7 @@
           disabled={$checkingProgress.running || Boolean($editingChapter) || $editSaving || Boolean($recheckingKey)}
           title={$checkingProgress.running ? "Wait for background checking to finish before editing" : "Edit this verse"}
         >✎ Edit verse</button>
-        <button type="button" class="collapse-btn" on:click={() => reviewPanelCollapsed.set(true)}
-          aria-expanded="true" aria-label="Hide the review panel" title="Hide the review panel">▶</button>
+        </div>
       </div>
     </div>
 
@@ -636,8 +637,9 @@
         <button
           type="button" role="tab" aria-selected={activeTab === "tntw"}
           class:active={activeTab === "tntw"} on:click={() => (activeTab = "tntw")}
+          title="Translation Notes, Words alignment"
         >
-          tN/tW/Alignment
+          Core check
           {#if tntwOpenCount > 0}<span class="tab-count">{tntwOpenCount}</span>{/if}
         </button>
         <button
@@ -1032,36 +1034,41 @@
   .rail-label { writing-mode: vertical-rl; font-weight: 700; white-space: nowrap; }
   .rail-count { font-size: var(--fs-3xs); font-weight: 700; padding: 1px 5px; border-radius: 999px; background: var(--accent); color: white; }
   .collapse-btn {
-    flex-shrink: 0; width: 28px; height: 28px; padding: 0; border-radius: 6px; border: 1px solid var(--border-strong);
-    background: var(--surface); color: var(--text-2); cursor: pointer; font-size: var(--fs-2xs);
+    flex-shrink: 0; width: 22px; height: 22px; padding: 0; border-radius: 5px; border: 0;
+    background: transparent; color: var(--text-3); cursor: pointer; font-size: var(--fs-3xs);
   }
-  .collapse-btn:hover { background: var(--surface-2); color: var(--text); }
-  .panel-header { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-  .header-title { flex: 1 1 auto; min-width: 0; }
+  .collapse-btn:hover { background: var(--accent-bg); color: var(--accent); }
+  .panel-header { padding: 10px 16px 8px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+  .header-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .panel-pinned { flex-shrink: 0; padding: 14px 16px; border-bottom: 1px solid var(--border); overflow-y: auto; max-height: 60vh; }
-  .ref { font-size: var(--fs-md); font-weight: 700; color: var(--text); }
-  .sub { font-size: var(--fs-xs); color: var(--text-2); margin-top: 2px; }
+  .ref { flex: 1; min-width: 0; font-size: var(--fs-md); font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sub { flex: 1; min-width: 0; font-size: var(--fs-2xs); color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .panel-scroll { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
   .operation-status { display: flex; align-items: center; gap: 7px; border-radius: 8px; padding: 8px 10px; margin-bottom: 12px; font-size: var(--fs-xs); line-height: 1.4; }
   .operation-status.checking { color: var(--accent); background: var(--accent-bg); }
   .operation-status.saved { color: var(--success); background: var(--success-bg); }
   .operation-status.failed { color: var(--danger); background: var(--danger-bg); }
-  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); flex-shrink: 0; padding: 14px 16px 0; background: var(--surface); }
+  /* One line, every label whole. At 400px the four labels fit only if the
+     count and the live dot stay out of the flow (they sit in the corner), and
+     the row scrolls rather than wraps should a wider UI font ever overflow it. */
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); flex-shrink: 0; padding: 10px 10px 0; background: var(--surface); overflow-x: auto; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
   .tab-content { flex: 1; overflow-y: auto; padding: 14px 16px; }
   .tabs button {
-    flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
-    padding: 8px 6px; font-size: var(--fs-2xs); font-weight: 700; color: var(--text-2);
+    flex: 1 1 auto; position: relative; display: flex; align-items: center; justify-content: center;
+    padding: 9px 4px 7px; font-size: var(--fs-3xs); font-weight: 700; color: var(--text-2); white-space: nowrap;
     background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0;
     cursor: pointer;
   }
   .tabs button:hover:not(.active) { color: var(--text); }
   .tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
   .tab-count {
-    font-size: var(--fs-3xs); font-weight: 700; padding: 1px 6px; border-radius: 999px;
+    position: absolute; top: 0; right: 0; line-height: 14px;
+    font-size: var(--fs-3xs); font-weight: 700; padding: 0 4px; border-radius: 999px;
     background: var(--accent-bg); color: var(--accent);
   }
   .tabs button.active .tab-count { background: var(--accent); color: white; }
-  .tab-live { width: 6px; height: 6px; border-radius: 50%; background: var(--pass); flex-shrink: 0; }
+  .tab-live { position: absolute; top: 4px; left: 0; width: 6px; height: 6px; border-radius: 50%; background: var(--pass); }
   .tab-panel:empty { display: none; }
   .section { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
   .section-title { font-size: var(--fs-xs); font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
@@ -1122,9 +1129,9 @@
   .edit-inline { background: var(--accent-bg); color: var(--accent); }
   .none { font-size: var(--fs-xs); color: var(--text-3); }
   .decision-row button:disabled { opacity: .55; cursor: not-allowed; }
-  .verse-actions { display: flex; gap: 8px; flex: 0 0 auto; margin-left: auto; }
-  .edit-btn { padding: 8px 10px; font-size: var(--fs-xs); font-weight: 700; border-radius: 7px; border: none; background: var(--accent-bg); color: var(--accent); cursor: pointer; white-space: nowrap; }
-  .align-btn { padding: 8px 10px; font-size: var(--fs-xs); font-weight: 700; border-radius: 7px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); cursor: pointer; white-space: nowrap; }
+  .verse-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+  .edit-btn { padding: 5px 9px; font-size: var(--fs-2xs); font-weight: 700; border-radius: 6px; border: none; background: var(--accent-bg); color: var(--accent); cursor: pointer; white-space: nowrap; }
+  .align-btn { padding: 5px 9px; font-size: var(--fs-2xs); font-weight: 700; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); cursor: pointer; white-space: nowrap; }
   .ai-run-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
   .ai-run-label { font-size: var(--fs-sm); font-weight: 700; color: var(--text); white-space: nowrap; }
   .ai-run-buttons { display: flex; gap: 6px; margin-left: auto; }
