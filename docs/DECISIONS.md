@@ -752,3 +752,22 @@ near-miss and compound branches; a per-project corpus toggle (follow-up).
 (raise the floor), the measured working set exceeds +60 MB per language (a
 hashed membership array), or a language's IRV-wide slips are below 0.5
 precision on Benz's spot check (ship the rule `enabled: false`).
+
+## 2026-10-09 — uroman loads on a background thread once the sidecar is ready
+**Decision:** `engine.info` no longer builds uroman. The names adapter reports
+`available` from the package, its data files and the SED module being present,
+plus `state` (`not-loaded`, `loading`, `loaded` or `failed`). `main.py` starts
+the load on a daemon thread right after the `__ready__` line. Tests that build
+a `BridgeEngine` start no thread. A failed load is reported as `failed` and,
+at check time, as the same `NamesCheckError` as before.
+**Because:** building uroman takes 4.5-5.2 s. `TopBar` calls `engine.info`
+on mount, so every app start held the single-threaded dispatcher that long,
+with nothing else answered (`engine-events.log`: `rpc engine.info took
+4944ms`). Loading lazily on first use would move that same wait onto the
+first verse save of an uncached book.
+**Rules out:** building uroman inside any request; starting threads in
+`BridgeEngine.__init__`; preloading Smart Edit Distance, whose language is
+not known at startup and which takes 0.03-0.09 s.
+**Revisit when:** startup contention matters. The load disables the garbage
+collector process-wide for about 5 s and shares the GIL with the first
+requests. Starting it at the end of `open_project` instead is the fallback.

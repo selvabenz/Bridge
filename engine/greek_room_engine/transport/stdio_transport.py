@@ -20,7 +20,10 @@ class _Dispatcher(Protocol):
     def handle_request(self, request: EngineRequest) -> EngineResponse: ...
 
 
-def run_stdio_loop(engine: Any | None = None) -> None:
+def run_stdio_loop(engine: Any | None = None, on_ready: Any | None = None) -> None:
+    """`on_ready` runs once, right after the ready line, for warmup work that
+    must not delay it (main.py preloads uroman, #242). A failure there is
+    logged and never stops the loop."""
     if engine is None:
         from ..engine import GreekRoomEngine
         engine = GreekRoomEngine()
@@ -55,6 +58,13 @@ def run_stdio_loop(engine: Any | None = None) -> None:
     # Signal readiness once on startup so the Rust side knows the sidecar
     # finished loading (import cost for NLP resources can be nontrivial).
     send(EngineResponse.ok("__ready__", result={"status": "ready"}))
+    if on_ready is not None:
+        try:
+            on_ready()
+        except Exception:  # noqa: BLE001
+            print("[unhandled] on_ready", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            sys.stderr.flush()
 
     for line in sys.stdin:
         line = line.strip()

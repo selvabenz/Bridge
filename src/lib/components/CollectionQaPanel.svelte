@@ -9,6 +9,7 @@
     cancelCollectionQa, collectionQa, pauseCollectionQa, refreshCollectionQa, startCollectionQa,
   } from "../collectionQa";
   import type { CollectionQaBook } from "../types/collectionQa";
+  import { collectionQaCollapsed } from "../editorPrefs";
 
   export let bookCount = 0;
   export let onOpenBook: (path: string) => void = () => {};
@@ -23,6 +24,23 @@
   $: snapshot = $collectionQa;
   $: active = snapshot ? ["queued", "running", "cancelling"].includes(snapshot.state) : false;
   $: lastRun = snapshot?.books.some((b) => b.completedAt) ?? false;
+  // Folded to its header row when the reviewer asks; a run in progress
+  // always shows its table.
+  $: open = !$collectionQaCollapsed || active;
+  $: summary = snapshot ? collapsedSummary(snapshot.books) : "";
+
+  /** One line for the folded panel: how many books, how they last ended,
+   * and when the latest of them finished. */
+  function collapsedSummary(books: CollectionQaBook[]): string {
+    const count = (state: string) => books.filter((b) => b.state === state).length;
+    const parts = [`${books.length} ${books.length === 1 ? "book" : "books"}`];
+    for (const [state, label] of [["done", "done"], ["skipped", "unchanged"], ["failed", "failed"]] as const) {
+      if (count(state)) parts.push(`${count(state)} ${label}`);
+    }
+    const latest = books.map((b) => b.completedAt).filter((at): at is string => Boolean(at)).sort().pop();
+    parts.push(latest ? `last run ${new Date(latest).toLocaleString()}` : "never run");
+    return parts.join(" · ");
+  }
 
   async function act(fn: () => Promise<void>): Promise<void> {
     if (busy) return;
@@ -56,7 +74,12 @@
 
 <section class="collection-qa" aria-label="Collection QA">
   <div class="head">
+    <button type="button" class="fold" aria-expanded={open} aria-controls="collection-qa-body"
+      aria-label={open ? "Collapse Collection QA" : "Expand Collection QA"} disabled={active}
+      title={active ? "Stays open while a run is in progress" : open ? "Collapse" : "Expand"}
+      on:click={() => collectionQaCollapsed.update((folded) => !folded)}>{open ? "▾" : "▸"}</button>
     <h3>Collection QA</h3>
+    {#if !open && summary}<span class="progress">{summary}</span>{/if}
     {#if snapshot && active}
       <span class="progress">{snapshot.completedBooks}/{snapshot.totalBooks} books ·
         {duration(snapshot.elapsedSeconds)} elapsed{#if snapshot.estimatedRemainingSeconds !== null} ·
@@ -78,6 +101,8 @@
       {/if}
     </div>
   </div>
+  {#if open}
+  <div id="collection-qa-body">
   <p class="note">
     Runs tN/tW/alignment, Greek Room and Language QA over each book, one at a time. It is meant to run
     unattended: while it runs, editing and switching books are paused. It is never started automatically.
@@ -112,12 +137,16 @@
       </ul>
     </details>
   {/if}
+  </div>
+  {/if}
 </section>
 
 <style>
   .collection-qa { border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 12px 14px; margin: 0 0 16px; }
   .head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   h3 { margin: 0; font-size: var(--fs-md, 15px); }
+  .fold { border: 0; padding: 0 2px; width: 20px; font-size: var(--fs-xs, 12px); color: var(--text-2, #4b5563); }
+  .fold:disabled { opacity: .4; }
   .progress { color: var(--text-3, #6b7280); font-size: var(--fs-xs, 12px); }
   .actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
   button { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border, #d1d5db); background: none; cursor: pointer; font-size: var(--fs-xs, 12px); }

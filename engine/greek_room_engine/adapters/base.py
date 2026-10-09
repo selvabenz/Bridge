@@ -42,3 +42,8 @@ class CheckAdapter(ABC):
         opposed to a mock fallback used for protocol/UI development.
         """
         return True
+
+    def status(self) -> dict[str, Any]:
+        """Anything else engine.info should say about this adapter (names:
+        whether its tables are loaded yet). Must not do slow work."""
+        return {}

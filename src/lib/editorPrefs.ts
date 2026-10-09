@@ -47,6 +47,10 @@ export const referencePanelWidth = persisted<number>(
  * text the room. Its contents stay mounted, so nothing in it is lost. */
 export const reviewPanelCollapsed = persisted("bridge.editor.reviewPanelCollapsed.v1", false, isBoolean);
 
+/** The dashboard's Collection QA panel folded to its header row. A run in
+ * progress always shows its table, whatever this says. */
+export const collectionQaCollapsed = persisted("bridge.dashboard.collectionQaCollapsed.v1", false, isBoolean);
+
 /** The verse text exactly as stored, USFM markers and all, instead of the
  * reader's clean text. Marks stay on the same characters. */
 export const rawView = persisted("bridge.editor.rawView.v1", false, isBoolean);

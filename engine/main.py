@@ -36,4 +36,5 @@ def _apply_cli_overrides() -> None:
 
 if __name__ == "__main__":
     _apply_cli_overrides()
-    run_stdio_loop(BridgeEngine())
+    engine = BridgeEngine()
+    run_stdio_loop(engine, on_ready=engine.start_background_warmup)

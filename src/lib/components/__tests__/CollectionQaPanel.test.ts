@@ -15,6 +15,7 @@ vi.mock("../../api/bridgeClient", () => ({
 
 import CollectionQaPanel from "../CollectionQaPanel.svelte";
 import { collectionQaRunning, stopCollectionQa } from "../../collectionQa";
+import { collectionQaCollapsed } from "../../editorPrefs";
 import type { CollectionQaBook, CollectionQaSnapshot } from "../../types/collectionQa";
 
 function book(bookId: string, overrides: Partial<CollectionQaBook> = {}): CollectionQaBook {
@@ -37,7 +38,31 @@ describe("CollectionQaPanel", () => {
         findingsByCategory: { languageQa: 3 } }), book("gen")],
     }));
   });
-  afterEach(() => stopCollectionQa());
+  afterEach(() => {
+    stopCollectionQa();
+    collectionQaCollapsed.set(false);
+  });
+
+  it("folds to its header, remembers it, and still offers a run", async () => {
+    render(CollectionQaPanel, { props: { bookCount: 2 } });
+    await screen.findByText("languageQa 3");
+    await fireEvent.click(screen.getByRole("button", { name: "Collapse Collection QA" }));
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.getByText(/2 books · 1 done · last run/)).toBeInTheDocument();
+    expect(localStorage.getItem("bridge.dashboard.collectionQaCollapsed.v1")).toBe("true");
+    expect(screen.getByRole("button", { name: "Run QA on all 2 books" })).toBeEnabled();
+    await fireEvent.click(screen.getByRole("button", { name: "Expand Collection QA" }));
+    expect(screen.getByRole("table")).toBeInTheDocument();
+  });
+
+  it("opens itself while a run is in progress, whatever was chosen", async () => {
+    collectionQaCollapsed.set(true);
+    collectionQaStatus.mockResolvedValue(snapshot({ jobId: "j1", state: "running", currentBook: "rut",
+      books: [book("rut", { state: "running" }), book("gen")] }));
+    render(CollectionQaPanel, { props: { bookCount: 2 } });
+    expect(await screen.findByRole("table")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Collapse Collection QA" })).toBeDisabled();
+  });
 
   it("shows each book's last recorded run and offers a run, never starting one itself", async () => {
     render(CollectionQaPanel, { props: { bookCount: 2 } });

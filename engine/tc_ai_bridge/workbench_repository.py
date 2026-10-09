@@ -26,9 +26,18 @@ from pathlib import Path
 import re
 import sqlite3
 from typing import Any, Iterator
+import threading
 import uuid
 
 from . import check_timing
+
+# Committed row writes per database file, in this process. A reader that keeps
+# rows across calls (a check job's gap prefetch, #241) compares it to know its
+# copy is still what the database holds. Keyed by the file, not the repository
+# object: two TranslationCoreProject objects can open one book (a collection
+# run beside the editor). The sidecar is the only writer of these databases.
+_GENERATIONS: dict[str, int] = {}
+_GENERATION_LOCK = threading.Lock()
 
 
 WORKBENCH_SCHEMA_VERSION = 7
@@ -693,7 +702,19 @@ class WorkbenchRepository:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.read_only = False
+        self._generation_key = str(self.path.resolve())
         self._migrate()
+
+    @property
+    def write_generation(self) -> int:
+        """How many row writes have committed to this database file in this
+        process. Unchanged means a copy read earlier is still current."""
+        with _GENERATION_LOCK:
+            return _GENERATIONS.get(self._generation_key, 0)
+
+    def _bump_generation(self) -> None:
+        with _GENERATION_LOCK:
+            _GENERATIONS[self._generation_key] = _GENERATIONS.get(self._generation_key, 0) + 1
 
     # -- connection discipline, copied from FoundationRepository
     # (passage_semantic_repository.py:1070-1086) --------------------------
@@ -986,6 +1007,7 @@ class WorkbenchRepository:
                 extra_columns=extra_columns, journal_tx_id=journal_tx_id,
             )
             conn.commit()
+        self._bump_generation()
         return result
 
     def _delete(
@@ -1013,6 +1035,7 @@ class WorkbenchRepository:
                 actor_id=actor_id, device_id=device_id, expected_revision=expected_revision,
             )
             conn.commit()
+        self._bump_generation()
         return result
 
     @contextmanager
@@ -1034,6 +1057,7 @@ class WorkbenchRepository:
                 conn.rollback()
                 raise
             conn.commit()
+        self._bump_generation()
 
     def max_seq(self, *, project_id: str, table: str | None = None) -> int:
         """Highest ``change_log.seq`` for a project, optionally for one table.
@@ -1214,6 +1238,7 @@ class WorkbenchRepository:
                     )
                 applied += 1
             conn.commit()
+        self._bump_generation()
         return {
             "path": str(source), "applied": applied, "duplicates": duplicates,
             "conflicts": conflicts, "malformed": malformed,

@@ -139,3 +139,25 @@ def test_import_check_decide_restart_edit_and_export_over_stdio(tmp_path):
     exported_usfm = non_aligned.read_text(encoding="utf-8")
     assert "\\v 1 தேவன் ஆதி" in exported_usfm
     assert (Path(project_path) / ".apps" / "translationCoreAI" / "transactions").is_dir()
+
+
+
+def test_uroman_loads_after_ready_and_engine_info_does_not_wait_for_it():
+    """main.py starts the uroman preload after the ready line (#242):
+    engine.info answers at once with names available, and names reports
+    loaded once the background load finishes."""
+    sidecar = Sidecar()
+    try:
+        started = time.monotonic()
+        info = sidecar.request("engine.info", {})
+        elapsed = time.monotonic() - started
+        names = info["result"]["greekRoom"]["adapters"]["names"]
+        assert names["available"] is True
+        assert elapsed < 2.0, f"engine.info took {elapsed:.2f}s"
+        deadline = time.monotonic() + job_timeout(30)
+        while names.get("state") != "loaded" and time.monotonic() < deadline:
+            time.sleep(0.25)
+            names = sidecar.request("engine.info", {})["result"]["greekRoom"]["adapters"]["names"]
+        assert names["state"] == "loaded", names
+    finally:
+        sidecar.close()
